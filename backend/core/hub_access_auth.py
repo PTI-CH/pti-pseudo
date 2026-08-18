@@ -54,6 +54,16 @@ INTROSPECTION_TIMEOUT_SECONDS = 5.0
 POSITIVE_TTL_SECONDS = 30.0
 NEGATIVE_TTL_SECONDS = 5.0
 
+# Obergrenze fuer den Verdict-Cache. Der Schluessel ist der SHA-256 eines
+# beliebigen (auch ungueltigen) Cookie-Werts — ein Angreifer kann mit jedem
+# Request einen frischen, zufaelligen Token schicken und so beliebig viele
+# Eintraege erzeugen, die nie wieder abgefragt und darum nie ueber die TTL
+# bereinigt werden. Ohne Obergrenze waechst der Cache je Worker unbegrenzt und
+# legt den Prozess irgendwann per Speicherverbrauch lahm. Der Wert ist
+# grosszuegig bemessen: legitime Last (viele gleichzeitige Nutzer) bleibt weit
+# darunter, nur ein Missbrauchsmuster stoesst je an die Grenze.
+MAX_CACHE_ENTRIES = 10_000
+
 # Phase 1: nur der Health-Endpunkt. Der Smoke-Test nach dem Deploy laeuft ohne
 # Cookie und darf keinen Redirect sehen.
 DEFAULT_EXEMPT_PATHS: tuple[re.Pattern[str], ...] = (re.compile(r"^/api/health$"),)
@@ -152,6 +162,7 @@ class HubAccessAuthMiddleware(BaseHTTPMiddleware):
         now: Callable[[], float] | None = None,
         positive_ttl: float = POSITIVE_TTL_SECONDS,
         negative_ttl: float = NEGATIVE_TTL_SECONDS,
+        max_cache_entries: int = MAX_CACHE_ENTRIES,
     ) -> None:
         """Haengt das Gate vor die Anwendung.
 
@@ -175,6 +186,8 @@ class HubAccessAuthMiddleware(BaseHTTPMiddleware):
             Cache-Lebensdauer eines positiven Verdicts in Sekunden.
         negative_ttl : float
             Cache-Lebensdauer eines negativen Verdicts in Sekunden.
+        max_cache_entries : int
+            Obergrenze fuer den Verdict-Cache (siehe ``MAX_CACHE_ENTRIES``).
         """
         super().__init__(app)
         self._settings = settings if settings is not None else get_settings()
@@ -183,6 +196,7 @@ class HubAccessAuthMiddleware(BaseHTTPMiddleware):
         self._now = now or time.monotonic
         self._positive_ttl = positive_ttl
         self._negative_ttl = negative_ttl
+        self._max_cache_entries = max_cache_entries
         # key -> (expires_at, verdict). Schluessel ist der SHA-256 des Tokens,
         # damit der Rohtoken nicht als Dict-Schluessel im Speicher herumliegt.
         self._cache: dict[str, tuple[float, dict[str, Any]]] = {}
@@ -257,8 +271,37 @@ class HubAccessAuthMiddleware(BaseHTTPMiddleware):
             self._pending.pop(key, None)
 
         ttl = self._positive_ttl if verdict.get("authenticated") else self._negative_ttl
+        self._prune_cache()
         self._cache[key] = (self._now() + ttl, verdict)
         return verdict
+
+    def _prune_cache(self) -> None:
+        """Haelt den Verdict-Cache innerhalb von ``_max_cache_entries``.
+
+        Zwei Schritte, in dieser Reihenfolge:
+
+        1. Abgelaufene Eintraege raus — die faellt normalerweise beim naechsten
+           Zugriff mit demselben Token an, aber ein Token, der nie ein zweites
+           Mal vorkommt (Angreifer-Rauschen), wird sonst nie bereinigt.
+        2. Reicht das nicht, die aeltesten verbleibenden Eintraege raus, bis
+           wieder Platz fuer den neuen ist. ``dict`` in Python haelt die
+           Einfuegereihenfolge, das macht das FIFO-Verhalten hier billig.
+
+        Laeuft bei jedem neuen (nicht gecachten) Verdict — die Kosten sind ein
+        einmaliger Scan ueber hoechstens ``_max_cache_entries`` Eintraege, das
+        ist gegenueber der Introspection selbst vernachlaessigbar.
+        """
+        now = self._now()
+        abgelaufen = [
+            key for key, (expires_at, _) in self._cache.items() if expires_at <= now
+        ]
+        for key in abgelaufen:
+            del self._cache[key]
+
+        ueberschuss = len(self._cache) - self._max_cache_entries + 1
+        if ueberschuss > 0:
+            for key in list(self._cache.keys())[:ueberschuss]:
+                del self._cache[key]
 
     # ── Antworten ──────────────────────────────────────────────────────────
 
@@ -299,7 +342,24 @@ class HubAccessAuthMiddleware(BaseHTTPMiddleware):
     async def dispatch(
         self, request: Request, call_next: RequestResponseEndpoint
     ) -> Response:
-        """Prueft den Request und laesst ihn durch oder weist ihn ab."""
+        """Prueft den Request und laesst ihn durch oder weist ihn ab.
+
+        Der ``try``-Block umschliesst **nur** die Pruefung, nicht den Aufruf der
+        nachgelagerten Anwendung.
+
+        Das ist wichtig und war frueher anders: lag ``call_next`` mit im
+        ``try``, verwandelte das Gate **jeden** unbehandelten Fehler aus
+        **jedem** Endpunkt in ein ``401 "Bitte am TIP-Hub anmelden."``. Ein
+        echter Serverfehler sah damit aus wie ein Anmeldeproblem — er
+        verschwand aus der Fehlerueberwachung, und wer ihn meldete, wurde zur
+        Anmeldung geschickt statt zur Ursache. Nachgewiesen an einem zu langen
+        Text, der die Erkennungs-Engine mit einem ``ValueError`` abbrechen
+        liess und als 401 beim Aufrufer ankam.
+
+        Fuer die Sicherheit aendert das nichts: faellt die Pruefung selbst aus,
+        wird weiterhin fail closed abgewiesen. Nur was **nach** bestandener
+        Pruefung passiert, darf jetzt ehrlich als 500 durchschlagen.
+        """
         try:
             if self._settings.hub_auth == "off":
                 # Dev ohne CRM: synthetischer User, damit Rollen-Gates und die
@@ -312,31 +372,31 @@ class HubAccessAuthMiddleware(BaseHTTPMiddleware):
                     "role": self._settings.dev_role or "admin",
                     "person": None,
                 }
-                return await call_next(request)
+            elif any(pattern.search(request.url.path) for pattern in self._exempt):
+                pass
+            else:
+                token = read_refresh_token(request.headers.get("cookie"))
+                if not token:
+                    return self._respond_unauthenticated(request)
 
-            path = request.url.path
-            if any(pattern.search(path) for pattern in self._exempt):
-                return await call_next(request)
+                verdict = await self._verdict_for(token)
+                if not verdict.get("authenticated"):
+                    return self._respond_unauthenticated(request)
+                if verdict.get("two_factor_required"):
+                    return self._respond_two_factor(request)
+                if verdict.get("apps", {}).get(self._settings.hub_app_key) is not True:
+                    return self._respond_forbidden(request)
 
-            token = read_refresh_token(request.headers.get("cookie"))
-            if not token:
-                return self._respond_unauthenticated(request)
-
-            verdict = await self._verdict_for(token)
-            if not verdict.get("authenticated"):
-                return self._respond_unauthenticated(request)
-            if verdict.get("two_factor_required"):
-                return self._respond_two_factor(request)
-            if verdict.get("apps", {}).get(self._settings.hub_app_key) is not True:
-                return self._respond_forbidden(request)
-
-            # Kann None sein — nachgelagerter Code darf sich nicht darauf
-            # verlassen, dass hier ein Dict steht.
-            request.state.hub_user = verdict.get("user")
-            return await call_next(request)
+                # Kann None sein — nachgelagerter Code darf sich nicht darauf
+                # verlassen, dass hier ein Dict steht.
+                request.state.hub_user = verdict.get("user")
         except Exception:
-            # Unerwarteter Fehler im Gate selbst: fail closed statt 500.
+            # Unerwarteter Fehler in der Pruefung selbst: fail closed statt 500.
             return self._respond_unauthenticated(request)
+
+        # Ausserhalb des try: ein Fehler der Anwendung ist ein Serverfehler und
+        # soll auch als solcher sichtbar werden.
+        return await call_next(request)
 
 
 __all__ = [

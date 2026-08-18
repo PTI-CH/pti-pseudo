@@ -144,6 +144,18 @@ class Testdokument:
         Funde, die die Erkennung liefern **muss**.
     verboten
         Funde, die die Erkennung **nie** liefern darf.
+    begriffe
+        Einträge der Begriffsliste (Ebene 0), die für dieses Dokument
+        mitgegeben werden. Leer bei den meisten Dokumenten.
+
+        Diese Ebene braucht eigene Testfälle, weil sie sich grundlegend von
+        den übrigen unterscheidet: Behörden-, Projekt- und Produktnamen sind
+        an *nichts* erkennbar ausser daran, dass jemand sie eingetragen hat.
+        Kein Muster, keine Prüfziffer, kein Sprachmodell findet sie.
+
+        Ohne solche Fälle wäre eine geleerte Begriffsliste im Betrieb
+        unsichtbar: die Messung liefe weiterhin grün, während die Erkennung
+        still schlechter geworden wäre.
     """
 
     name: str
@@ -152,6 +164,7 @@ class Testdokument:
     inhalt: bytes
     erwartet: tuple[Erwartung, ...]
     verboten: tuple[Erwartung, ...]
+    begriffe: tuple[dict, ...] = ()
 
 
 # ── PTI-Fachvokabular (Auszug aus dem Translator-Glossar) ──────────────────
@@ -763,7 +776,85 @@ def _baue_reiner_text() -> Testdokument:
 
 # ── Modul-Konstante ─────────────────────────────────────────────────────────
 
+def _baue_begriffsliste() -> Testdokument:
+    """Prüft Ebene 0 — Begriffe, die an nichts ausser dem Listeneintrag erkennbar sind.
+
+    Der Anlass ist ein echter Messbefund: ``Meldestelle für Geldwäscherei``
+    wurde vom Sprachmodell nicht als Organisation erkannt. PTI-Behördennamen
+    kennt es nicht, und Projektkürzel wie ``KEPLO`` oder ``MEF`` erst recht
+    nicht — es gibt an ihnen nichts zu erkennen.
+
+    In Produktion stehen dafür rund 670 Begriffe aus CRM, PPM und dem
+    Translator-Glossar in der Liste. Dieser Testfall hält stellvertretend
+    fest, dass die Ebene überhaupt greift: würde die Liste versehentlich
+    geleert, liefe die Messung sonst weiterhin grün.
+
+    Die drei Fehlalarm-Fallen prüfen die Gegenrichtung. ``MEF`` darf nicht in
+    ``MEFISTO`` treffen, und ein Kürzel darf nicht auf beliebige
+    Gross-/Kleinschreibung anspringen — sonst zerstört ein kurzer Eintrag
+    ganze Dokumente.
+    """
+    projekt = "KEPLO"
+    produkt = "MEF"
+
+    text = (
+        "Projektstand\n\n"
+        f"Die {_MELDESTELLE_GWG} hat die Unterlagen geprüft. Zuständig ist "
+        f"das {_EJPD}.\n\n"
+        f"Das Projekt {projekt} liegt im Zeitplan; die Schnittstelle zum "
+        f"Produkt {produkt} wird im dritten Quartal abgenommen.\n\n"
+        "Nicht betroffen ist das Teilsystem MEFISTO, es gehört zu einem "
+        "anderen Vorhaben.\n\n"
+        "Rückfragen an Frau Corina Ammann."
+    )
+
+    begriffe = (
+        {
+            "term": _MELDESTELLE_GWG,
+            "entity_type": "ORGANIZATION",
+            "match_mode": "normalized",
+        },
+        {"term": _EJPD, "entity_type": "ORGANIZATION", "match_mode": "normalized"},
+        {"term": projekt, "entity_type": "PTI_PROJEKT", "match_mode": "exact"},
+        {"term": produkt, "entity_type": "PTI_PRODUKT", "match_mode": "exact"},
+    )
+
+    erwartet = (
+        Erwartung(_MELDESTELLE_GWG, "ORGANIZATION"),
+        Erwartung(_EJPD, "ORGANIZATION"),
+        Erwartung(projekt, "PTI_PROJEKT"),
+        Erwartung(produkt, "PTI_PRODUKT"),
+        Erwartung("Corina Ammann", "PERSON"),
+    )
+
+    # Gross-/Kleinschreibung und Wortgrenzen sind bereits in
+    # test_recognizer_custom_terms.py auf Einheitenebene geprueft. Hier steht
+    # nur der Fall, der sich am echten Dokument zeigen muss: ein kurzer
+    # Listeneintrag darf nicht mitten in einem laengeren Wort treffen.
+    verboten = (
+        Erwartung(
+            "MEFISTO",
+            "PTI_PRODUKT",
+            "Der Eintrag MEF darf nicht in einem laengeren Wort treffen",
+        ),
+    )
+
+    return Testdokument(
+        name="begriffsliste",
+        dateiname="begriffsliste.txt",
+        beschreibung=(
+            "Ebene 0: Behoerden-, Projekt- und Produktnamen kommen nur ueber "
+            "die Begriffsliste — samt Gegenprobe auf Teilworttreffer."
+        ),
+        inhalt=text.encode("utf-8"),
+        erwartet=erwartet,
+        verboten=verboten,
+        begriffe=begriffe,
+    )
+
+
 DOKUMENTE: List[Testdokument] = [
+    _baue_begriffsliste(),
     _baue_mehrere_runs(),
     _baue_struktur_pii(),
     _baue_fehlalarm_fallen(),

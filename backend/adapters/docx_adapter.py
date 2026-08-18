@@ -392,6 +392,45 @@ def _validate(replacements: List[Replacement], text_length: int) -> List[Replace
     return ordered
 
 
+def _insert(spans: List[_Span], repl: Replacement) -> None:
+    """Behandelt eine reine Einfügung (``repl.start == repl.end``).
+
+    Eine Einfügung trifft per Definition keine Spanne mit echter Überlappung
+    (``s.start < end and s.end > start`` kann für ``start == end`` nie zwei
+    verschiedene Spannen echt schneiden). Die Einfügeposition kann trotzdem
+    mitten in beschreibbarem Text liegen (Regelfall: die nächste — oder bei
+    einer Absatzmitte die passende — Spanne bekommt den Text) oder exakt an
+    einer Run-Grenze, an der ein nicht beschreibbarer Knoten (``w:tab``,
+    ``w:br``/``w:cr``) angrenzt. Im zweiten Fall gäbe es early-return-frei
+    *keinen* Knoten, dessen ``[start, end]``-Bereich die Position exakt
+    trifft — der nächstgelegene beschreibbare Run übernimmt den Text
+    trotzdem: bevorzugt der davor liegende (angehängt), sonst der nächste
+    danach (vorangestellt). Neue Runs werden nie angelegt — das würde die in
+    :class:`DocxLocation` zugesicherte Stabilität der Absatz-Indizes verletzen.
+    """
+    position = repl.start
+    before: Optional[_Span] = None
+    after: Optional[_Span] = None
+    for span in spans:
+        if not span.writable:
+            continue
+        if span.end <= position:
+            before = span
+        elif after is None and span.start >= position:
+            after = span
+
+    target = before if before is not None else after
+    if target is None:
+        raise ValueError(
+            f"Für die Einfügung an Position {position} gibt es keinen "
+            f"beschreibbaren w:t-Knoten im Absatz."
+        )
+
+    current = target.node.text or ""
+    local = len(current) if target is before else 0
+    _set_text(target.node, current[:local] + repl.text + current[local:])
+
+
 def _apply_one(spans: List[_Span], repl: Replacement) -> None:
     """Wendet **eine** Ersetzung auf die Run-Landkarte an.
 
@@ -403,12 +442,9 @@ def _apply_one(spans: List[_Span], repl: Replacement) -> None:
     touched = [s for s in spans if s.start < repl.end and s.end > repl.start]
 
     if not touched:
-        # Reine Einfügung (start == end) trifft keine Spanne echt — die
-        # passende Einfügestelle ist die erste beschreibbare Spanne, deren
-        # Bereich die Position berührt.
-        touched = [s for s in spans if s.writable and s.start <= repl.start <= s.end][
-            :1
-        ]
+        # Reine Einfügung (start == end) trifft keine Spanne echt.
+        _insert(spans, repl)
+        return
 
     target = next((s for s in touched if s.writable), None)
     if target is None:

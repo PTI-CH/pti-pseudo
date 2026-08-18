@@ -41,6 +41,7 @@ mitgeführt und beim Zusammensetzen wieder eingefügt.
 from __future__ import annotations
 
 import codecs
+import re
 from dataclasses import dataclass
 from typing import Dict, List, Tuple
 
@@ -50,6 +51,40 @@ __all__ = ["TextAdapter", "CsvAdapter", "detect_encoding"]
 
 #: Reihenfolge ist Programm — siehe Modul-Docstring.
 _UTF8_BOM = codecs.BOM_UTF8
+
+#: Physische Zeilenenden, an denen der CSV-Adapter trennt — bewusst nur diese
+#: drei. ``str.splitlines()`` erkennt zusätzlich Formularvorschub (``\x0c``),
+#: die Kapitel-/Gruppen-Trenner ``\x1c``–``\x1e``, ``\x0b`` sowie die
+#: Unicode-Zeilentrenner U+2028/U+2029 und U+0085 (NEL) — Zeichen, die in
+#: einem CSV-Feld (z. B. aus eingefügtem Word-Text) durchaus vorkommen. Würde
+#: dort mitgetrennt, risse das einen Datensatz mitten im Wort auseinander;
+#: die Erkennung sähe „Mei" und „er;Andreas" statt „Meier;Andreas" und ein
+#: Name bliebe unpseudonymisiert stehen.
+_LINE_ENDING_RE = re.compile(r"\r\n|\r|\n")
+
+
+def _split_physical_lines(text: str) -> List[str]:
+    """Wie ``str.splitlines(keepends=True)``, aber nur für CRLF, CR und LF."""
+    lines: List[str] = []
+    pos = 0
+    for match in _LINE_ENDING_RE.finditer(text):
+        lines.append(text[pos : match.end()])
+        pos = match.end()
+    if pos < len(text):
+        lines.append(text[pos:])
+    return lines
+
+
+def _split_content_and_ending(raw_line: str) -> Tuple[str, str]:
+    r"""Trennt eine physische Zeile in Inhalt und Zeilenende-Suffix.
+
+    Prüft ``"\r\n"`` vor den Einzelzeichen, damit ein CRLF nicht als „LF mit
+    einem ``\r`` im Inhalt" fehlinterpretiert wird.
+    """
+    for ending in ("\r\n", "\r", "\n"):
+        if raw_line.endswith(ending):
+            return raw_line[: -len(ending)], ending
+    return raw_line, ""
 
 
 def detect_encoding(data: bytes) -> Tuple[str, bool]:
@@ -241,9 +276,8 @@ class CsvAdapter(TextAdapter):
         """Liefert ein Segment je physischer Zeile (ohne Zeilenende)."""
         text, _encoding, _has_bom = _decode(data)
         segments: List[Segment] = []
-        for index, raw_line in enumerate(text.splitlines(keepends=True)):
-            content = raw_line.splitlines()[0] if raw_line.strip("\r\n") else ""
-            ending = raw_line[len(content) :]
+        for index, raw_line in enumerate(_split_physical_lines(text)):
+            content, ending = _split_content_and_ending(raw_line)
             if not content:
                 continue
             segments.append(
@@ -262,12 +296,11 @@ class CsvAdapter(TextAdapter):
     ) -> bytes:
         """Ersetzt zeilenweise und setzt die Datei mit ihren Zeilenenden zusammen."""
         text, encoding, has_bom = _decode(data)
-        lines = text.splitlines(keepends=True)
+        lines = _split_physical_lines(text)
 
         out: List[str] = []
         for index, raw_line in enumerate(lines):
-            content = raw_line.splitlines()[0] if raw_line.strip("\r\n") else ""
-            ending = raw_line[len(content) :]
+            content, ending = _split_content_and_ending(raw_line)
             repls = replacements.get(f"csv/{index}") or []
             out.append(apply_to_string(content, repls) + ending)
 

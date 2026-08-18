@@ -21,6 +21,20 @@ name: Deploy to Production
 on:
   push:
     branches: [main]
+    # Aenderungen, die in Produktion nichts bewirken, loesen keinen Deploy aus.
+    # Ein Deploy kostet drei bis sechs Minuten Ausfall — und je oefter einer
+    # ohne Not laeuft, desto eher gewoehnt man sich an Ausfallfenster und
+    # uebersieht dann eines, das etwas bedeutet.
+    #
+    # Wichtig: Tests und Golden-Set laufen weiterhin lokal und im PR. Hier geht
+    # es nur darum, ob der Produktivknoten neu starten muss.
+    paths-ignore:
+      - 'golden-set/**'
+      - 'backend/tests/**'
+      - 'docs/**'
+      - 'scripts/golden_set_report.py'
+      - '**.md'
+      - '.gitignore'
   workflow_dispatch:
 
 env:

@@ -297,3 +297,23 @@ def test_unbekanntes_format_liefert_415(client: TestClient) -> None:
         data={"mode": "anonymous"},
     )
     assert r.status_code == 415
+
+
+def test_riesiger_text_liefert_413_statt_absturz(client: TestClient) -> None:
+    """Ungeprueft haut ein sehr grosser Text die Erkennungs-Engine um.
+
+    ``spaCy`` bricht intern mit einem rohen ``ValueError`` ab, sobald ein Text
+    dessen ``nlp.max_length`` (Default 1'000'000 Zeichen) uebersteigt — anders
+    als beim Datei-Upload (``_check_size``) gab es fuer den JSON-Textpfad keine
+    Obergrenze, die das vorher abfaengt. Ohne Fix landet hier ein 500 (oder,
+    durch das SSO-Gate verschluckt, sogar ein irrefuehrendes 401) statt eines
+    sauberen 413.
+    """
+    riesig = "A" * 2_000_000
+    r = client.post("/api/v1/documents:detect", json={"text": riesig})
+    assert r.status_code == 413, r.text
+
+    r2 = client.post(
+        "/api/v1/documents:anonymize", json={"text": riesig, "mode": "anonymous"}
+    )
+    assert r2.status_code == 413, r2.text

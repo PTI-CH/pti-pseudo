@@ -212,6 +212,15 @@ def _normalized_body(term: str) -> str:
     return "(?i:" + "".join(parts) + ")"
 
 
+def _is_word_char(character: str) -> bool:
+    r"""Zaehlt ``character`` als Wortzeichen im Sinn der Grenzpruefung unten.
+
+    Deckt sich mit dem, was ``\w`` in den hier gebauten Mustern matcht:
+    Buchstaben (auch mit Umlaut), Ziffern und Unterstrich.
+    """
+    return character.isalnum() or character == "_"
+
+
 def build_term_regex(term: CustomTerm) -> str:
     r"""Vollständiges Regex eines Begriffs, inklusive Wortgrenzen.
 
@@ -219,14 +228,27 @@ def build_term_regex(term: CustomTerm) -> str:
     Konstrukt, das auch Presidios Deny-List benutzt. Grund: ``\b`` versagt,
     sobald ein Begriff mit einem Nicht-Wortzeichen beginnt oder endet
     (``§14a``, ``C++``, ``Projekt-X.``). Die Lookaround-Variante prüft die
-    Umgebung statt des Übergangs und funktioniert in allen Fällen.
+    Umgebung statt des Übergangs.
+
+    Eine Seite bekommt die Grenzprüfung aber nur, wenn das *Begriffsende auf
+    dieser Seite selbst ein Wortzeichen ist*. Ohne diese Fallunterscheidung
+    würde ein Begriff, der bereits mit einem Trennzeichen endet oder beginnt
+    (``Bau-``, ``§14a``), sein eigenes Trennzeichen kein zweites Mal verlangen:
+    ``Bau-`` in ``Bau-AG`` hat nach dem Bindestrich sofort ein Wortzeichen
+    (``A``) — dort ein weiteres Nicht-Wortzeichen zu fordern, verhindert genau
+    den Treffer, für den ein mit ``-`` endender Begriff typischerweise
+    eingetragen wird. Endet bzw. beginnt der Begriff dagegen auf einem
+    Wortzeichen, bleibt die Grenzprüfung nötig — sonst träfe ``KKPKS`` auch
+    mitten in ``KKPKSVERBUND``.
     """
     body = (
         _normalized_body(term.term)
         if term.match_mode is MatchMode.NORMALIZED
         else _exact_body(term.term)
     )
-    return r"(?:^|(?<=\W))" + body + r"(?:(?=\W)|$)"
+    left_boundary = r"(?:^|(?<=\W))" if _is_word_char(term.term[0]) else ""
+    right_boundary = r"(?:(?=\W)|$)" if _is_word_char(term.term[-1]) else ""
+    return left_boundary + body + right_boundary
 
 
 class CustomTermsRecognizer(LocalRecognizer):

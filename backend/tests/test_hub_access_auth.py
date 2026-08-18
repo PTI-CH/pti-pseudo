@@ -460,6 +460,35 @@ def test_verschiedene_tokens_teilen_den_cache_nicht() -> None:
     assert fetch.calls == 2
 
 
+def test_cache_waechst_nicht_unbegrenzt_bei_vielen_verschiedenen_tokens() -> None:
+    """Beliebig viele zufaellige Cookies duerfen den Cache nicht aufblaehen.
+
+    Jeder Request mit einem NEUEN ``refresh_token``-Cookie legt (mangels
+    Cache-Treffer) einen neuen Eintrag im prozesslokalen Verdict-Cache an.
+    Ohne Obergrenze wird dieser Eintrag nie wieder entfernt, wenn derselbe
+    Token nie ein zweites Mal vorkommt (typisch fuer zufaellig geratene
+    Cookies) — der Cache waechst dann mit jeder Angreifer-Anfrage weiter und
+    legt den Worker-Prozess irgendwann per Speicherverbrauch lahm.
+    """
+    fetch = RecordingFetch(payload={"authenticated": False})
+    middleware = HubAccessAuthMiddleware(
+        FastAPI(),
+        settings=make_settings(),
+        fetch_impl=fetch,
+        now=Clock(),
+        max_cache_entries=50,
+    )
+
+    async def szenario() -> int:
+        for i in range(500):
+            await middleware._verdict_for(f"angreifer-token-{i}")
+        return len(middleware._cache)
+
+    cache_groesse = asyncio.run(szenario())
+
+    assert cache_groesse <= 50
+
+
 # ── 9. Cookie-Parsing ──────────────────────────────────────────────────────
 
 
@@ -584,3 +613,78 @@ def test_nur_health_ist_ausgenommen() -> None:
     assert client.get("/api/health").status_code == 200
     assert client.get("/api/healthz", headers=XHR_HEADERS).status_code == 401
     assert client.get("/api/health/geheim", headers=XHR_HEADERS).status_code == 401
+
+
+# ── Fehler der Anwendung duerfen nicht als Anmeldeproblem getarnt werden ────
+
+
+def test_fehler_im_endpunkt_wird_nicht_als_401_getarnt():
+    """Ein Absturz IM Endpunkt muss als Serverfehler durchschlagen.
+
+    Frueher umschloss der try-Block auch ``call_next``. Jeder unbehandelte
+    Fehler eines Endpunkts wurde dadurch zu einem ``401 UNAUTHENTICATED`` —
+    ein echter Serverfehler sah aus wie ein Anmeldeproblem, verschwand aus der
+    Fehlerueberwachung, und wer ihn meldete, wurde zur Anmeldung geschickt.
+    """
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    from backend.core.hub_access_auth import HubAccessAuthMiddleware
+
+    app = FastAPI()
+
+    @app.get("/api/kaputt")
+    async def _kaputt() -> dict:
+        raise RuntimeError("absichtlicher Fehler im Endpunkt")
+
+    app.add_middleware(
+        HubAccessAuthMiddleware,
+        settings=make_settings(hub_auth="off"),
+    )
+
+    client = TestClient(app, raise_server_exceptions=False)
+    antwort = client.get("/api/kaputt")
+
+    assert antwort.status_code == 500, (
+        "Ein Fehler im Endpunkt muss als 500 sichtbar werden, nicht als "
+        f"Anmeldeproblem — bekommen: {antwort.status_code} {antwort.text[:120]}"
+    )
+    assert "UNAUTHENTICATED" not in antwort.text
+
+
+def test_fehler_in_der_pruefung_faellt_weiterhin_geschlossen_aus():
+    """Die Gegenprobe: ein Fehler im Gate selbst weist weiterhin ab.
+
+    Ohne diesen Test koennte man den obigen erfuellen, indem man das
+    Fail-closed-Verhalten mit abschafft — und genau das darf nicht passieren.
+    """
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    from backend.core.hub_access_auth import HubAccessAuthMiddleware
+
+    app = FastAPI()
+
+    @app.get("/api/v1/geschuetzt")
+    async def _ok() -> dict:
+        return {"ok": True}
+
+    async def _kaputte_introspection(url, headers):
+        raise RuntimeError("CRM unerreichbar")
+
+    app.add_middleware(
+        HubAccessAuthMiddleware,
+        settings=make_settings(),
+        fetch_impl=_kaputte_introspection,
+    )
+
+    client = TestClient(app, raise_server_exceptions=False)
+    antwort = client.get(
+        "/api/v1/geschuetzt", headers={"cookie": "refresh_token=irgendwas"}
+    )
+
+    assert antwort.status_code == 401, (
+        "Faellt die Pruefung selbst aus, muss weiterhin abgewiesen werden — "
+        f"bekommen: {antwort.status_code}"
+    )
+    assert "UNAUTHENTICATED" in antwort.text

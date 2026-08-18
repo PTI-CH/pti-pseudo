@@ -68,6 +68,11 @@ BEWERTETE_TYPEN = frozenset(
         "CH_PHONE",
         "CH_POSTAL_CODE",
         "CH_PLATE",
+        # Ebene 0 — kommt ausschliesslich ueber die Begriffsliste. Muss
+        # mitbewertet werden, sonst wuerden Erwartungen dieser Typen
+        # stillschweigend ignoriert und ein Testfall dafuer waere wirkungslos.
+        "PTI_PROJEKT",
+        "PTI_PRODUKT",
     }
 )
 
@@ -283,7 +288,12 @@ def erkenne_funde(dok: Any) -> list:
     """
     adapter = get_adapter(dok.dateiname)
     segmente = adapter.extract_segments(dok.inhalt)
-    ergebnis = pipeline.detect_in_segments(segmente)
+    # Die Begriffsliste (Ebene 0) wird je Dokument mitgegeben. Die meisten
+    # Dokumente brauchen keine; wo sie gesetzt ist, prueft der Testfall genau
+    # diese Ebene — Behoerden-, Projekt- und Produktnamen, die an nichts
+    # ausser dem Listeneintrag erkennbar sind.
+    begriffe = list(getattr(dok, "begriffe", ()) or ())
+    ergebnis = pipeline.detect_in_segments(segmente, custom_terms=begriffe or None)
     return ergebnis.findings
 
 

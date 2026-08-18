@@ -209,3 +209,18 @@ def test_sonderzeichen_im_begriff():
     results = analyze(recognizer, text)
     assert len(results) == 1
     assert text[results[0].start : results[0].end] == "§14a-Verfahren"
+
+
+def test_begriff_mit_endendem_bindestrich_trifft_zusammengesetztes_wort():
+    """``Bau-`` (Produktivliste) muss auch direkt angehaengte Woerter treffen.
+
+    Ein Begriff, der bewusst mit einem Trennzeichen endet, ist als Praefix in
+    zusammengesetzten Woertern gedacht (``Bau-AG``, ``Bau-Genossenschaft``) —
+    nicht nur als isoliertes Token mit Leerzeichen danach. Vor dem Fix
+    verlangte die rechte Wortgrenzenpruefung faelschlich, dass auch das
+    Zeichen *nach* dem bereits im Begriff enthaltenen Bindestrich ein
+    Nicht-Wortzeichen ist.
+    """
+    recognizer = build_custom_terms_recognizer([("Bau-", "ORGANIZATION", "exact")])
+    assert analyze(recognizer, "Kontakt: Bau-AG Muster.") != []
+    assert analyze(recognizer, "Die Bau-Genossenschaft Zuerich baut.") != []

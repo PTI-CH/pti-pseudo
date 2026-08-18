@@ -140,6 +140,23 @@ def _check_size(data: bytes) -> None:
         )
 
 
+def _check_text_size(text: str) -> None:
+    """Prueft die Obergrenze fuer den JSON-Textpfad.
+
+    Gegenstueck zu ``_check_size`` fuer Datei-Uploads: ohne diese Pruefung
+    laeuft ein sehr grosser Text ungebremst in die Erkennungs-Engine und
+    bringt ``spaCy`` dort mit einem rohen ``ValueError`` zum Absturz
+    (``nlp.max_length``, Default 1'000'000 Zeichen) — dann sieht die
+    Aufruferin statt einer sauberen Fehlermeldung ein rohes 500.
+    """
+    limit = get_settings().max_text_chars
+    if len(text) > limit:
+        raise HTTPException(
+            413,
+            detail=f"Text ist laenger als das Limit von {limit} Zeichen.",
+        )
+
+
 @router.post("/documents:detect")
 async def detect(
     request: Request,
@@ -147,6 +164,7 @@ async def detect(
     session: Annotated[Session, Depends(get_session)],
 ) -> dict:
     """Findet Entitaeten, ohne etwas zu ersetzen oder zu speichern."""
+    _check_text_size(payload.text)
     tenant = get_tenant(session)
     terms = _load_custom_terms(session, tenant.id)
     result = pipeline.detect_in_segments(
@@ -172,6 +190,7 @@ async def anonymize(
     session: Annotated[Session, Depends(get_session)],
 ) -> dict:
     """Pseudonymisiert einen Text und legt bei Bedarf den Vault an."""
+    _check_text_size(payload.text)
     tenant = get_tenant(session)
     terms = _load_custom_terms(session, tenant.id)
     vault = _resolve_vault(

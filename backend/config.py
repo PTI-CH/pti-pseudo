@@ -81,6 +81,14 @@ class Settings(BaseSettings):
     max_upload_bytes: int = 26_214_400  # 25 MiB
     # Ab dieser Groesse nicht mehr synchron verarbeiten (Gateway-Timeout).
     sync_threshold_bytes: int = 2_097_152
+    # Obergrenze fuer den JSON-Textpfad (documents:detect / :anonymize).
+    # ``spaCy`` bricht bei ``nlp.max_length`` (Default 1'000'000 Zeichen) mit
+    # einem rohen ValueError ab, sobald ein Text laenger ist — anders als beim
+    # Datei-Upload gibt es fuer diesen Pfad sonst keine Vor-Pruefung. Der Wert
+    # hier liegt bewusst deutlich darunter, damit die Anfrage sauber mit 413
+    # abgelehnt wird, statt die Engine mitten in der Verarbeitung abstuerzen
+    # zu lassen.
+    max_text_chars: int = 300_000
 
     @field_validator("crm_base_url", "hub_base_url", "public_base_url")
     @classmethod

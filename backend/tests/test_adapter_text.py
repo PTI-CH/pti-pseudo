@@ -92,9 +92,10 @@ def test_text_ersetzung_behaelt_encoding(roh):
     segment = adapter.extract_segments(roh)[0]
     start = segment.text.index("Andreas Meier")
 
+    ende = start + len("Andreas Meier")
     ausgabe = adapter.apply_replacements(
         roh,
-        {segment.id: [Replacement(start, start + len("Andreas Meier"), "[[PERSON_1]]")]},
+        {segment.id: [Replacement(start, ende, "[[PERSON_1]]")]},
     )
 
     encoding_vorher, bom_vorher = detect_encoding(roh)
@@ -205,6 +206,25 @@ def test_csv_leerzeilen_werden_uebersprungen_aber_erhalten():
     segments = adapter.extract_segments(roh)
 
     assert [s.id for s in segments] == ["csv/0", "csv/2"]
+    assert adapter.apply_replacements(roh, {}) == roh
+
+
+def test_csv_trennt_nur_an_echten_zeilenumbruechen():
+    r"""Nur CRLF/LF/CR trennen Zeilen — nicht jedes ``str.splitlines()``-Zeichen.
+
+    Python zählt auch Formularvorschub (``\x0c``), Kapitel-Trenner
+    (``\x1c``–``\x1e``) und die Unicode-Zeilentrenner U+2028/U+2029
+    zu den von ``str.splitlines()`` erkannten Umbrüchen. Landet so ein Zeichen
+    mitten in einem Feld (z. B. aus einem eingefügten Word-Text), reisst eine
+    naive ``splitlines()``-Zerlegung den Datensatz mittendrin auseinander —
+    „Meier" würde nie mehr als zusammenhängendes Wort erkannt und bliebe
+    unpseudonymisiert im Dokument.
+    """
+    adapter = CsvAdapter()
+    roh = "a;b\r\nMei\x0cer;Andreas\r\n".encode("utf-8")
+    segmente = adapter.extract_segments(roh)
+
+    assert [s.text for s in segmente] == ["a;b", "Mei\x0cer;Andreas"]
     assert adapter.apply_replacements(roh, {}) == roh
 
 

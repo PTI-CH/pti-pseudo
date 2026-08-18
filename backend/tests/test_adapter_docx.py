@@ -365,7 +365,10 @@ def test_ersetzung_ueber_drei_runs(adapter, dirty_docx):
 
     neu = adapter.extract_segments(ausgabe)
     treffer = _segment_with(neu, "wohnt in Bern")
-    assert treffer.text == "[[PERSON_1]] wohnt in Bern und arbeitet mit Beat Vogel zusammen."
+    assert (
+        treffer.text
+        == "[[PERSON_1]] wohnt in Bern und arbeitet mit Beat Vogel zusammen."
+    )
     assert "Andreas" not in treffer.text
     assert "Meier" not in treffer.text
 
@@ -430,7 +433,7 @@ def test_xml_space_preserve_wird_gesetzt(adapter, dirty_docx):
     ]
     assert quelle, "Vorbedingung: Die Zelle liegt in genau einem w:t"
     assert all(
-        f"{{http://www.w3.org/XML/1998/namespace}}space" not in node.attrib
+        "{http://www.w3.org/XML/1998/namespace}space" not in node.attrib
         for node in quelle
     ), "Vorbedingung: dieses w:t hat noch kein xml:space"
 
@@ -518,6 +521,54 @@ def test_ueberlappende_ersetzungen_werden_abgelehnt(adapter, dirty_docx):
                 ]
             },
         )
+
+
+def test_einfuegung_neben_tabulator_an_run_grenze(adapter):
+    """Eine reine Einfügung (``start == end``) direkt neben einem ``w:tab``.
+
+    ``w:tab`` erzeugt im Segmenttext ein Zeichen, ist selbst aber nicht
+    beschreibbar (kein ``w:t``). Liegt die Einfügeposition exakt an der
+    Grenze zu einem solchen Knoten — vor einem führenden Tabulator oder nach
+    einem schliessenden —, gibt es keine echte Überlappung und keinen
+    beschreibbaren Knoten, dessen ``[start, end]``-Bereich die Position genau
+    trifft. Der nächstgelegene beschreibbare Run muss den Text trotzdem
+    aufnehmen, statt dass die Ersetzung mit einem ``ValueError`` abbricht.
+    """
+    # (a) Absatz "\tHallo Welt" — Tabulator vor dem Text, Einfügung an Position 0.
+    führt = Document()
+    p1 = führt.add_paragraph()
+    p1.add_run().add_tab()
+    p1.add_run("Hallo Welt")
+    buffer1 = io.BytesIO()
+    führt.save(buffer1)
+    daten1 = buffer1.getvalue()
+
+    segment1 = adapter.extract_segments(daten1)[0]
+    assert segment1.text == "\tHallo Welt"
+
+    ausgabe1 = adapter.apply_replacements(
+        daten1, {segment1.id: [Replacement(0, 0, "XX-")]}
+    )
+    treffer1 = adapter.extract_segments(ausgabe1)[0]
+    assert treffer1.text == "\tXX-Hallo Welt"
+
+    # (b) Absatz "Hallo Welt\t" — Tabulator nach dem Text, Einfügung am Ende.
+    folgt = Document()
+    p2 = folgt.add_paragraph()
+    p2.add_run("Hallo Welt")
+    p2.add_run().add_tab()
+    buffer2 = io.BytesIO()
+    folgt.save(buffer2)
+    daten2 = buffer2.getvalue()
+
+    segment2 = adapter.extract_segments(daten2)[0]
+    assert segment2.text == "Hallo Welt\t"
+
+    ausgabe2 = adapter.apply_replacements(
+        daten2, {segment2.id: [Replacement(11, 11, "-YY")]}
+    )
+    treffer2 = adapter.extract_segments(ausgabe2)[0]
+    assert treffer2.text == "Hallo Welt-YY\t"
 
 
 # ── 4. Kopf-/Fusszeile und Tabellenzellen ──────────────────────────────────
@@ -733,7 +784,9 @@ def test_konsistenzpruefung_bei_abweichendem_absatz():
         f'<w:p xmlns:w="{W}"><w:r><w:t>Andreas Meier</w:t></w:r></w:p>'
     )
     with pytest.raises(ValueError, match="passt nicht mehr zum Segment"):
-        _apply_to_paragraph(paragraph, "Ein ganz anderer Text", [Replacement(0, 3, "X")])
+        _apply_to_paragraph(
+            paragraph, "Ein ganz anderer Text", [Replacement(0, 3, "X")]
+        )
 
 
 def test_unbekannte_segment_id_wird_ignoriert(adapter, dirty_docx):

@@ -5,3 +5,10 @@
 !README.md
 !synthetic/
 !synthetic/**
+
+# Die Freigabe von synthetic/** oben hebt die __pycache__-Regel der
+# Root-.gitignore wieder auf — hier erneut ausschliessen. Ebenso die
+# Dokumente, die `python -m synthetic.generator` zum Anschauen erzeugt:
+# der Test baut sie im Speicher, im Repo haben Binaerdateien nichts zu suchen.
+synthetic/__pycache__/
+synthetic/dateien/

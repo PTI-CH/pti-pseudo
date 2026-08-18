@@ -1,0 +1,59 @@
+# Laufzeit-Abhaengigkeiten der PTI-Anwendung.
+#
+# Bewusst NICHT "requirements.txt": Presidio besitzt im Root bereits
+# pyproject.toml/.gitignore/.env — jede Datei, die upstream auch hat, wuerde bei
+# `git merge upstream/main` konfliktieren. Siehe CLAUDE.md.
+#
+# Installation (lokal wie auf dem Jelastic-Knoten):
+#   pip install -r pti-requirements.txt
+#
+# Verifiziert am 2026-08-18 gegen Python 3.14.4 (Windows) — Presidio unterstuetzt
+# laut eigenem pyproject 3.10–3.14, und spaCy 3.8.13 hat cp314-Wheels.
+
+# ── Presidio aus dem eigenen Baum, NICHT von PyPI ───────────────────────────
+# Das ist der Grund, warum diese Codebasis kopiert und nicht als Paket gezogen
+# wurde: eine Aenderung an presidio-analyzer/… wirkt damit sofort.
+-e ./presidio-analyzer
+-e ./presidio-anonymizer
+
+# ── NLP-Modell ─────────────────────────────────────────────────────────────
+# spaCy kommt eigentlich schon ueber presidio-analyzer herein (dessen
+# pyproject deklariert `spacy >=3.4.4,<4.0.0`). Trotzdem hier explizit gepinnt,
+# und zwar wegen des Modells eine Zeile weiter unten:
+#
+# Das Wheel `de_core_news_md-3.8.0` deklariert seinerseits GAR KEINE
+# Abhaengigkeiten (`pip show` zeigt ein leeres `Requires:`). Die Bindung an
+# eine passende spaCy-Version steht nur in der meta.json des Modells und ist
+# fuer pip unsichtbar. Ohne diesen Pin duerfte pip innerhalb von presidios
+# weitem Bereich eine spaCy-Version waehlen, die das Modell nicht mehr laedt —
+# und das faellt erst beim Start auf dem Server auf, nicht beim Aufloesen.
+#
+# Modell und spaCy gehoeren im Gleichschritt: beide zusammen aendern.
+spacy==3.8.13
+# Als gepinnte Wheel-URL statt `python -m spacy download`: idempotent (pip
+# ueberspringt es beim zweiten Lauf), versioniert im Repo, ohne Netzzugriff zur
+# Laufzeit. Umschalten auf das grosse Modell: Zeile tauschen UND SPACY_MODEL
+# in der Env anpassen — beide muessen zusammenpassen.
+de_core_news_md @ https://github.com/explosion/spacy-models/releases/download/de_core_news_md-3.8.0/de_core_news_md-3.8.0-py3-none-any.whl
+# de_core_news_lg @ https://github.com/explosion/spacy-models/releases/download/de_core_news_lg-3.8.0/de_core_news_lg-3.8.0-py3-none-any.whl
+
+# ── Web ────────────────────────────────────────────────────────────────────
+fastapi==0.141.1
+starlette==1.6.0
+uvicorn[standard]==0.52.3
+gunicorn==26.0.0          # nur Produktion; unter Windows installierbar, aber nicht lauffaehig
+python-multipart==0.0.32  # Datei-Uploads
+pydantic-settings==2.15.0
+httpx==0.28.1             # SSO-Introspection gegen das CRM
+
+# ── Datenbank ──────────────────────────────────────────────────────────────
+SQLAlchemy==2.0.52
+psycopg[binary]==3.3.4
+alembic==1.19.1
+
+# ── Dokument-Adapter ───────────────────────────────────────────────────────
+python-docx==1.2.0
+lxml==6.1.1               # Fussnoten/Kommentare/Textboxen, die python-docx nicht exponiert
+
+# ── Krypto (Vault) ─────────────────────────────────────────────────────────
+cryptography==48.0.1

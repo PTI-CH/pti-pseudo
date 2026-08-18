@@ -1,0 +1,9 @@
+{
+  "_comment": "Kopiere diese Datei nach .claude/jelastic.config.json. jelastic.config.json + jelastic-token sind gitignored (.claude/.gitignore).",
+  "envName": "pti-pseudo",
+  "appNodeId": 213705,
+  "balancerNodeId": 213781,
+  "dbNodeId": 213680,
+  "hosterApi": "app.jpc.infomaniak.com",
+  "liveUrl": "https://pseudo.pti-tip-hub.ch"
+}

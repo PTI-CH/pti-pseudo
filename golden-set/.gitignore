@@ -1,0 +1,7 @@
+# Echte PTI-Dokumente duerfen NIE ins Repo (enthalten Personendaten).
+# Nur synthetische, selbst erzeugte Testdaten unter synthetic/ sind erlaubt.
+*
+!.gitignore
+!README.md
+!synthetic/
+!synthetic/**

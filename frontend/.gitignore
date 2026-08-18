@@ -1,0 +1,7 @@
+# Presidios Root-.gitignore ist rein Python-orientiert und deckt Node nicht ab.
+# Bewusst eine eigene Datei: die Root-.gitignore gehoert upstream und wuerde bei
+# jedem `git merge upstream/main` konfliktieren.
+node_modules/
+dist/
+.vite/
+*.tsbuildinfo

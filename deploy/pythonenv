@@ -1,0 +1,57 @@
+# Konfiguration des Jelastic-"Python Engine"-Runners.
+#
+# Ziel auf dem Knoten:  /home/jelastic/pythonenv
+# Gelesen von:          /usr/local/sbin/process-manager  (systemd: pythonengine.service)
+#
+# Diese Datei ersetzt gunicorn.conf.py, run.sh und supervisord.conf, die hier
+# frueher lagen: der Stack bringt seinen eigenen Prozessmanager mit, der die
+# Anwendung als `python -m uvicorn $APP_MODULE` startet. Ein zweiter
+# Prozessmanager daneben waere ueberfluessig und wuerde mit ihm kollidieren.
+#
+# WICHTIG: Die Datei gehoert ABSICHTLICH ausserhalb des Deploy-Roots. Ein
+# VCS-Update ersetzt /home/jelastic/ROOT — dort abgelegt waere sie nach jedem
+# Deploy weg. Der Workflow kopiert sie deshalb aktiv an ihren Platz.
+
+# Einstiegspunkt. Das Repository liegt als Ganzes in ROOT, `backend` ist ein
+# Paket darin. Der Runner validiert das Modul vor dem Start und bricht mit
+# klarer Meldung ab, wenn der Import scheitert.
+APP_MODULE="backend.main:app"
+
+# TLS macht der NGINX-Balancer, nicht die Anwendung.
+#
+# Der Stack-Default ist "on" — dann startet uvicorn mit --ssl-keyfile und
+# spricht TLS auf Port 8000. Der Balancer proxyt aber per `proxy_pass http://`.
+# Ergebnis: Klartext-Anfrage gegen einen TLS-Listener, jede Anfrage endet im
+# 502. Genau das war der Zustand der frisch angelegten Umgebung (nachgemessen
+# 2026-08-18: http://10.100.25.61:8000 -> leere Antwort, https -> 200).
+SSLEnabled="off"
+
+# Anzahl uvicorn-Worker.
+#
+# Der Default ist `nproc`, auf diesem Knoten 5. Das waere hier fatal: jeder
+# Worker laedt sein eigenes spaCy-Modell mit gemessenen 411 MB. Uvicorn startet
+# Worker per multiprocessing-*spawn*, nicht per fork — es gibt also KEIN
+# Copy-on-Write, das die Modellseiten teilen wuerde. 5 Worker waeren rund 2 GB
+# allein fuer das Modell, bei 3 GB Knotenlimit.
+#
+# 2 Worker: rund 900 MB bis 1 GB inklusive lxml-Spitzen bei grossen DOCX.
+WORKERS="2"
+
+# ── Panel-Variablen an die Anwendung durchreichen ──────────────────────────
+# Der Runner laedt /.jelenv per `source`. Die im Jelastic-Panel gesetzten Werte
+# werden damit zwar zu Shell-Variablen, aber NICHT exportiert — der
+# anschliessende `exec python` sieht sie deshalb nicht.
+#
+# Nachgemessen am 2026-08-18: nach einem Neustart mit gesetzten Panel-Variablen
+# fehlten DATABASE_URL, VAULT_MASTER_KEY und RELAY_SECRET vollstaendig in
+# /proc/<pid>/environ. Die Anwendung waere ohne Datenbank und ohne Tresor-
+# schluessel gestartet — und zwar lautlos, weil beide Fehler erst beim ersten
+# Pseudonymisieren auffallen.
+#
+# `export NAME` fuer eine nicht gesetzte Variable ist folgenlos: sie landet dann
+# auch nicht in der Umgebung des Kindprozesses. Die Liste darf also mehr
+# enthalten, als im Panel gepflegt ist.
+export ENV DATABASE_URL VAULT_MASTER_KEY RELAY_SECRET
+export CRM_BASE_URL HUB_BASE_URL HUB_APP_KEY PUBLIC_BASE_URL
+export SPACY_MODEL LLM_PROVIDER MAX_UPLOAD_BYTES SYNC_THRESHOLD_BYTES
+export HUB_AUTH DEV_ROLE PSEUDONYM_TEMPLATE

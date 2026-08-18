@@ -1,0 +1,4 @@
+# Lokale Test-Artefakte des PTI-Backends.
+.pytest_cache/
+*.sqlite3
+tmp/

@@ -1,0 +1,224 @@
+# Produktiv-Deploy nach Infomaniak jCloud (Jelastic).
+#
+# Zwei Abweichungen vom Muster der Node-Schwestertools, beide erzwungen durch
+# den Stack "Python Engine":
+#
+# 1. KEIN Jelastic-VCS-Update. Die Deployment-Funktion des Panels ist bei
+#    diesem Knotentyp ausgegraut — sie gehoert zu den *verwalteten*
+#    Anwendungsservern (Apache Python), nicht zum nackten Interpreter-Container.
+#    Nachgemessen am 2026-08-18: `vcs/rest/update` gegen pti-pseudo antwortet
+#    `result 2500 - context [ROOT] doesnt exist in nodeGroup`.
+#    Der Code kommt deshalb per rsync ueber den SSH-Gate.
+#    Angenehme Nebenwirkung: auf dem Knoten liegt kein GitHub-Token.
+#
+# 2. Auf dem Knoten gibt es kein npm. Das Frontend wird hier gebaut und
+#    mitgeschickt.
+#
+# Folge aus beidem: Es gibt keinen Panel-Knopf, der einen Deploy ausloest.
+# Der Weg fuehrt ausschliesslich ueber diese Action (oder scripts/deploy-prod.ps1).
+name: Deploy to Production
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  JELASTIC_API_HOST: app.jpc.infomaniak.com
+  JELASTIC_ENV_NAME: pti-pseudo
+  # Anwendungsserver (Python Engine 3.14.7). Balancer 213781, PostgreSQL 213680.
+  JELASTIC_APP_NODE_ID: "213705"
+  # Am 2026-08-18 auf dem Knoten verifiziert (/etc/jelastic/metainf.conf).
+  ROOT_DIR: /home/jelastic/ROOT
+  # Erst scharfstellen, wenn das Zertifikat fuer die eigene Domain steht. Die
+  # jcloud-Default-URL hat danach ein nicht mehr passendes Zertifikat und laesst
+  # den Smoke-Test faelschlich scheitern (Erfahrung aus pti-translator).
+  LIVE_URL: https://pseudo.pti-tip-hub.ch
+  SSH_GATE_HOST: gate.jpc.infomaniak.com
+  SSH_GATE_PORT: "3022"
+
+concurrency:
+  group: deploy-prod
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Verify secrets
+        env:
+          JELASTIC_TOKEN: ${{ secrets.JELASTIC_TOKEN }}
+          JELASTIC_SSH_KEY: ${{ secrets.JELASTIC_SSH_KEY }}
+          JELASTIC_SSH_USER: ${{ secrets.JELASTIC_SSH_USER }}
+        run: |
+          for v in JELASTIC_TOKEN JELASTIC_SSH_KEY JELASTIC_SSH_USER; do
+            if [ -z "${!v}" ]; then
+              echo "::error::$v secret nicht gesetzt — siehe .github/workflows/README.md"
+              exit 1
+            fi
+          done
+
+      - uses: actions/checkout@v4
+
+      - name: Node.js bereitstellen
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: 1/5 — Frontend bauen
+        run: |
+          set -e
+          cd frontend
+          npm ci
+          npm run build
+          echo "→ Build-Ergebnis:"
+          ls -la dist/
+          test -f dist/index.html || { echo "::error::dist/index.html fehlt nach dem Build"; exit 1; }
+
+      # Rollback-Kopie: haengt am Run und kann bei einem kaputten Deploy von
+      # Hand zurueckgespielt werden, ohne neu bauen zu muessen.
+      - name: 1/5 — Build-Artefakt sichern
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-dist-${{ github.sha }}
+          path: frontend/dist
+          retention-days: 14
+
+      - name: 2/5 — SSH vorbereiten
+        run: |
+          set -e
+          mkdir -p ~/.ssh
+          printf '%s\n' "${{ secrets.JELASTIC_SSH_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          # Host-Key vorab holen, damit StrictHostKeyChecking aktiv bleiben kann.
+          ssh-keyscan -p "${SSH_GATE_PORT}" "${SSH_GATE_HOST}" >> ~/.ssh/known_hosts 2>/dev/null
+          test -s ~/.ssh/known_hosts || { echo "::error::Host-Key vom Gate nicht erhalten"; exit 1; }
+
+      - name: 3/5 — Code und Frontend hochladen (rsync)
+        env:
+          SSH_USER: ${{ secrets.JELASTIC_SSH_USER }}
+        run: |
+          set -e
+          # Knotenspezifischer Benutzer: <nodeId>-<accountId>. Der blosse
+          # Account-Benutzer landet in der Auswahl-Shell und taugt nicht fuer rsync.
+          TARGET="${JELASTIC_APP_NODE_ID}-${SSH_USER}@${SSH_GATE_HOST}"
+          echo "→ rsync nach ${TARGET}:${ROOT_DIR}"
+          # --delete: ROOT soll den Repo-Stand exakt spiegeln, damit geloeschte
+          #   Dateien auch auf dem Knoten verschwinden (u.a. Jelastics Demo-app.py).
+          # .git ist ausgeschlossen und muss es bleiben: die Presidio-Historie
+          #   ist rund 340 MB und hat auf dem Knoten nichts zu suchen.
+          # frontend/dist ist NICHT ausgeschlossen — es wurde gerade gebaut.
+          rsync -az --delete --human-readable \
+            --exclude '.git/' \
+            --exclude 'node_modules/' \
+            --exclude '.venv/' \
+            --exclude '__pycache__/' \
+            --exclude '*.pyc' \
+            --exclude '.pytest_cache/' \
+            -e "ssh -i ~/.ssh/deploy_key -p ${SSH_GATE_PORT} -o StrictHostKeyChecking=yes" \
+            ./ "${TARGET}:${ROOT_DIR}/"
+          echo "✅ Upload abgeschlossen"
+
+      - name: 4/5 — Abhaengigkeiten, Modell und Runner-Konfiguration
+        env:
+          SSH_USER: ${{ secrets.JELASTIC_SSH_USER }}
+        run: |
+          set -e
+          TARGET="${JELASTIC_APP_NODE_ID}-${SSH_USER}@${SSH_GATE_HOST}"
+          ssh -i ~/.ssh/deploy_key -p "${SSH_GATE_PORT}" -o StrictHostKeyChecking=yes \
+            "${TARGET}" "ROOT_DIR='${ROOT_DIR}' bash -s" <<'REMOTE'
+          set -e
+          cd "$ROOT_DIR"
+          # KEIN venv: der Dienst startet die App als `python -m uvicorn` mit
+          # seinem eigenen Interpreter (/bin/python, prefix /opt/jelastic-python).
+          # Ein venv daneben wuerde ignoriert. --user installiert nach
+          # /home/jelastic/.local/... — ausserhalb von ROOT, ueberlebt also
+          # jeden rsync mit --delete.
+          python -m pip install --user --upgrade pip
+          echo "→ pip install --user -r pti-requirements.txt"
+          python -m pip install --user -r "$ROOT_DIR/pti-requirements.txt"
+          # Beweist, dass Modell, Presidio und der Einstiegspunkt importierbar
+          # sind. Ohne diese Zeilen faellt ein Fehler erst beim ersten Request
+          # auf — dann aber als 500 fuer den Nutzer.
+          python -c "import de_core_news_md; print('spaCy-Modell OK')"
+          python -c "import presidio_analyzer, presidio_anonymizer; print('Presidio OK (editable aus dem Baum)')"
+          python -c "import backend.main; print('Einstiegspunkt OK')"
+          # Runner-Konfiguration an ihren Platz ausserhalb von ROOT.
+          # Steuert APP_MODULE, SSLEnabled und WORKERS — Begruendung in der Datei.
+          cp "$ROOT_DIR/deploy/pythonenv" /home/jelastic/pythonenv
+          echo "→ aktive Runner-Konfiguration:"
+          grep -vE '^[[:space:]]*#|^[[:space:]]*$' /home/jelastic/pythonenv | sed 's/^/    /'
+          echo "→ Frontend auf dem Knoten:"
+          ls -la "$ROOT_DIR/frontend/dist/" | head -10
+          REMOTE
+
+      - name: 5/5 — Knoten neu starten
+        env:
+          JELASTIC_TOKEN: ${{ secrets.JELASTIC_TOKEN }}
+        run: |
+          set -e
+          API="https://${JELASTIC_API_HOST}/1.0/environment"
+          echo "→ POST ${API}/control/rest/restartnodes (nodeId=${JELASTIC_APP_NODE_ID})"
+          response=$(curl -fsS -X POST "${API}/control/rest/restartnodes" \
+            --data-urlencode "envName=${JELASTIC_ENV_NAME}" \
+            --data-urlencode "session=${JELASTIC_TOKEN}" \
+            --data-urlencode "nodeId=${JELASTIC_APP_NODE_ID}")
+          echo "$response"
+          result=$(echo "$response" | jq -r '.result // 1')
+          if [ "$result" != "0" ]; then
+            echo "::error::Restart fehlgeschlagen (result=$result)"
+            exit 1
+          fi
+
+      - name: Smoke-Test (Health + SSO-Gate + SPA)
+        run: |
+          # 30s statt der 15s der Node-Schwestertools: jeder uvicorn-Worker
+          # laedt beim Start sein eigenes spaCy-Modell (gemessen ~7s).
+          echo "→ Warte 30s auf uvicorn und Modell-Ladezeit..."
+          sleep 30
+          # 1) Laeuft der Prozess? /api/health ist vom SSO-Gate ausgenommen.
+          #    12 Versuche statt 10: ein Jelastic-Restart hat typisch ZWEI
+          #    Ausfallfenster mit einer truegerischen 200 dazwischen.
+          ok=""
+          for i in $(seq 1 12); do
+            if body=$(curl -fsS --max-time 10 "${LIVE_URL}/api/health" 2>/dev/null); then
+              if echo "$body" | grep -qE '"ok":[[:space:]]*true'; then
+                echo "✅ Health OK ($i. Versuch): $body"; ok=1; break
+              fi
+            fi
+            echo "  Health-Versuch $i fehlgeschlagen, retry in 10s..."
+            sleep 10
+          done
+          if [ -z "$ok" ]; then
+            echo "::error::Health Check schlug 12x fehl. Auf dem Knoten: tail -n 100 /var/log/pythonengine.log"
+            exit 1
+          fi
+          # 2) Serviert die App mehr als nur Health? Eine gegatete Route muss
+          #    ohne Session mit 401/302 antworten. /api/health allein ist
+          #    SSO-ausgenommen und daher blind fuer einen Fehler, der alle
+          #    anderen Routen 500t oder sperrt.
+          code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 "${LIVE_URL}/api/v1/terms" || echo 000)
+          echo "→ Gegatete Route /api/v1/terms → HTTP $code"
+          case "$code" in
+            401|302) echo "✅ SSO-Gate antwortet erwartungsgemaess (nicht eingeloggt).";;
+            200) echo "::warning::Gegatete Route ist ohne Login offen (200) — steht HUB_AUTH=off in der Prod-Env?";;
+            *) echo "::error::Gegatete Route liefert $code — App/SSO-Gate defekt (Health war OK, aber die App serviert nicht korrekt)."; exit 1;;
+          esac
+          # 3) Wird die SPA ausgeliefert? Ein fehlendes dist/ ist der haeufigste
+          #    Fehler genau dieses Deploy-Musters.
+          spa=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 "${LIVE_URL}/" || echo 000)
+          echo "→ SPA-Wurzel / → HTTP $spa"
+          case "$spa" in
+            302|401) echo "✅ SPA liegt hinter dem SSO-Gate (erwartet).";;
+            200) echo "✅ SPA wird ausgeliefert.";;
+            404) echo "::error::404 auf / — frontend/dist fehlt auf dem Knoten. Schritt 3/5 pruefen."; exit 1;;
+            *) echo "::warning::Unerwarteter Status $spa auf /";;
+          esac
+          echo "✅ Smoke-Test bestanden."
+
+      - name: Aufraeumen
+        if: always()
+        run: rm -f ~/.ssh/deploy_key

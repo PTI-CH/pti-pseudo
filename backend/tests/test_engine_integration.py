@@ -139,10 +139,47 @@ def test_engine_ist_ein_singleton():
 
 
 def test_engine_beherrscht_die_katalogtypen():
-    """Alle Typen aus dem Katalog müssen von der Engine geliefert werden können."""
+    """Jeder Katalogtyp mit Erkenner muss von der Standard-Engine kommen.
+
+    Ausgenommen sind die Typen aus ``NUR_BEGRIFFSLISTE``: fuer sie gibt es
+    bewusst keinen Erkenner. Sie werden im Test darunter separat geprueft —
+    hier auszuschliessen und dort nachzuweisen ist genauer, als sie einfach
+    zu uebergehen.
+    """
     koennen = set(supported_entities())
-    fehlend = set(entities.CATALOG) - koennen
+    erwartet = set(entities.CATALOG) - set(entities.NUR_BEGRIFFSLISTE)
+    fehlend = erwartet - koennen
     assert not fehlend, f"Kein Erkenner liefert: {sorted(fehlend)}"
+
+
+def test_begriffslisten_typen_kommen_nur_ueber_die_liste():
+    """Die PTI-Typen fehlen der Standard-Engine und kommen mit Begriffsliste an.
+
+    Beide Haelften zaehlen. Waere die erste falsch, gaebe es doch einen
+    Erkenner und die Zuordnung zu ``NUR_BEGRIFFSLISTE`` waere hinfaellig.
+    Waere die zweite falsch, stuende ein Typ im Katalog, den man gar nicht
+    erzeugen kann.
+    """
+    assert entities.NUR_BEGRIFFSLISTE, "Es sollte mindestens einen solchen Typ geben"
+
+    ohne_liste = set(supported_entities())
+    for typ in entities.NUR_BEGRIFFSLISTE:
+        assert typ not in ohne_liste, (
+            f"{typ} steht in NUR_BEGRIFFSLISTE, wird aber von einem Erkenner "
+            "geliefert — die Zuordnung stimmt nicht mehr."
+        )
+
+    begriff = "Kennwortprojekt Nordlicht"
+    typ = entities.NUR_BEGRIFFSLISTE[0]
+    treffer = analyze(
+        f"Die Unterlagen zu {begriff} liegen bereit.",
+        custom_terms=[{"term": begriff, "entity_type": typ, "match_mode": "exact"}],
+    )
+    passend = [t for t in treffer if t.entity_type == typ]
+    assert passend, (
+        f"{typ} kam auch ueber die Begriffsliste nicht an — gefunden: "
+        f"{sorted({t.entity_type for t in treffer})}"
+    )
 
 
 def test_plz_wird_nur_mit_adresskontext_gefunden():

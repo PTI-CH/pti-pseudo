@@ -7,11 +7,15 @@ spätere Anonymisierungs-Schicht beziehen ihre Konstanten von hier — damit ein
 Tippfehler wie ``"CH_POSTALCODE"`` sofort auffällt statt still ins Leere zu
 laufen.
 
-Zwei Gruppen:
+Drei Gruppen:
 
 * **Presidio-Standardtypen** — von den eingebauten Erkennern bzw. vom
   spaCy-NER-Modell geliefert (``PERSON``, ``LOCATION``, …).
 * **CH_-Typen** — die schweizspezifischen Ergänzungen dieses Projekts.
+* **PTI_-Typen** — PTI-eigenes Vokabular (Projekt- und Produktnamen). Anders
+  als die beiden anderen Gruppen liefert dafür kein Erkenner Treffer: sie
+  kommen ausschliesslich über die Begriffsliste herein, siehe die Erklärung
+  bei ``PTI_PROJEKT`` unten.
 """
 
 from __future__ import annotations
@@ -40,6 +44,21 @@ CH_IBAN = "CH_IBAN"
 CH_PHONE = "CH_PHONE"
 CH_POSTAL_CODE = "CH_POSTAL_CODE"
 CH_PLATE = "CH_PLATE"
+
+# ── PTI-eigene Typen ────────────────────────────────────────────────────────
+# Projekt- und Produktnamen wie "KEPLO" oder "MEF" sind keine Personendaten,
+# aber internes Vokabular, das nicht an eine externe KI gehen soll. Sie kommen
+# ausschliesslich über die Begriffsliste (Ebene 0, siehe
+# ``backend/engine/recognizers/custom_terms.py``) herein — kein Erkenner
+# findet sie von selbst, weil kein statistisches Modell und keine Heuristik
+# ein hausinternes Kürzel kennen kann.
+#
+# Eigene Typen statt der Wiederverwendung von ``ORGANIZATION``, damit der
+# Qualitätsbericht (``scripts/golden_set_report.py``) je Kategorie ausweisen
+# kann, welche Fehlalarme verursacht. Wäre alles ``ORGANIZATION``, stünde dort
+# nur eine einzige, nicht weiter aufschlüsselbare Zahl.
+PTI_PROJEKT = "PTI_PROJEKT"
+PTI_PRODUKT = "PTI_PRODUKT"
 
 
 class Policy(str, Enum):
@@ -172,6 +191,20 @@ CATALOG: Dict[str, EntityDefinition] = {
             Policy.KEEP,
             "Kantonskürzel plus Nummer — mehrdeutig gegenüber Adressangaben.",
         ),
+        EntityDefinition(
+            PTI_PROJEKT,
+            "Projekt (PTI)",
+            Policy.REDACT,
+            "Interne PTI-Projektbezeichnung — nur über die Begriffsliste "
+            "erkannt, kein Recognizer findet sie von selbst.",
+        ),
+        EntityDefinition(
+            PTI_PRODUKT,
+            "Produkt (PTI)",
+            Policy.REDACT,
+            "Interne PTI-Produktbezeichnung — nur über die Begriffsliste "
+            "erkannt, kein Recognizer findet sie von selbst.",
+        ),
     )
 }
 
@@ -180,6 +213,20 @@ ALL_ENTITIES: List[str] = list(CATALOG)
 
 #: Nur die schweizspezifischen Typen.
 CH_ENTITIES: List[str] = [name for name in CATALOG if name.startswith("CH_")]
+
+#: Typen, die **ausschliesslich** über die Begriffsliste (Ebene 0) entstehen.
+#:
+#: Es gibt fuer sie bewusst keinen Erkenner: ein Projektname wie ``KEPLO`` oder
+#: ``MEF`` ist an nichts erkennbar ausser daran, dass jemand ihn in die Liste
+#: eingetragen hat. Kein Muster, keine Pruefziffer, kein Sprachmodell findet so
+#: etwas von selbst.
+#:
+#: Die Unterscheidung ist nicht kosmetisch: die Standard-Engine
+#: (``get_default_analyzer()``) wird ohne Begriffsliste gebaut und kann diese
+#: Typen daher nie liefern. Wer ueber ``supported_entities()`` prueft, welche
+#: Typen die Engine beherrscht, muss diese hier gesondert behandeln — sonst
+#: sieht eine vollstaendige Konfiguration wie eine Luecke aus.
+NUR_BEGRIFFSLISTE: List[str] = [name for name in CATALOG if name.startswith("PTI_")]
 
 
 def get_label(entity_type: str) -> str:

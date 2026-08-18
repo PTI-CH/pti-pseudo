@@ -58,3 +58,26 @@ Dateien `.claude/jelastic-token` und `.claude/jelastic.config.json`
 Wichtig: Das Skript geht für den Build-Schritt über den SSH-Gate und **nicht**
 über die Jelastic-`execcmd`-API. Diese Methode steht nicht in der Token-Whitelist
 und antwortet mit `result 8202`.
+
+## Offener Verbesserungsvorschlag: paths-ignore
+
+Der Workflow reagiert auf **jeden** Push nach `main` — auch auf reine Test-,
+Doku- oder Golden-Set-Änderungen, die in Produktion nichts bewirken. Jeder
+solche Lauf kostet ein Ausfallfenster von drei bis sechs Minuten.
+
+```yaml
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - 'golden-set/**'
+      - 'backend/tests/**'
+      - 'docs/**'
+      - '**.md'
+```
+
+Das ist nicht Kosmetik: je öfter ein Deploy ohne Not läuft, desto eher gewöhnt
+man sich an Ausfallfenster — und übersieht dann eines, das etwas bedeutet.
+
+Noch nicht umgesetzt, weil es das Deploy-Verhalten ändert und beim Nutzer
+bestätigt werden sollte.

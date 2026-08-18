@@ -282,6 +282,8 @@ und versucht es zwölfmal. Nicht beim ersten grünen Ergebnis für fertig erklä
 
 | Symptom | Wahrscheinliche Ursache |
 |---|---|
+| **Kachel im Hub nicht sichtbar** | Die CRM-Spalte `pseudonymizer_access` ist `DEFAULT FALSE`. Der Hub blendet die Kachel nur ein, wenn das CRM `apps.pseudonymizer: true` liefert. Abhilfe: CRM → Benutzerverwaltung → Spalte „Pseudonymizer-Zugriff". Wirkt ohne Re-Login, spätestens nach 30 s (Cache-TTL des SSO-Gates). **Das ist Absicht** — ein neues Werkzeug soll nicht sofort für alle offenstehen. |
+| Variable im Panel gesetzt, die App sieht sie trotzdem nicht | Der Runner lädt `/.jelenv` per `source`, **exportiert die Werte aber nicht**. Sie müssen in `deploy/pythonenv` namentlich im `export` stehen. Prüfen auf dem Knoten: `tr '\0' '\n' < /proc/$(cat /home/jelastic/pythonengine.pid)/environ \| grep NAME` |
 | 404 auf `/`, aber `/api/health` antwortet | `frontend/dist` fehlt auf dem Knoten — Panel-Deploy ohne Action |
 | Alle Routen ausser Health liefern 500 | Modell fehlt oder `VAULT_MASTER_KEY`/`DATABASE_URL` nicht gesetzt |
 | Gegatete Route liefert 200 ohne Login | `HUB_AUTH=off` steht versehentlich in der Prod-Env |

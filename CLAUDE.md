@@ -62,6 +62,33 @@ lebt in Pfaden, die es upstream nicht gibt:
    git checkout --ours README.MD && git add README.MD
    ```
 
+## Qualitaet der Erkennung messen
+
+Die Testsuite prueft, **ob** der Code laeuft. Das Golden-Set prueft, **wie gut**
+er erkennt — ohne es kann eine Verbesserung an einem Erkenner einen anderen
+still verschlechtern.
+
+```bash
+.venv/Scripts/python -m pytest backend/tests/test_golden_set.py -v   # Gate
+.venv/Scripts/python scripts/golden_set_report.py                    # Bericht
+```
+
+Der Bericht listet auf, **was** verfehlt wurde und **was** ein Fehlalarm war —
+mit Dokumentname und Ampelstufe. Das ist der Einstieg fuer jede Verbesserung an
+der Engine.
+
+Drei Regeln:
+
+1. **Marken nicht nachziehen.** Reisst eine Zielmarke, ist die Erkennung
+   schlechter geworden — nicht die Marke zu hoch. Zielmarken und Messstand
+   stehen in `golden-set/README.md`.
+2. **Echte Umlaute in Testdaten.** Das Modell haelt `Spaeter` faelschlich fuer
+   einen Personennamen, `Später` nicht. Ein Golden-Set in ae/oe/ue-Schreibweise
+   misst die falsche Groesse.
+3. **Keine echten Dokumente.** `golden-set/` ist per `.gitignore` auf
+   `synthetic/` beschraenkt. Reale PTI-Dokumente enthalten genau die
+   Personendaten, die dieses Werkzeug entfernen soll.
+
 ### Checkliste nach jedem `git merge upstream/main`
 
 ```bash

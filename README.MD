@@ -69,6 +69,19 @@ Zwei Dinge, die beim Testen leicht schiefgehen:
 - **Keine echten Personendaten ins Repository** — auch nicht in Fixtures.
   `golden-set/` ist per `.gitignore` auf `synthetic/` beschränkt.
 
+## Erkennungsqualitaet
+
+Neben den Funktionstests gibt es ein Golden-Set: synthetische Dokumente, bei
+denen vorher feststeht, was gefunden werden muss und was nicht.
+
+```bash
+.venv/Scripts/python -m pytest backend/tests/test_golden_set.py -v   # Gate
+.venv/Scripts/python scripts/golden_set_report.py                    # Bericht
+```
+
+Messstand, Zielmarken und die bekannten Modellschwaechen stehen in
+[golden-set/README.md](golden-set/README.md).
+
 ## Betrieb
 
 Läuft auf Infomaniak jCloud unter <https://pseudo.pti-tip-hub.ch>.

@@ -5,6 +5,7 @@ import ErgebnisFeld from '../components/ErgebnisFeld';
 import Hinweis from '../components/Hinweis';
 import {
   fehlerMeldung,
+  gibErgebnisFrei,
   ladeVaults,
   rueckfuehrenDatei,
   rueckfuehrenText,
@@ -69,12 +70,19 @@ export default function Rueckfuehren() {
     setFehler(null);
     setLaeuft(true);
     try {
-      if (quelle === 'datei' && datei) {
-        setErgebnis(await rueckfuehrenDatei(datei, vaultId));
-      } else {
-        setErgebnis(await rueckfuehrenText(text, vaultId));
-      }
+      const neu =
+        quelle === 'datei' && datei
+          ? await rueckfuehrenDatei(datei, vaultId)
+          : await rueckfuehrenText(text, vaultId);
+      // Eine alte Blob-URL (Dateiergebnis) lebt nur im Browser-Speicher — wird
+      // sie hier durch ein neues Ergebnis ersetzt, muss sie freigegeben werden.
+      gibErgebnisFrei(ergebnis);
+      setErgebnis(neu);
     } catch (e) {
+      // Ein fehlgeschlagener Lauf verwirft ein evtl. noch vorhandenes altes
+      // Dateiergebnis — dessen Blob-URL muss vor dem Verwerfen freigegeben
+      // werden, sonst bleibt sie bis zum Reload im Speicher hängen.
+      gibErgebnisFrei(ergebnis);
       setFehler(fehlerMeldung(e));
       setErgebnis(null);
     } finally {

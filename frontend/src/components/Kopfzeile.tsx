@@ -1,6 +1,6 @@
 import { BookOpen, Moon, Sun, UserRound } from 'lucide-react';
 import Logo from './Logo';
-import { anzeigeName, rollenLabel, useBenutzer } from '../core/me';
+import { anzeigeName, rollenLabel, type Benutzer } from '../core/me';
 
 /** Adresse des Fachkonzepts (§1–§15) im Schwester-Repo `landing`. */
 const FACHKONZEPT_URL = 'https://pti-tip-hub.ch/ideen/pseudonymizer.html';
@@ -8,10 +8,15 @@ const FACHKONZEPT_URL = 'https://pti-tip-hub.ch/ideen/pseudonymizer.html';
 interface Props {
   dunkel: boolean;
   onDunkel: (dunkel: boolean) => void;
+  /**
+   * Von `App` durchgereicht statt hier per `useBenutzer()` selbst geladen:
+   * `App` braucht denselben Benutzer für die Admin-Bereichswahl, ein zweiter
+   * Aufruf hier würde `/api/me` doppelt anfragen.
+   */
+  benutzer: Benutzer;
 }
 
-export default function Kopfzeile({ dunkel, onDunkel }: Props) {
-  const benutzer = useBenutzer();
+export default function Kopfzeile({ dunkel, onDunkel, benutzer }: Props) {
   const name = anzeigeName(benutzer);
   const rolle = rollenLabel(benutzer.role);
 

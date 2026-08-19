@@ -1,8 +1,13 @@
 """REST-Endpunkte fuer Erkennung, Pseudonymisierung und Rueckfuehrung.
 
-Pfade nach Fachkonzept Abschnitt 4 (``/api/v1/documents:<aktion>``). Jeder
-Endpunkt nimmt entweder JSON mit ``text`` oder ein Multipart-Formular mit
-``file`` entgegen — die Oberflaeche benutzt beides.
+Pfade nach Fachkonzept Abschnitt 4 (``documents:<aktion>``). Jeder Endpunkt
+nimmt entweder JSON mit ``text`` oder ein Multipart-Formular mit ``file``
+entgegen — die Oberflaeche benutzt beides.
+
+Der Router traegt **kein** eigenes Praefix: ``backend/main.py`` haengt ihn
+zweimal ein — unter ``/api/v1`` hinter dem SSO-Gate und unter ``/api/ext/v1``
+hinter der Schluessel-Pruefung. Gleiche Handler, gleiche Vertraege, zwei
+Zugangswege.
 
 Was hier bewusst NICHT passiert: es werden keine Dokument-Bytes gespeichert.
 Die Verarbeitung ist ephemer, nur die Zuordnung landet verschluesselt im Vault
@@ -23,9 +28,10 @@ from backend import pipeline
 from backend.adapters import UnsupportedFormatError, supported_formats
 from backend.config import get_settings
 from backend.core.deps import current_username, get_session, get_tenant
+from backend.engine import entities as ents
 from backend.vault.models import CustomTerm, UsageEvent, Vault
 
-router = APIRouter(prefix="/api/v1", tags=["documents"])
+router = APIRouter(tags=["documents"])
 
 
 class TextRequest(BaseModel):
@@ -50,6 +56,16 @@ class TextRequest(BaseModel):
         description=(
             "Vom Menschen bestaetigte Auswahl aus einem vorherigen detect-Lauf, "
             "je Eintrag segment_id/start/end. Ohne Angabe gilt die Default-Policy."
+        ),
+    )
+    entities: Optional[list[str]] = Field(
+        None,
+        description=(
+            "Explizite Kategorienwahl (Entitaetstypen). Wird sowohl fuer die "
+            "Erkennung als auch fuer die Ersetzung verwendet und schlaegt dabei "
+            "die Default-Policy — auch KEEP-Typen wie CH_POSTAL_CODE werden "
+            "ersetzt, wenn sie hier ausdruecklich gewaehlt sind. Ohne Angabe "
+            "gilt die volle Erkennung bzw. die Default-Policy."
         ),
     )
 
@@ -157,6 +173,34 @@ def _check_text_size(text: str) -> None:
         )
 
 
+def parse_entities(value: list[str] | str | None) -> Optional[list[str]]:
+    """Validiert die Kategorienwahl gegen den Katalog.
+
+    Nimmt sowohl die Liste aus dem JSON-Textpfad als auch die Kommaliste aus
+    dem Multipart-Formular (``anonymize-file`` kennt keine Listenfelder) und
+    bringt beide auf dieselbe Form. Eine leere Liste ist kein "alles" —
+    das waere stillschweigend nichts ausgewaehlt zu haben — sondern ein
+    Bedienfehler und wird als solcher gemeldet.
+    """
+    if value is None:
+        return None
+    if isinstance(value, str):
+        value = [v.strip() for v in value.split(",") if v.strip()]
+
+    if not value:
+        raise HTTPException(400, detail="Mindestens eine Kategorie waehlen.")
+    unbekannt = [v for v in value if v not in ents.ALL_ENTITIES]
+    if unbekannt:
+        raise HTTPException(
+            400,
+            detail=(
+                f"Unbekannte Entitaetstypen: {', '.join(unbekannt)}. "
+                f"Erlaubt: {', '.join(ents.ALL_ENTITIES)}."
+            ),
+        )
+    return value
+
+
 @router.post("/documents:detect")
 async def detect(
     request: Request,
@@ -165,7 +209,8 @@ async def detect(
 ) -> dict:
     """Findet Entitaeten, ohne etwas zu ersetzen oder zu speichern."""
     _check_text_size(payload.text)
-    tenant = get_tenant(session)
+    entities = parse_entities(payload.entities)
+    tenant = get_tenant(session, request)
     terms = _load_custom_terms(session, tenant.id)
     result = pipeline.detect_in_segments(
         [
@@ -173,6 +218,7 @@ async def detect(
                 id=pipeline.TEXT_SEGMENT_ID, text=payload.text, location=None
             )
         ],
+        entities=entities,
         custom_terms=terms,
     )
     _record_usage(session, tenant, current_username(request), "detect", result)
@@ -191,7 +237,8 @@ async def anonymize(
 ) -> dict:
     """Pseudonymisiert einen Text und legt bei Bedarf den Vault an."""
     _check_text_size(payload.text)
-    tenant = get_tenant(session)
+    entities = parse_entities(payload.entities)
+    tenant = get_tenant(session, request)
     terms = _load_custom_terms(session, tenant.id)
     vault = _resolve_vault(
         session, tenant, payload.mode, payload.vault_id, payload.vault_label
@@ -201,6 +248,7 @@ async def anonymize(
         session,
         vault,
         payload.text,
+        entities=entities,
         custom_terms=terms,
         selected=payload.selected_entities,
     )
@@ -225,6 +273,7 @@ async def anonymize_file(
     mode: Annotated[str, Form()] = "reversible",
     vault_id: Annotated[Optional[str], Form()] = None,
     vault_label: Annotated[Optional[str], Form()] = None,
+    entities: Annotated[Optional[str], Form()] = None,
 ) -> dict:
     """Pseudonymisiert ein Dokument formaterhaltend.
 
@@ -234,8 +283,9 @@ async def anonymize_file(
     """
     data = await file.read()
     _check_size(data)
+    parsed_entities = parse_entities(entities)
 
-    tenant = get_tenant(session)
+    tenant = get_tenant(session, request)
     terms = _load_custom_terms(session, tenant.id)
     vault = _resolve_vault(
         session, tenant, mode, vault_id, vault_label or file.filename
@@ -243,7 +293,12 @@ async def anonymize_file(
 
     try:
         out, detection, applied = pipeline.anonymize_document(
-            session, vault, data, file.filename or "unbenannt.txt", custom_terms=terms
+            session,
+            vault,
+            data,
+            file.filename or "unbenannt.txt",
+            entities=parsed_entities,
+            custom_terms=terms,
         )
     except UnsupportedFormatError as exc:
         raise HTTPException(
@@ -277,8 +332,14 @@ async def reverse(
 
     Achtung: hier entstehen wieder Klartext-Personendaten. Die Oberflaeche
     weist darauf hin.
+
+    Die Textgrenze gilt auch hier: die Rueckfuehrung laeuft zwar nicht durch
+    spaCy, aber ein unbegrenzter Text wuerde die Ersetzung ueber den ganzen
+    Vault-Bestand ungebremst laufen lassen. Dieselbe Grenze wie bei ``detect``
+    und ``anonymize``, damit die Aufruferin nur eine Zahl kennen muss.
     """
-    tenant = get_tenant(session)
+    _check_text_size(payload.text)
+    tenant = get_tenant(session, request)
     vault = session.get(Vault, _as_uuid(payload.vault_id))
     if vault is None or vault.tenant_id != tenant.id:
         raise HTTPException(404, detail="Zuordnungstabelle nicht gefunden.")
@@ -308,7 +369,7 @@ async def reverse_file(
     data = await file.read()
     _check_size(data)
 
-    tenant = get_tenant(session)
+    tenant = get_tenant(session, request)
     vault = session.get(Vault, _as_uuid(vault_id))
     if vault is None or vault.tenant_id != tenant.id:
         raise HTTPException(404, detail="Zuordnungstabelle nicht gefunden.")

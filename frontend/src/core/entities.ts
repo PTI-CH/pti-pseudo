@@ -1,8 +1,16 @@
 // Zentrale Uebersetzungstabelle fuer die Entitaetstypen der Engine.
 //
 // Presidio liefert englische Bezeichner (PERSON, IBAN_CODE, …), die Oberflaeche
-// zeigt ausschliesslich deutsche Labels. Diese Map ist die EINZIGE Stelle, an
-// der uebersetzt wird — neue Erkenner werden hier ergaenzt.
+// zeigt ausschliesslich deutsche Labels.
+//
+// Die Kategorienliste fuer die Auswahl vor dem Lauf (Checkboxen, Beschreibung,
+// Default-Policy) kommt seit der Kategorienwahl-Etappe vom Server
+// (`ladeKategorien()` in `core/api.ts`, Quelle `GET /api/v1/entities`) — das
+// Frontend haelt keine eigene Kopie mehr, die auseinanderlaufen koennte.
+// Diese Datei bleibt trotzdem bestehen: `labelFuerTyp()` ist der Fallback fuer
+// Stellen, die nur den rohen Typ kennen und keinen Katalog zur Hand haben
+// (z. B. die Befund-Ansicht `BefundListe.tsx`), und die Ampel-Logik unten
+// gehoert fachlich hierher, nicht zum API-Client.
 
 /** Die Typen, die Engine und eigene Schweizer Erkenner heute liefern koennen. */
 export const ENTITAETS_TYPEN = [

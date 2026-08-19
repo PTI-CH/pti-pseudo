@@ -21,6 +21,7 @@ gemeinsame Anmeldeverfahren des TIP-Hubs.
 | **Ersetzen** | Umkehrbar (`[[PERSON_1]]`, Zuordnung im verschlüsselten Tresor) oder endgültig anonym |
 | **Zurückführen** | Verlustfrei — der zurückgeführte Text ist byte-identisch zum Original |
 | **Formate** | DOCX (inkl. Kopf-/Fusszeilen, Tabellen, Fussnoten, Kommentare, Textboxen), TXT, CSV |
+| **Kategorienwahl** | Vor dem Lauf bestimmen, welche Entitätstypen pseudonymisiert werden (nur IBANs, nur Namen, beliebige Kombination) |
 
 Schweizer Erkenner: AHV-Nummer mit EAN-13-Prüfziffer, CH-/LI-IBAN mit
 mod-97-Prüfung, Telefonnummern mit Vorwahlprüfung, Kontrollschilder,
@@ -90,6 +91,14 @@ Einrichtung, Deploy-Wege und Fehlersuche stehen in
 [.github/workflows/README.md](.github/workflows/README.md).
 
 Push auf `main` löst den Produktiv-Deploy aus.
+
+## Externe API
+
+Andere PTI-Anwendungen (Translator, PPM, HIKA, …) können denselben Funktions-
+umfang — erkennen, ersetzen, zurückführen — über `https://pseudo.pti-tip-hub.ch/api/ext/v1`
+nutzen, geschützt durch einen Schlüssel, den ein Administrator in der
+Oberfläche unter „API-Schlüssel" erzeugt. Authentisierung, alle Endpunkte mit
+Beispiel-Requests und das Fehlerformat stehen in [API.md](API.md).
 
 ## Sicherheit
 

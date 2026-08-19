@@ -56,6 +56,30 @@ def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def as_utc(value: datetime | None) -> datetime | None:
+    """Macht einen gelesenen Zeitstempel zuverlaessig zeitzonenbewusst.
+
+    SQLite speichert ``DateTime(timezone=True)`` ohne Zone und liefert beim
+    Lesen ein naives ``datetime`` zurueck; PostgreSQL liefert ein bewusstes.
+    Ein Vergleich zwischen beiden Sorten wirft ``TypeError`` — genau der
+    Fehler, der erst im Testlauf gegen SQLite auffaellt. Deshalb hier
+    einmalig geradegezogen, statt an jeder Vergleichsstelle.
+
+    Oeffentlich, weil das nicht nur die Modelle betrifft: wer einen gelesenen
+    Zeitstempel serialisiert, muss ihn vorher hier durchreichen. Ein naiver
+    Wert wird zu ISO **ohne** Zonenangabe, und ein Browser liest den dann als
+    Lokalzeit — im Sommer zwei Stunden daneben.
+    """
+    if value is None:
+        return None
+    return value if value.tzinfo is not None else value.replace(tzinfo=timezone.utc)
+
+
+#: Alter, modulinterner Name. Bleibt als Alias bestehen, damit bestehende
+#: Aufrufer (und Tests) nicht brechen — neuer Code nimmt ``as_utc``.
+_as_utc = as_utc
+
+
 def _new_uuid() -> uuid.UUID:
     """Primaerschluessel als UUID4.
 
@@ -292,8 +316,76 @@ class UsageEvent(Base):
     )
 
 
+class ApiKey(Base):
+    """Schluessel einer aufrufenden Anwendung fuer ``/api/ext/v1``.
+
+    Warum in der Datenbank und nicht in der Umgebung (wie beim
+    ``pti-translator``): hier sollen *mehrere* Anwendungen Schluessel bekommen
+    und wieder verlieren, ohne dass jemand im Jelastic-Dashboard eine Variable
+    aendert und den Knoten neu startet.
+
+    Warum nur der Hash: gespeichert wird ausschliesslich ``sha256(token)`` in
+    Hex. Der Klartext wird genau einmal gezeigt — bei der Erzeugung. Ein
+    langsames Verfahren (bcrypt, Argon2) waere hier ohne Nutzen, weil der Token
+    32 zufaellige Bytes traegt und nicht erraten werden kann; SHA-256 haelt den
+    Lookup dafuer billig genug, um ihn bei jedem Aufruf zu machen.
+
+    Warum Soft-Delete: ``revoked_at`` statt ``DELETE``. Ein widerrufener
+    Schluessel muss in der Liste sichtbar bleiben — sonst laesst sich spaeter
+    nicht mehr sagen, welche Anwendung wann Zugriff hatte. ``key_prefix`` haelt
+    die ersten 12 Zeichen fest, damit ein Schluessel in Liste und Log
+    wiedererkennbar ist, ohne dass der Klartext irgendwo steht.
+    """
+
+    __tablename__ = "api_keys"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=_new_uuid)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    label: Mapped[str] = mapped_column(String(200), nullable=False)
+    key_prefix: Mapped[str] = mapped_column(String(16), nullable=False)
+    # Unique-Index: er ist zugleich der Zugriffspfad der Authentisierung —
+    # ein Aufruf schlaegt genau eine Zeile nach, nicht die ganze Tabelle.
+    key_hash: Mapped[str] = mapped_column(
+        String(64), nullable=False, unique=True, index=True
+    )
+    created_by: Mapped[str] = mapped_column(String(150), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=_utcnow
+    )
+    expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    last_used_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    revoked_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+    @property
+    def is_active(self) -> bool:
+        """Nicht widerrufen und nicht abgelaufen.
+
+        Beides ergibt nach aussen denselben Befund (``API_KEY_INVALID``) — wer
+        einen ungueltigen Schluessel schickt, soll nicht erfahren, ob er
+        widerrufen wurde oder nie existiert hat.
+        """
+        if self.revoked_at is not None:
+            return False
+        expires_at = as_utc(self.expires_at)
+        return expires_at is None or expires_at > _utcnow()
+
+    def __repr__(self) -> str:
+        """Kurzform fuer Logs — mit Praefix, nie mit Hash oder Klartext."""
+        return f"<ApiKey {self.label!r} {self.key_prefix}...>"
+
+
 __all__ = [
+    "ApiKey",
     "Base",
+    "as_utc",
     "CustomTerm",
     "Job",
     "MappingEntry",

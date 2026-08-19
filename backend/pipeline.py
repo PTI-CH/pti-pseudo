@@ -116,8 +116,29 @@ def detect_in_segments(
     zurueckschreibt. Ein Zusammenkleben aller Segmente waere schneller, wuerde
     aber Satzgrenzen ueber Absatz- und Zellengrenzen hinweg erfinden und die
     NER-Qualitaet verschlechtern.
+
+    ``entities`` wird vorher auf das geschnitten, was diese Engine ueberhaupt
+    bedienen kann (``engine.servable_entities``). Der Katalog in
+    :mod:`backend.engine.entities` sagt naemlich nur, welche Typen wir
+    *anbieten* — nicht, dass es fuer jeden auch einen registrierten Erkenner
+    gibt. Die ``PTI_``-Typen entstehen ausschliesslich ueber die
+    Begriffsliste: ohne einen Begriff dieses Typs existiert kein Erkenner
+    dafuer, und Presidio quittiert eine Anfrage ohne jeden zustaendigen
+    Erkenner mit einem ``ValueError`` — fuer die Aufruferin ein 500 auf eine
+    voellig gueltige Kategorienwahl. Bleibt nach dem Schnitt nichts uebrig,
+    gibt es hier schlicht keinen Befund; die Segmente (und damit ``char_count``
+    fuer die Nutzungserfassung) bleiben erhalten.
+
+    Dieser eine Ort deckt beide Wege ab — Text- wie Dokumentpfad laufen ueber
+    diese Funktion.
     """
     result = DetectionResult(segments=list(segments))
+
+    if entities is not None:
+        entities = engine.servable_entities(list(entities), custom_terms=custom_terms)
+        if not entities:
+            return result
+
     for segment in segments:
         if not segment.text.strip():
             continue
@@ -140,7 +161,10 @@ def detect_in_segments(
 
 
 def _select(
-    findings: Sequence[Finding], selected: Optional[Sequence[dict]]
+    findings: Sequence[Finding],
+    selected: Optional[Sequence[dict]],
+    *,
+    entities: Optional[Iterable[str]] = None,
 ) -> list[Finding]:
     """Filtert die Funde auf die vom Menschen bestaetigte Auswahl.
 
@@ -148,15 +172,21 @@ def _select(
     Postleitzahl und Kontrollschild stehen bewusst auf ``keep`` und werden nicht
     ungefragt ersetzt (sonst zerstoert ein Fehlalarm den Text).
     """
-    if selected is None:
-        return [
-            f
-            for f in findings
-            if ents.get_policy(f.entity_type) is not ents.Policy.KEEP
-        ]
+    if selected is not None:
+        wanted = {
+            (s.get("segment_id"), s.get("start"), s.get("end")) for s in selected
+        }
+        return [f for f in findings if (f.segment_id, f.start, f.end) in wanted]
 
-    wanted = {(s.get("segment_id"), s.get("start"), s.get("end")) for s in selected}
-    return [f for f in findings if (f.segment_id, f.start, f.end) in wanted]
+    if entities is not None:
+        # Ausdrueckliche Wahl schlaegt die Default-Policy: wer die PLZ anhakt,
+        # will sie ersetzt haben — nicht nur markiert.
+        erlaubt = set(entities)
+        return [f for f in findings if f.entity_type in erlaubt]
+
+    return [
+        f for f in findings if ents.get_policy(f.entity_type) is not ents.Policy.KEEP
+    ]
 
 
 def build_replacements(
@@ -227,7 +257,7 @@ def anonymize_text(
     detection = detect_in_segments(
         [segment], entities=entities, custom_terms=custom_terms
     )
-    applied = _select(detection.findings, selected)
+    applied = _select(detection.findings, selected, entities=entities)
     per_segment, _ = build_replacements(session, vault, applied)
 
     out = text
@@ -258,7 +288,7 @@ def anonymize_document(
     detection = detect_in_segments(
         segments, entities=entities, custom_terms=custom_terms
     )
-    applied = _select(detection.findings, selected)
+    applied = _select(detection.findings, selected, entities=entities)
     per_segment, _ = build_replacements(session, vault, applied)
 
     out = adapter.apply_replacements(data, per_segment)

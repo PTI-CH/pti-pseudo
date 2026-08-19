@@ -5,6 +5,13 @@ mit API-Schluesseln vor (Abschnitt 8), aber erst ab Phase 2. In Phase 1 gibt es
 genau einen Mandanten, und alle Tabellen tragen trotzdem schon ``tenant_id``.
 Das ist Absicht: die Spalte nachtraeglich einzuziehen waere eine Migration ueber
 den gesamten Vault-Bestand, sie jetzt mitzufuehren kostet nichts.
+
+Zur Laenge von ``api_keys.label``: ``current_actor`` stellt ``apikey:`` voran
+und das Ergebnis landet in ``usage_events.username`` — einer ``String(150)``.
+Das Label muss deshalb auf **hoechstens 140 Zeichen** begrenzt werden, sonst
+scheitert der erste Aufruf eines Schluessels mit einem langen Namen erst beim
+Schreiben des Nutzungseintrags, also mitten in der Verarbeitung. Die Pruefung
+gehoert an den Verwaltungs-Endpunkt (Task 3); hier steht der Grund.
 """
 
 from __future__ import annotations
@@ -32,8 +39,36 @@ def get_session() -> Iterator[Session]:
         session.close()
 
 
-def get_tenant(session: Session) -> Tenant:
-    """Liefert den Phase-1-Mandanten und legt ihn beim ersten Mal an."""
+def get_tenant(session: Session, request: Request | None = None) -> Tenant:
+    """Liefert den Mandanten dieses Requests.
+
+    Zwei Herkuenfte, eine Funktion:
+
+    * **Maschinenpfad** (``/api/ext/v1``) — der API-Schluessel traegt seine
+      ``tenant_id``; sie gilt. In Phase 1 ist das immer derselbe PTI-Mandant,
+      aber der Weg ueber den Schluessel steht schon, damit Phase 2 die
+      Anwendungen ohne Schemaumbau trennen kann.
+    * **Menschenpfad** (``/api/v1``) — der Default-Mandant, beim ersten Zugriff
+      angelegt.
+
+    ``request`` ist optional, damit Aufrufer ohne Request-Bezug (Werkzeuge,
+    Tests, Aufraeumlaeufe) unveraendert weiterarbeiten koennen.
+    """
+    api_key = getattr(request.state, "api_key", None) if request is not None else None
+    if api_key is not None:
+        tenant = session.get(Tenant, api_key.tenant_id)
+        if tenant is None:
+            # Bewusst ein Fehler und KEIN Rueckfall auf den Default-Mandanten:
+            # ein Schluessel, dessen Mandant verschwunden ist, wuerde sonst
+            # still in einem fremden Bestand arbeiten — Vaults dort anlegen,
+            # Begriffe dort aendern. Lieber ein lautes 500, das jemand
+            # bemerkt, als eine leise Vermischung, die niemand bemerkt.
+            raise RuntimeError(
+                "Mandant des API-Schluessels nicht gefunden "
+                f"(Schluessel {api_key.key_prefix})."
+            )
+        return tenant
+
     tenant = session.execute(
         select(Tenant).where(Tenant.name == DEFAULT_TENANT_NAME)
     ).scalar_one_or_none()
@@ -57,10 +92,28 @@ def current_user(request: Request) -> dict:
     return user if isinstance(user, dict) else {}
 
 
-def current_username(request: Request) -> str:
-    """Stabiler Benutzerschluessel fuer die Nutzungserfassung.
+def current_actor(request: Request) -> str:
+    """Wer diesen Request ausgeloest hat — Mensch oder Anwendung.
 
-    Bewusst ``username`` und nicht die UUID: ``user.person`` kann im CRM
-    ``null`` sein, und ein Top-Level-``email`` gibt es dort nicht.
+    Der einheitliche Aktor-Begriff beider Pfade (Design-Spec Abschnitt 4.4):
+
+    * SSO-Pfad: der Hub-Benutzername. Bewusst ``username`` und nicht die UUID —
+      ``user.person`` kann im CRM ``null`` sein, und ein Top-Level-``email``
+      gibt es dort nicht.
+    * API-Pfad: ``apikey:<Bezeichnung>``. Das Praefix macht in der
+      Nutzungserfassung auf einen Blick sichtbar, dass hier keine Person
+      gearbeitet hat, sondern eine andere PTI-Anwendung.
     """
+    api_key = getattr(request.state, "api_key", None)
+    if api_key is not None:
+        return f"apikey:{api_key.label}"
     return str(current_user(request).get("username") or "unbekannt")
+
+
+def current_username(request: Request) -> str:
+    """Aktor fuer die Nutzungserfassung — siehe ``current_actor``.
+
+    Der Name ist historisch und passt zur Spalte ``usage_events.username``;
+    seit dem Maschinenpfad steht dort nicht mehr zwingend ein Mensch.
+    """
+    return current_actor(request)

@@ -114,10 +114,14 @@ git check-ignore -v backend/core deploy frontend/src             # muss leer ble
 FastAPI (`backend/main.py`) serviert die REST-API unter `/api/v1` **und** das
 statisch gebaute React-SPA aus `frontend/dist` same-origin — kein CORS. Davor
 hängen zwei Middlewares: HTTPS-Redirect (Jelastic reicht Port 80 unverschlüsselt
-durch) und das TIP-Hub-SSO-Gate. Die Engine (`backend/engine/`) baut auf der
-Presidio-`AnalyzerEngine` auf, mit deutschem spaCy-Modell und eigenen Schweizer
-Erkennern. Der Vault (`backend/vault/`) hält die Zuordnung Original→Pseudonym
-AES-GCM-verschlüsselt in PostgreSQL, damit `documents:reverse` funktioniert.
+durch) und das TIP-Hub-SSO-Gate. Dieselben Router hängen ein zweites Mal unter
+`/api/ext/v1` — der Maschinenpfad für andere PTI-Anwendungen, geschützt durch
+in der Datenbank gehashte API-Schlüssel (Verwaltung: `/api/v1/api-keys`, nur
+SSO, nur Admins) statt durch das SSO-Gate. Die Engine (`backend/engine/`) baut
+auf der Presidio-`AnalyzerEngine` auf, mit deutschem spaCy-Modell und eigenen
+Schweizer Erkennern. Der Vault (`backend/vault/`) hält die Zuordnung
+Original→Pseudonym AES-GCM-verschlüsselt in PostgreSQL, damit
+`documents:reverse` funktioniert.
 
 ## TIP-Hub SSO (Ansatz B)
 
@@ -142,6 +146,20 @@ Nicht offensichtlich:
 
 Lokal ohne CRM: `HUB_AUTH=off` (synthetischer Admin; `DEV_ROLE=standard` prüft
 den Verweigerungspfad).
+
+## Externe API
+
+`/api/ext/` ist vom SSO-Gate ausgenommen — **nicht** vom HTTPS-Redirect — und
+darf nur mit `dependencies=[Depends(require_api_key)]` eingehängt werden
+(siehe `DUAL_MOUNT_ROUTERS` in `main.py`). `api_keys.router` gehört **nie** in
+diese Liste: sonst könnte ein Schlüssel sich selbst weitere Schlüssel
+ausstellen. `HUB_AUTH=off` öffnet den ext-Pfad nicht — er verlangt auch lokal
+einen gültigen Schlüssel. `label` bei der Schlüsselerzeugung ist auf 140
+Zeichen begrenzt, weil `apikey:<label>` als Aktor in `usage_events.username`
+(`String(150)`) landet. **`DELETE /mappings/{id}` ist für Schlüssel gesperrt**
+(403) — die einzige Ausnahme von der Vollberechtigung: Löschen ist
+unumkehrbar und bleibt Administratoren in der Oberfläche vorbehalten.
+Details: [API.md](API.md).
 
 ## Betriebs-Eigenheiten von Infomaniak jCloud
 

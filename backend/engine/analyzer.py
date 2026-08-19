@@ -50,6 +50,7 @@ from backend.engine.recognizers.custom_terms import (
     CustomTermsRecognizer,
     TermInput,
     build_custom_terms_recognizer,
+    coerce_term,
 )
 from backend.engine.recognizers.iban_ch import SwissIbanRecognizer
 from backend.engine.recognizers.phone_ch import SwissPhoneRecognizer
@@ -258,6 +259,41 @@ def supported_entities(analyzer: Optional[AnalyzerEngine] = None) -> List[str]:
     return sorted(set(analyzer.get_supported_entities(language=LANGUAGE)))
 
 
+def servable_entities(
+    requested: Iterable[str],
+    custom_terms: Optional[Sequence[TermInput]] = None,
+    analyzer: Optional[AnalyzerEngine] = None,
+) -> List[str]:
+    """Die Teilmenge von ``requested``, die dieser Aufruf tatsächlich bedienen kann.
+
+    Der Katalog in :mod:`backend.engine.entities` und die Menge der
+    **registrierten Erkenner** sind nicht dasselbe. Am deutlichsten bei den
+    ``PTI_``-Typen: sie stehen im Katalog, aber kein Erkenner findet sie von
+    selbst — sie entstehen ausschliesslich über die Begriffsliste, und der
+    :class:`CustomTermsRecognizer` leitet seine ``supported_entities`` aus den
+    tatsächlich eingetragenen Begriffen ab. Ohne einen Begriff vom Typ
+    ``PTI_PROJEKT`` gibt es für ``PTI_PROJEKT`` also keinen Erkenner.
+
+    Presidio quittiert eine Anfrage, für die es keinen einzigen zuständigen
+    Erkenner findet, mit ``ValueError`` — für die Aufruferin ein 500, obwohl
+    sie einen gültigen Katalogtyp geschickt hat. Deshalb wird die Wunschliste
+    vorher hier geschnitten; bleibt nichts übrig, hat der Aufruf schlicht
+    keinen Befund.
+
+    :param requested: Gewünschte Entitätstypen (bereits gegen den Katalog
+        geprüft).
+    :param custom_terms: Begriffsliste dieses Aufrufs — ihre Typen kommen zur
+        bedienbaren Menge hinzu.
+    :param analyzer: Vorgefertigte Engine; ohne sie die Standard-Engine.
+    :return: ``requested`` in unveränderter Reihenfolge, ohne die Typen, für
+        die es keinen Erkenner gibt.
+    """
+    bedienbar = set(supported_entities(analyzer))
+    for item in custom_terms or []:
+        bedienbar.add(coerce_term(item).entity_type)
+    return [name for name in requested if name in bedienbar]
+
+
 __all__ = [
     "CustomTermsRecognizer",
     "analyze",
@@ -267,5 +303,6 @@ __all__ = [
     "entity_catalog",
     "get_default_analyzer",
     "reset_default_analyzer",
+    "servable_entities",
     "supported_entities",
 ]

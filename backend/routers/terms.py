@@ -19,12 +19,13 @@ from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from backend.core.api_key_auth import has_api_key
 from backend.core.deps import get_session, get_tenant
 from backend.core.hub_access_auth import is_admin
 from backend.engine import entities as ents
 from backend.vault.models import CustomTerm
 
-router = APIRouter(prefix="/api/v1", tags=["terms"])
+router = APIRouter(tags=["terms"])
 
 #: Erlaubte Vergleichsarten. ``exact`` achtet auf Gross-/Kleinschreibung,
 #: ``normalized`` gleicht Umlautschreibweisen und Leerraum an.
@@ -55,9 +56,11 @@ class TermCreate(BaseModel):
 
 
 @router.get("/terms")
-async def list_terms(session: Annotated[Session, Depends(get_session)]) -> dict:
+async def list_terms(
+    request: Request, session: Annotated[Session, Depends(get_session)]
+) -> dict:
     """Die Begriffsliste des Mandanten."""
-    tenant = get_tenant(session)
+    tenant = get_tenant(session, request)
     rows = session.execute(
         select(CustomTerm)
         .where(CustomTerm.tenant_id == tenant.id)
@@ -94,15 +97,20 @@ async def create_term(
     Lesen darf jeder mit Tool-Zugriff — die Liste steuert aber, was bei ALLEN
     Nutzern ersetzt wird, und ist damit eine organisationsweite Einstellung.
     Dieselbe Trennung wie beim Glossar im pti-translator.
+
+    Ein API-Schluessel gilt innerhalb seines Mandanten als vollberechtigt
+    (Design-Spec Abschnitt 4.4): die aufrufende Anwendung soll ihre eigenen
+    Begriffe pflegen koennen, ohne dass ein Mensch dafuer die Oberflaeche
+    oeffnet.
     """
-    if not is_admin(request):
+    if not (is_admin(request) or has_api_key(request)):
         raise HTTPException(
             403,
             detail=(
                 "Die Begriffsliste aendern darf nur, wer im CRM die Rolle 'admin' hat."
             ),
         )
-    tenant = get_tenant(session)
+    tenant = get_tenant(session, request)
 
     exists = session.execute(
         select(CustomTerm).where(
@@ -134,15 +142,19 @@ async def create_term(
 async def delete_term(
     request: Request, term_id: str, session: Annotated[Session, Depends(get_session)]
 ) -> dict:
-    """Entfernt einen Begriff. Nur fuer Administratoren."""
-    if not is_admin(request):
+    """Entfernt einen Begriff. Nur fuer Administratoren.
+
+    Wie beim Anlegen kommt auch ein API-Schluessel durch — siehe
+    ``create_term``.
+    """
+    if not (is_admin(request) or has_api_key(request)):
         raise HTTPException(
             403,
             detail=(
                 "Die Begriffsliste aendern darf nur, wer im CRM die Rolle 'admin' hat."
             ),
         )
-    tenant = get_tenant(session)
+    tenant = get_tenant(session, request)
     try:
         key = uuid.UUID(str(term_id))
     except (ValueError, TypeError):

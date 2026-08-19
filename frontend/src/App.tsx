@@ -1,16 +1,19 @@
-import { useEffect, useState } from 'react';
-import { BookMarked, ShieldCheck, Undo2 } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { BookMarked, ShieldCheck, Undo2, Webhook } from 'lucide-react';
 import Kopfzeile from './components/Kopfzeile';
 import Pseudonymisieren from './panels/Pseudonymisieren';
 import Rueckfuehren from './panels/Rueckfuehren';
 import Begriffsliste from './panels/Begriffsliste';
+import ApiSchluesselPanel from './panels/ApiSchluessel';
+import { useBenutzer } from './core/me';
 
-type Bereich = 'pseudonymisieren' | 'rueckfuehren' | 'begriffe';
+type Bereich = 'pseudonymisieren' | 'rueckfuehren' | 'begriffe' | 'api-schluessel';
 
 const BEREICHE = [
   { id: 'pseudonymisieren', beschriftung: 'Pseudonymisieren', Symbol: ShieldCheck },
   { id: 'rueckfuehren', beschriftung: 'Rückführen', Symbol: Undo2 },
   { id: 'begriffe', beschriftung: 'Begriffsliste', Symbol: BookMarked },
+  { id: 'api-schluessel', beschriftung: 'API-Schlüssel', Symbol: Webhook },
 ] as const satisfies readonly { id: Bereich; beschriftung: string; Symbol: typeof ShieldCheck }[];
 
 export default function App() {
@@ -19,19 +22,38 @@ export default function App() {
   const [dunkel, setDunkel] = useState(() => document.documentElement.classList.contains('dark'));
   const [bereich, setBereich] = useState<Bereich>('pseudonymisieren');
 
+  // Einmal hier geladen und an Kopfzeile durchgereicht (Anzeige) sowie für die
+  // Admin-Bereichswahl genutzt — ein zweiter `useBenutzer()` in Kopfzeile
+  // würde `/api/me` doppelt anfragen.
+  const benutzer = useBenutzer();
+
   useEffect(() => {
     document.documentElement.classList.toggle('dark', dunkel);
     localStorage.setItem('pti-theme', dunkel ? 'dark' : 'light');
   }, [dunkel]);
 
+  // Verlässt ein Admin den Bereich (Rolle wechselt serverseitig, oder /api/me
+  // schlägt erst nach der Erstwahl fehl), landet die Ansicht nicht auf einem
+  // nun unsichtbaren Bereich.
+  useEffect(() => {
+    if (bereich === 'api-schluessel' && !benutzer.isAdmin) {
+      setBereich('pseudonymisieren');
+    }
+  }, [benutzer.isAdmin, bereich]);
+
+  const sichtbareBereiche = useMemo(
+    () => BEREICHE.filter((b) => b.id !== 'api-schluessel' || benutzer.isAdmin),
+    [benutzer.isAdmin],
+  );
+
   return (
     <div className="min-h-screen flex flex-col bg-gray-50 dark:bg-gray-900">
-      <Kopfzeile dunkel={dunkel} onDunkel={setDunkel} />
+      <Kopfzeile dunkel={dunkel} onDunkel={setDunkel} benutzer={benutzer} />
 
       {/* Bereichswahl */}
       <nav className="px-4 sm:px-6 border-b border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
         <div className="max-w-5xl mx-auto flex gap-1 overflow-x-auto">
-          {BEREICHE.map(({ id, beschriftung, Symbol }) => {
+          {sichtbareBereiche.map(({ id, beschriftung, Symbol }) => {
             const aktiv = bereich === id;
             return (
               <button
@@ -67,6 +89,14 @@ export default function App() {
           <div className={bereich === 'begriffe' ? '' : 'hidden'}>
             <Begriffsliste />
           </div>
+          {/* Nur montiert, wenn der Bereich überhaupt sichtbar ist — sonst würde
+              der Panel-eigene Ladeaufruf für Nicht-Admins unnötig gegen die
+              admin-geschützte Route laufen und dort auf 403 laufen. */}
+          {benutzer.isAdmin && (
+            <div className={bereich === 'api-schluessel' ? '' : 'hidden'}>
+              <ApiSchluesselPanel />
+            </div>
+          )}
         </div>
       </main>
 

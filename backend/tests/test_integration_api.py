@@ -317,3 +317,19 @@ def test_riesiger_text_liefert_413_statt_absturz(client: TestClient) -> None:
         "/api/v1/documents:anonymize", json={"text": riesig, "mode": "anonymous"}
     )
     assert r2.status_code == 413, r2.text
+
+
+def test_riesiger_text_liefert_auch_bei_reverse_413(client: TestClient) -> None:
+    """Die Rueckfuehrung hatte als einziger Textpfad keine Obergrenze.
+
+    Gemessen wird an der Reihenfolge: die Groessenpruefung muss **vor** dem
+    Nachschlagen des Vaults greifen. Die Kennung hier existiert nicht — kaeme
+    die Pruefung zu spaet, saehe man ein 404 statt des 413.
+    """
+    riesig = "A" * 2_000_000
+    r = client.post(
+        "/api/v1/documents:reverse",
+        json={"text": riesig, "vault_id": "7c9e6679-7425-40de-944b-e07fc1f90ae7"},
+    )
+    assert r.status_code == 413, r.text
+    assert "300000" in r.json()["detail"] or "Zeichen" in r.json()["detail"]

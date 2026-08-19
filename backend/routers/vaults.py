@@ -20,13 +20,14 @@ from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from backend.core.api_key_auth import has_api_key
 from backend.core.deps import get_session, get_tenant
 from backend.core.hub_access_auth import is_admin
 from backend.engine import entities as ents
 from backend.vault.models import MappingEntry, Vault
 from backend.vault.service import delete_vault, list_entries
 
-router = APIRouter(prefix="/api/v1", tags=["mappings"])
+router = APIRouter(tags=["mappings"])
 
 
 class VaultCreate(BaseModel):
@@ -51,9 +52,11 @@ def _get_owned(session: Session, tenant, vault_id: str) -> Vault:
 
 
 @router.get("/mappings")
-async def list_vaults(session: Annotated[Session, Depends(get_session)]) -> dict:
+async def list_vaults(
+    request: Request, session: Annotated[Session, Depends(get_session)]
+) -> dict:
     """Alle Zuordnungstabellen des Mandanten, neueste zuerst."""
-    tenant = get_tenant(session)
+    tenant = get_tenant(session, request)
     rows = session.execute(
         select(Vault, func.count(MappingEntry.id))
         .outerjoin(MappingEntry, MappingEntry.vault_id == Vault.id)
@@ -77,10 +80,12 @@ async def list_vaults(session: Annotated[Session, Depends(get_session)]) -> dict
 
 @router.post("/mappings", status_code=201)
 async def create_vault(
-    payload: VaultCreate, session: Annotated[Session, Depends(get_session)]
+    request: Request,
+    payload: VaultCreate,
+    session: Annotated[Session, Depends(get_session)],
 ) -> dict:
     """Legt eine leere Zuordnungstabelle an."""
-    tenant = get_tenant(session)
+    tenant = get_tenant(session, request)
     vault = Vault(tenant_id=tenant.id, label=payload.label)
     session.add(vault)
     session.commit()
@@ -90,12 +95,13 @@ async def create_vault(
 
 @router.get("/mappings/{vault_id}")
 async def get_vault(
+    request: Request,
     vault_id: str,
     session: Annotated[Session, Depends(get_session)],
     entity_type: Optional[str] = None,
 ) -> dict:
     """Zeigt die Eintraege einer Zuordnungstabelle — ohne die Originale."""
-    tenant = get_tenant(session)
+    tenant = get_tenant(session, request)
     vault = _get_owned(session, tenant, vault_id)
     entries = list_entries(session, vault, entity_type)
     return {
@@ -124,7 +130,23 @@ async def remove_vault(
     Das ist endgueltig: danach lassen sich die mit diesem Vault erzeugten
     Dokumente nie wieder zurueckfuehren. Deshalb an die CRM-Rolle gebunden und
     nicht an blossen Tool-Zugriff.
+
+    **Ein API-Schluessel kommt hier bewusst NICHT durch** — die einzige
+    Ausnahme von der Vollberechtigung des Schluessels (Design-Spec Abschnitt
+    4.4). Grund: das Loeschen ist die einzige unumkehrbare Operation der
+    Anwendung. Ein geleakter oder verlorener Schluessel darf nicht die
+    Rueckfuehrbarkeit einer ganzen Organisation vernichten koennen; alles
+    andere, was ein Schluessel anrichtet, laesst sich nachtraeglich korrigieren.
+    Das Pflegen der Begriffsliste (``terms.py``) bleibt deshalb erlaubt.
     """
+    if has_api_key(request):
+        raise HTTPException(
+            403,
+            detail=(
+                "Zuordnungstabellen loeschen ist nur Administratoren in der "
+                "Oberflaeche vorbehalten — nicht ueber API-Schluessel."
+            ),
+        )
     if not is_admin(request):
         raise HTTPException(
             403,
@@ -133,7 +155,7 @@ async def remove_vault(
                 "die Rolle 'admin' hat."
             ),
         )
-    tenant = get_tenant(session)
+    tenant = get_tenant(session, request)
     vault = _get_owned(session, tenant, vault_id)
     removed = delete_vault(session, vault)
     session.commit()

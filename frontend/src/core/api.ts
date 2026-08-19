@@ -103,6 +103,20 @@ export interface Ergebnis {
   dateiname: string | null;
 }
 
+/**
+ * Gibt die Blob-URL eines Ergebnisses frei, falls vorhanden.
+ *
+ * Eine Blob-URL (Dateiergebnis, siehe `base64ZuBlobUrl`) lebt nur im
+ * Browser-Speicher und wird nie automatisch aufgeräumt. Jede Stelle, die ein
+ * `Ergebnis` ersetzt oder verwirft — Erfolgspfad, Fehlerpfad, Zurücksetzen —
+ * muss vorher die alte URL freigeben, sonst bleibt sie bis zum Reload der
+ * Seite im Speicher hängen. Ein einziger Helfer statt dreifacher
+ * Duplikation in den Panels.
+ */
+export function gibErgebnisFrei(e: Ergebnis | null): void {
+  if (e?.downloadUrl) URL.revokeObjectURL(e.downloadUrl);
+}
+
 /** Rohform, wie sie vom Server kommen darf — bewusst tolerant gelesen. */
 interface RohAntwort {
   text?: string | null;
@@ -114,7 +128,29 @@ interface RohAntwort {
   vault_id?: string | null;
   mapping_id?: string | null;
   download_url?: string | null;
+  /** Dateiantworten: Base64-codierte Bytes des Ergebnisdokuments. */
+  content_base64?: string | null;
   filename?: string | null;
+}
+
+/**
+ * Base64-codierte Dateibytes des Servers in eine herunterladbare Blob-URL
+ * wandeln. Der Server liefert `content_base64` statt eines `download_url`,
+ * weil nie Dokument-Bytes auf dem Server abgelegt werden (siehe Modulkopf
+ * von `backend/routers/documents.py`) — die Antwort trägt das Dokument
+ * selbst.
+ *
+ * Wichtig: die entstehende URL lebt nur im Browser-Speicher. Wer sie ersetzt
+ * oder das Panel zurücksetzt, muss sie per `URL.revokeObjectURL` freigeben —
+ * das übernehmen die Panels, nicht dieser Client.
+ */
+function base64ZuBlobUrl(base64: string): string {
+  const binaer = atob(base64);
+  const bytes = new Uint8Array(binaer.length);
+  for (let i = 0; i < binaer.length; i += 1) {
+    bytes[i] = binaer.charCodeAt(i);
+  }
+  return URL.createObjectURL(new Blob([bytes]));
 }
 
 function normalisiereBefunde(roh: unknown[]): Befund[] {
@@ -139,13 +175,41 @@ function normalisiereAntwort(roh: RohAntwort): Ergebnis {
     text: roh.anonymized_text ?? roh.text ?? roh.result ?? null,
     befunde: normalisiereBefunde(Array.isArray(befundeRoh) ? befundeRoh : []),
     vaultId: roh.vault_id ?? roh.mapping_id ?? null,
-    downloadUrl: roh.download_url ?? null,
+    downloadUrl: roh.content_base64 ? base64ZuBlobUrl(roh.content_base64) : (roh.download_url ?? null),
     dateiname: roh.filename ?? null,
   };
 }
 
+// ─── Kategorien (Entitätstypen) ─────────────────────────────────────────────
+
+/** Ein Eintrag im Server-Katalog der Entitätstypen — Grundlage der Kategorienwahl. */
+export interface Kategorie {
+  entity_type: string;
+  label: string;
+  description: string;
+  default_policy: 'redact' | 'keep';
+  source: 'recognizer' | 'custom_terms';
+}
+
+/**
+ * Katalog aller Entitätstypen, in Anzeigereihenfolge des Servers.
+ *
+ * Einzige Quelle für die Kategorienwahl im Panel — das Frontend hält keine
+ * eigene Kopie mehr, die auseinanderlaufen könnte (siehe `core/entities.ts`).
+ */
+export async function ladeKategorien(): Promise<Kategorie[]> {
+  const daten = await alsJson<{ entities?: Kategorie[] }>(await hole('/api/v1/entities'));
+  return Array.isArray(daten?.entities) ? daten.entities : [];
+}
+
 /**
  * Text pseudonymisieren.
+ *
+ * `kategorien` wird **immer** explizit mitgeschickt (nie weggelassen) — leer
+ * lassen ist beim Server ein Bedienfehler (400 „Mindestens eine Kategorie
+ * wählen."), kein „alles". Eine ausdrückliche Wahl schlägt dabei auch die
+ * Default-Policy: wer einen KEEP-Typ wie CH_POSTAL_CODE anhakt, bekommt ihn
+ * ersetzt statt nur markiert.
  *
  * `nurBefunde` (optional): die vom Menschen geprüfte Auswahl. Wird sie
  * mitgegeben, ersetzt der Server ausschliesslich diese Stellen — so wirkt das
@@ -154,10 +218,16 @@ function normalisiereAntwort(roh: RohAntwort): Ergebnis {
 export async function anonymisiereText(
   text: string,
   modus: Modus,
+  kategorien: string[],
   nurBefunde?: Befund[],
   signal?: AbortSignal,
 ): Promise<Ergebnis> {
-  const koerper: Record<string, unknown> = { text, mode: MODUS_API[modus], language: 'de' };
+  const koerper: Record<string, unknown> = {
+    text,
+    mode: MODUS_API[modus],
+    language: 'de',
+    entities: kategorien,
+  };
   if (nurBefunde) {
     koerper.selected_entities = nurBefunde.map((b) => ({
       entity_type: b.entity_type,
@@ -179,19 +249,25 @@ export async function anonymisiereText(
   );
 }
 
-/** Datei pseudonymisieren (multipart). Unterstützt .docx, .txt und .csv. */
+/**
+ * Datei pseudonymisieren (multipart). Unterstützt .docx, .txt und .csv.
+ *
+ * `kategorien` geht als kommagetrennte Liste ins Formular — Multipart kennt
+ * keine echten Listenfelder, der Server splittet selbst (`parse_entities`).
+ */
 export async function anonymisiereDatei(
   datei: File,
   modus: Modus,
+  kategorien: string[],
   signal?: AbortSignal,
 ): Promise<Ergebnis> {
   const daten = new FormData();
   daten.append('file', datei);
   daten.append('mode', MODUS_API[modus]);
-  daten.append('language', 'de');
+  daten.append('entities', kategorien.join(','));
   return normalisiereAntwort(
     await alsJson<RohAntwort>(
-      await hole('/api/v1/documents:anonymize', { method: 'POST', body: daten, signal }),
+      await hole('/api/v1/documents:anonymize-file', { method: 'POST', body: daten, signal }),
     ),
   );
 }
@@ -225,7 +301,7 @@ export async function rueckfuehrenDatei(
   daten.append('vault_id', vaultId);
   return normalisiereAntwort(
     await alsJson<RohAntwort>(
-      await hole('/api/v1/documents:reverse', { method: 'POST', body: daten, signal }),
+      await hole('/api/v1/documents:reverse-file', { method: 'POST', body: daten, signal }),
     ),
   );
 }
@@ -325,5 +401,81 @@ export async function legeBegriffAn(
 export async function loescheBegriff(id: string): Promise<void> {
   await alsJson<unknown>(
     await hole(`/api/v1/terms/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  );
+}
+
+// ─── API-Schlüssel ──────────────────────────────────────────────────────────
+//
+// Verwaltung nur über den SSO-Pfad, nur für Admins (`GET/POST/DELETE
+// /api/v1/api-keys`) — ein Schlüssel kann sich nicht selbst weitere
+// Schlüssel ausstellen. Siehe `backend/routers/api_keys.py`.
+
+export interface ApiSchluessel {
+  id: string;
+  label: string;
+  keyPrefix: string;
+  createdBy: string;
+  createdAt: string;
+  expiresAt: string | null;
+  lastUsedAt: string | null;
+  revokedAt: string | null;
+  aktiv: boolean;
+}
+
+interface RohApiSchluessel {
+  id: string;
+  label: string;
+  key_prefix: string;
+  created_by: string;
+  created_at: string;
+  expires_at: string | null;
+  last_used_at: string | null;
+  revoked_at: string | null;
+  active: boolean;
+}
+
+function normalisiereApiSchluessel(r: RohApiSchluessel): ApiSchluessel {
+  return {
+    id: r.id,
+    label: r.label,
+    keyPrefix: r.key_prefix,
+    createdBy: r.created_by,
+    createdAt: r.created_at,
+    expiresAt: r.expires_at,
+    lastUsedAt: r.last_used_at,
+    revokedAt: r.revoked_at,
+    aktiv: r.active,
+  };
+}
+
+/** Alle Schlüssel des Mandanten, neueste zuerst. Widerrufene bleiben sichtbar. */
+export async function ladeApiSchluessel(): Promise<ApiSchluessel[]> {
+  const daten = await alsJson<{ api_keys?: RohApiSchluessel[] }>(await hole('/api/v1/api-keys'));
+  return Array.isArray(daten?.api_keys) ? daten.api_keys.map(normalisiereApiSchluessel) : [];
+}
+
+/**
+ * Neuen Schlüssel erzeugen. Der Klartext-Token steckt nur in dieser Antwort —
+ * der Server speichert ausschliesslich seinen Hash und zeigt ihn danach nie
+ * wieder.
+ */
+export async function erzeugeApiSchluessel(
+  label: string,
+  expiresAt: string | null,
+): Promise<{ schluessel: ApiSchluessel; token: string }> {
+  const roh = await alsJson<RohApiSchluessel & { token: string }>(
+    await hole('/api/v1/api-keys', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ label, expires_at: expiresAt }),
+    }),
+  );
+  return { schluessel: normalisiereApiSchluessel(roh), token: roh.token };
+}
+
+/** Widerruft einen Schlüssel (Soft-Delete, `revoked_at` wird gesetzt). */
+export async function widerrufeApiSchluessel(id: string): Promise<void> {
+  await alsJson<unknown>(
+    await hole(`/api/v1/api-keys/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   );
 }

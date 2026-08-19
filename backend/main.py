@@ -27,15 +27,16 @@ import re
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from backend import __version__
 from backend.config import get_settings
+from backend.core.api_key_auth import require_api_key
 from backend.core.https_redirect import HttpsRedirectMiddleware
 from backend.core.hub_access_auth import HubAccessAuthMiddleware
-from backend.routers import documents, health, me, terms, vaults
+from backend.routers import api_keys, documents, entities, health, me, terms, vaults
 
 logger = logging.getLogger(__name__)
 
@@ -43,10 +44,28 @@ logger = logging.getLogger(__name__)
 REPO_ROOT = Path(__file__).resolve().parent.parent
 FRONTEND_DIST = REPO_ROOT / "frontend" / "dist"
 
-#: Pfade ohne SSO. Nur der Health-Endpunkt, und das mit Bedacht: er ist die
-#: einzige Route, die der Smoke-Test und der Hub-Health-Poller ohne Sitzung
-#: erreichen koennen muessen.
-EXEMPT_PATHS = [re.compile(r"^/api/health$")]
+#: Pfade ohne SSO. Zwei Ausnahmen, jede mit einem eigenen Grund:
+#:
+#: * ``/api/health`` — die einzige Route, die der Smoke-Test und der
+#:   Hub-Health-Poller ohne Sitzung erreichen koennen muessen.
+#: * ``/api/ext/`` — der Maschinenpfad. Er hat kein Cookie und kann sich nicht
+#:   am Hub anmelden; statt des Gates traegt er die Router-Abhaengigkeit
+#:   ``require_api_key`` (siehe ``create_app``). Ausgenommen heisst hier also
+#:   **nicht** ungeschuetzt, sondern anders geschuetzt.
+EXEMPT_PATHS = [re.compile(r"^/api/health$"), re.compile(r"^/api/ext/")]
+
+#: Pfade ohne HTTPS-Umleitung — bewusst eine **kuerzere** Liste als oben.
+#: Der Maschinenpfad soll sehr wohl umgeleitet werden: ein Schluessel im Header
+#: ueber Klartext-HTTP ist bereits einmal ungeschuetzt unterwegs gewesen, und
+#: die Umleitung ist der letzte Hinweis darauf, dass die Doku "nur https" meint
+#: (Design-Spec Abschnitt 5).
+HTTPS_EXEMPT_PATHS = [re.compile(r"^/api/health$")]
+
+#: Die vier Router, die unter beiden Einhaengepunkten haengen. Nicht dabei:
+#: ``me`` und ``health`` (kein Gegenstueck fuer Maschinen) und die
+#: Schluesselverwaltung selbst (``api_keys``, siehe unten) — ein Schluessel
+#: darf keine weiteren Schluessel erzeugen oder widerrufen.
+DUAL_MOUNT_ROUTERS = (documents, entities, vaults, terms)
 
 
 @asynccontextmanager
@@ -107,13 +126,26 @@ def create_app() -> FastAPI:
     # Reihenfolge siehe Modul-Docstring: zuletzt hinzugefuegt laeuft zuerst.
     # Welches Flag geprueft wird, steht in settings.hub_app_key (HUB_APP_KEY).
     app.add_middleware(HubAccessAuthMiddleware, exempt=EXEMPT_PATHS)
-    app.add_middleware(HttpsRedirectMiddleware, exempt=EXEMPT_PATHS)
+    app.add_middleware(HttpsRedirectMiddleware, exempt=HTTPS_EXEMPT_PATHS)
 
     app.include_router(health.router)
     app.include_router(me.router)
-    app.include_router(documents.router)
-    app.include_router(vaults.router)
-    app.include_router(terms.router)
+
+    # Dieselben Router zweimal: der Menschenpfad hinter dem SSO-Gate, der
+    # Maschinenpfad hinter der Schluessel-Pruefung. Die Handler kennen den
+    # Unterschied nicht — sie fragen ueber ``get_tenant``/``current_actor``
+    # nach Mandant und Aktor, und die Antwort haengt daran, ob
+    # ``require_api_key`` einen Schluessel hinterlegt hat.
+    for prefix, dependencies in (
+        ("/api/v1", []),
+        ("/api/ext/v1", [Depends(require_api_key)]),
+    ):
+        for modul in DUAL_MOUNT_ROUTERS:
+            app.include_router(modul.router, prefix=prefix, dependencies=dependencies)
+
+    # Nur unter dem Menschenpfad, hinter dem SSO-Gate — siehe
+    # ``api_keys``-Modul-Docstring und ``DUAL_MOUNT_ROUTERS`` oben.
+    app.include_router(api_keys.router, prefix="/api/v1")
 
     _mount_frontend(app)
     return app
@@ -165,7 +197,19 @@ def _mount_frontend(app: FastAPI) -> None:
         Client-seitiges Routing braucht das: ein direkter Aufruf einer
         Unterseite muss dieselbe Anwendung laden statt 404 zu liefern.
         Statische Einzeldateien (Logo, favicon) werden vorher durchgereicht.
+
+        Ausgenommen ist alles unterhalb von ``/api/``: was dort ankommt, ist
+        ein Tippfehler in einem API-Aufruf und keine Seite. Ein Aufrufer soll
+        dafuer ein auswertbares 404 sehen und nicht 200 mit HTML — und beim
+        ausgenommenen Maschinenpfad ``/api/ext/`` waere die Seitenhuelle sonst
+        sogar ohne Anmeldung zu haben.
         """
+        if full_path.startswith("api/"):
+            return JSONResponse(
+                status_code=404,
+                content={"code": "NOT_FOUND", "message": "Unbekannter Endpunkt."},
+            )
+
         candidate = (FRONTEND_DIST / full_path).resolve()
         # Pfad-Ausbruch verhindern: nur Dateien unterhalb von dist ausliefern.
         if (

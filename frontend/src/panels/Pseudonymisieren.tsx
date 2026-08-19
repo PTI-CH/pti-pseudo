@@ -1,15 +1,19 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { FileUp, KeyRound, Loader2, ShieldOff, Type } from 'lucide-react';
 import BefundListe from '../components/BefundListe';
 import DateiFeld from '../components/DateiFeld';
 import ErgebnisFeld from '../components/ErgebnisFeld';
 import Hinweis from '../components/Hinweis';
+import KategorienWahl from '../components/KategorienWahl';
 import {
   anonymisiereDatei,
   anonymisiereText,
   fehlerMeldung,
+  gibErgebnisFrei,
+  ladeKategorien,
   type Befund,
   type Ergebnis,
+  type Kategorie,
   type Modus,
 } from '../core/api';
 
@@ -27,19 +31,72 @@ export default function Pseudonymisieren() {
   const [datei, setDatei] = useState<File | null>(null);
   const [modus, setModus] = useState<Modus>('umkehrbar');
 
+  const [kategorien, setKategorien] = useState<Kategorie[]>([]);
+  const [kategorienLaden, setKategorienLaden] = useState(true);
+  const [kategorienFehler, setKategorienFehler] = useState<string | null>(null);
+  const [gewaehlteKategorien, setGewaehlteKategorien] = useState<Set<string>>(new Set());
+
   const [laeuft, setLaeuft] = useState(false);
   const [wendetAn, setWendetAn] = useState(false);
   const [fehler, setFehler] = useState<string | null>(null);
   const [ergebnis, setErgebnis] = useState<Ergebnis | null>(null);
   /** Der Text, aus dem das aktuelle Ergebnis entstand — Grundlage für „Anwenden“. */
   const [quellText, setQuellText] = useState('');
+  /**
+   * Die Kategorien, mit denen der aktuelle Befund entstanden ist.
+   *
+   * Bewusst eine eigene Kopie und nicht `gewaehlteKategorien`: die Checkboxen
+   * bleiben nach dem Lauf bedienbar, und wer dort etwas ändert und danach
+   * „Anwenden“ drückt, schickte sonst eine Kategorienliste, die nicht mehr zu
+   * den angezeigten Funden passt — der Server sucht dann anders, als die Liste
+   * darüber behauptet.
+   */
+  const [laufKategorien, setLaufKategorien] = useState<string[]>([]);
   const [ausgewaehlt, setAusgewaehlt] = useState<Set<string>>(new Set());
 
-  const kannStarten = quelle === 'text' ? text.trim().length > 0 : datei !== null;
+  // Katalog beim Mount laden. Ohne Katalog gibt es keine sinnvolle Auswahl —
+  // dann bleibt die Liste leer und der Start-Knopf deaktiviert (siehe
+  // kannStarten unten), statt mit einer stillen Vollauswahl zu raten.
+  useEffect(() => {
+    let abgebrochen = false;
+    (async () => {
+      setKategorienLaden(true);
+      setKategorienFehler(null);
+      try {
+        const geladen = await ladeKategorien();
+        if (abgebrochen) return;
+        setKategorien(geladen);
+        setGewaehlteKategorien(
+          new Set(geladen.filter((k) => k.default_policy === 'redact').map((k) => k.entity_type)),
+        );
+      } catch (e) {
+        if (abgebrochen) return;
+        setKategorienFehler(fehlerMeldung(e));
+        setKategorien([]);
+      } finally {
+        if (!abgebrochen) setKategorienLaden(false);
+      }
+    })();
+    return () => {
+      abgebrochen = true;
+    };
+  }, []);
 
-  function uebernimmErgebnis(e: Ergebnis, ursprung: string): void {
+  const kannStarten =
+    (quelle === 'text' ? text.trim().length > 0 : datei !== null) && gewaehlteKategorien.size > 0;
+
+  function uebernimmErgebnis(
+    e: Ergebnis,
+    ursprung: string,
+    kategorien: string[],
+  ): void {
+    // Eine alte Blob-URL (Dateiergebnis) lebt nur im Browser-Speicher — wird
+    // sie durch ein neues Ergebnis ersetzt, ohne dass sie je heruntergeladen
+    // wurde, bliebe sie sonst bis zum Reload im Speicher hängen.
+    gibErgebnisFrei(ergebnis);
     setErgebnis(e);
     setQuellText(ursprung);
+    setLaufKategorien(kategorien);
     setAusgewaehlt(new Set(e.befunde.map((b: Befund) => b.id)));
   }
 
@@ -47,12 +104,19 @@ export default function Pseudonymisieren() {
     setFehler(null);
     setLaeuft(true);
     try {
+      const kategorienListe = Array.from(gewaehlteKategorien);
       if (quelle === 'datei' && datei) {
-        uebernimmErgebnis(await anonymisiereDatei(datei, modus), '');
+        const e = await anonymisiereDatei(datei, modus, kategorienListe);
+        uebernimmErgebnis(e, '', kategorienListe);
       } else {
-        uebernimmErgebnis(await anonymisiereText(text, modus), text);
+        const e = await anonymisiereText(text, modus, kategorienListe);
+        uebernimmErgebnis(e, text, kategorienListe);
       }
     } catch (e) {
+      // Ein fehlgeschlagener Lauf verwirft ein evtl. noch vorhandenes altes
+      // Dateiergebnis — dessen Blob-URL muss vor dem Verwerfen freigegeben
+      // werden, sonst bleibt sie bis zum Reload im Speicher hängen.
+      gibErgebnisFrei(ergebnis);
       setFehler(fehlerMeldung(e));
       setErgebnis(null);
     } finally {
@@ -69,11 +133,17 @@ export default function Pseudonymisieren() {
       );
       return;
     }
+    if (laufKategorien.length === 0) {
+      setFehler('Wählen Sie mindestens eine Kategorie aus, bevor Sie starten.');
+      return;
+    }
     setFehler(null);
     setWendetAn(true);
     try {
       const auswahl = ergebnis.befunde.filter((b) => ausgewaehlt.has(b.id));
-      const neu = await anonymisiereText(quellText, modus, auswahl);
+      // Bewusst `laufKategorien` und nicht die aktuellen Checkboxen: der Befund
+      // stammt aus dem Lauf, die Ersetzung muss zu ihm passen.
+      const neu = await anonymisiereText(quellText, modus, laufKategorien, auswahl);
       // Die Auswahl des Menschen bleibt bestehen; nur Text und Vault erneuern sich.
       setErgebnis({ ...neu, befunde: ergebnis.befunde });
     } catch (e) {
@@ -84,10 +154,12 @@ export default function Pseudonymisieren() {
   }
 
   function zuruecksetzen(): void {
+    gibErgebnisFrei(ergebnis);
     setText('');
     setDatei(null);
     setErgebnis(null);
     setQuellText('');
+    setLaufKategorien([]);
     setAusgewaehlt(new Set());
     setFehler(null);
   }
@@ -152,6 +224,25 @@ export default function Pseudonymisieren() {
         )}
       </section>
 
+      {/* ── Kategorien ────────────────────────────────────────────────────── */}
+      <section className="space-y-3">
+        {kategorienLaden ? (
+          <p className="text-sm text-gray-500 dark:text-gray-400">Kategorien werden geladen …</p>
+        ) : kategorienFehler ? (
+          <Hinweis ton="fehler">
+            Die Kategorienliste konnte nicht geladen werden: {kategorienFehler} Ohne Kategorien ist
+            kein Lauf möglich — laden Sie die Seite neu.
+          </Hinweis>
+        ) : (
+          <KategorienWahl
+            kategorien={kategorien}
+            gewaehlt={gewaehlteKategorien}
+            onGewaehlt={setGewaehlteKategorien}
+            deaktiviert={laeuft}
+          />
+        )}
+      </section>
+
       {/* ── Modus ─────────────────────────────────────────────────────────── */}
       <section className="space-y-3">
         <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wide">Modus</h3>
@@ -182,6 +273,12 @@ export default function Pseudonymisieren() {
           </p>
         </Hinweis>
       </section>
+
+      {!kategorienLaden && !kategorienFehler && gewaehlteKategorien.size === 0 && (
+        <Hinweis ton="warnung">
+          Wählen Sie mindestens eine Kategorie aus, bevor Sie starten.
+        </Hinweis>
+      )}
 
       {fehler && <Hinweis ton="fehler">{fehler}</Hinweis>}
 

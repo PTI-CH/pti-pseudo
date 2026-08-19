@@ -39,6 +39,7 @@ from backend.adapters.base import DocumentAdapter, Replacement, Segment
 from backend.engine import analyzer as engine
 from backend.engine import entities as ents
 from backend.engine.merge import merge_overlaps
+from backend.engine.recognizers.custom_terms import build_term_regex, coerce_term
 from backend.vault import service as vault_service
 from backend.vault.models import Vault
 
@@ -419,10 +420,58 @@ def _select(
     ]
 
 
+def feste_pseudonyme(
+    custom_terms: Optional[Sequence],
+) -> list[tuple[re.Pattern, str, str]]:
+    """Baut die Nachschlagetabelle fuer feste Pseudonyme aus der Begriffsliste.
+
+    Ein festes Pseudonym haengt am **Begriff**, nicht an der Fundstelle. Es
+    hier ueber dasselbe Regex aufzuloesen, mit dem der Erkenner gesucht hat,
+    statt es durch Presidio, ``merge_overlaps`` und die Fund-Uebertragung
+    durchzureichen, hat einen praktischen Grund: So bekommt auch ein
+    *nachgetragener* Fund (:func:`propagate_findings`) sein festes Pseudonym,
+    ohne dass die Uebertragung etwas davon wissen muss.
+
+    :return: Je Begriff mit festem Pseudonym ein Tripel
+        ``(Muster, entity_type, Pseudonym)``, nach Begriff sortiert — damit
+        bei zwei passenden Begriffen immer derselbe gewinnt.
+    """
+    tabelle: list[tuple[re.Pattern, str, str]] = []
+    for item in custom_terms or []:
+        term = coerce_term(item)
+        if not term.replacement:
+            continue
+        try:
+            muster = re.compile(build_term_regex(term))
+        except re.error:  # pragma: no cover - nur bei kaputtem Begriff
+            continue
+        tabelle.append((muster, term.entity_type, term.replacement))
+    tabelle.sort(key=lambda eintrag: (eintrag[2], eintrag[1]))
+    return tabelle
+
+
+def _festes_pseudonym(
+    finding: Finding, tabelle: Sequence[tuple[re.Pattern, str, str]]
+) -> Optional[str]:
+    """Sucht das feste Pseudonym zu einem Fund, falls es eines gibt.
+
+    ``fullmatch``, nicht ``search``: Der Fundtext muss dem Begriff **ganz**
+    entsprechen. Sonst bekaeme ein laengerer Treffer, der einen Listenbegriff
+    nur enthaelt (``Talblick AG`` gegenueber dem Begriff ``Talblick``), dessen
+    festes Pseudonym — und im Dokument stuende danach ein Symbol, das fuer
+    einen anderen Klartext steht.
+    """
+    for muster, entity_type, pseudonym in tabelle:
+        if finding.entity_type == entity_type and muster.fullmatch(finding.text):
+            return pseudonym
+    return None
+
+
 def build_replacements(
     session: Session,
     vault: Optional[Vault],
     findings: Sequence[Finding],
+    custom_terms: Optional[Sequence] = None,
 ) -> tuple[dict[str, list[Replacement]], dict[str, str]]:
     """Vergibt Pseudonyme und baut die Ersetzungsliste je Segment.
 
@@ -432,17 +481,22 @@ def build_replacements(
 
     Ohne ``vault`` (anonymer Modus) wird nur der Typ eingesetzt und nichts
     gespeichert. Das ist endgueltig und nicht rueckfuehrbar.
+
+    ``custom_terms`` liefert die festen Pseudonyme der Begriffsliste. Auch sie
+    landen im Vault — sonst fuende die Rueckfuehrung ihr Symbol nicht wieder.
     """
     per_segment: dict[str, list[Replacement]] = {}
     mapping: dict[str, str] = {}
+    tabelle = feste_pseudonyme(custom_terms)
 
     for f in findings:
+        fest = _festes_pseudonym(f, tabelle) if tabelle else None
         if vault is not None:
             pseudonym = vault_service.get_or_create_pseudonym(
-                session, vault, f.entity_type, f.text
+                session, vault, f.entity_type, f.text, festes_pseudonym=fest
             )
         else:
-            pseudonym = f"[[{f.entity_type}]]"
+            pseudonym = fest or f"[[{f.entity_type}]]"
         mapping[f.text] = pseudonym
         per_segment.setdefault(f.segment_id, []).append(
             Replacement(start=f.start, end=f.end, text=pseudonym)
@@ -488,7 +542,7 @@ def anonymize_text(
         [segment], entities=entities, custom_terms=custom_terms
     )
     applied = _select(detection.findings, selected, entities=entities)
-    per_segment, _ = build_replacements(session, vault, applied)
+    per_segment, _ = build_replacements(session, vault, applied, custom_terms)
 
     out = text
     for r in per_segment.get(TEXT_SEGMENT_ID, []):
@@ -519,7 +573,7 @@ def anonymize_document(
         segments, entities=entities, custom_terms=custom_terms
     )
     applied = _select(detection.findings, selected, entities=entities)
-    per_segment, _ = build_replacements(session, vault, applied)
+    per_segment, _ = build_replacements(session, vault, applied, custom_terms)
 
     out = adapter.apply_replacements(data, per_segment)
     if strip_metadata:

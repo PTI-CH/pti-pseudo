@@ -20,7 +20,8 @@ LAN scheitert am Verbindungsaufbau, nicht an einer bewussten Sperre.
 Eingabeformat
 -------------
 Eine JSON-Datei mit zwei Listen, ``sicher`` und ``zu_pruefen``. Jeder Eintrag
-ist ein Objekt mit ``term``, ``entity_type``, ``match_mode`` und optional
+ist ein Objekt mit ``term``, ``entity_type``, ``match_mode``, optional
+``replacement`` (festes Pseudonym, sonst wird gezählt) und optional
 ``zu_pruefen`` (bool, informativ) sowie ``quellen`` (Liste von
 Herkunftssystemen, nur zur Nachvollziehbarkeit — es gibt in ``custom_terms``
 keine Spalte dafür, das Skript liest das Feld also, speichert es aber nicht).
@@ -58,6 +59,10 @@ Vor dem Schreiben muss je Eintrag gelten:
   Einträge.
 * ``match_mode`` steht in ``backend.routers.terms.MATCH_MODES``.
 * ``term`` ist nach dem Trimmen mindestens drei Zeichen lang.
+* ``replacement`` ist, falls gesetzt, höchstens 100 Zeichen lang und im
+  Mandanten noch nicht vergeben. Ein doppeltes festes Pseudonym wird als
+  ungültiger Eintrag gemeldet und nicht angelegt: zwei Klartexte hinter
+  demselben Symbol wären nach der Rückführung nicht mehr zu trennen.
 
 Was diese Prüfungen nicht erfüllt, wird abgelehnt und in der Zusammenfassung
 aufgeführt — der restliche Import läuft trotzdem weiter.
@@ -109,6 +114,10 @@ ERWARTETE_ZUSATZTYPEN = frozenset({"PTI_PROJEKT", "PTI_PRODUKT"})
 #: Die beiden Listen, die die Eingabedatei tragen muss.
 LISTENSCHLUESSEL = ("sicher", "zu_pruefen")
 
+#: Obergrenze fuer ein festes Pseudonym — die Breite von
+#: ``mapping_entries.pseudonym``, in das der Wert unveraendert uebernommen wird.
+MAX_REPLACEMENT_LAENGE = 100
+
 
 @dataclass(frozen=True)
 class Begriff:
@@ -118,6 +127,8 @@ class Begriff:
     entity_type: str
     match_mode: str
     herkunftsliste: str  # "sicher" oder "zu_pruefen" — nur für die Anzeige.
+    #: Festes Pseudonym, optional. ``None`` heisst: gezähltes Symbol wie sonst.
+    replacement: str | None = None
 
 
 @dataclass
@@ -232,11 +243,21 @@ def pruefe_eintrag(
             f"(gültig: {MATCH_MODES})"
         )
 
+    replacement = str(rohdaten.get("replacement") or "").strip() or None
+    if replacement is not None and len(replacement) > MAX_REPLACEMENT_LAENGE:
+        # Dieselbe Grenze wie in der API, und aus demselben Grund: der Wert
+        # landet eins zu eins in ``mapping_entries.pseudonym`` (VARCHAR(100)).
+        return None, (
+            f"Festes Pseudonym für Begriff {term!r} ist länger als "
+            f"{MAX_REPLACEMENT_LAENGE} Zeichen"
+        )
+
     return Begriff(
         term=term,
         entity_type=entity_type,
         match_mode=match_mode,
         herkunftsliste=herkunftsliste,
+        replacement=replacement,
     ), None
 
 
@@ -307,6 +328,18 @@ def importiere(
             select(CustomTerm.term).where(CustomTerm.tenant_id == tenant.id)
         ).scalars()
     )
+    # Feste Pseudonyme muessen je Mandant eindeutig bleiben: zwei Klartexte
+    # hinter demselben Symbol waeren nach der Rueckfuehrung nicht mehr zu
+    # trennen. Die API lehnt das mit 409 ab; hier wird der Eintrag als
+    # ungueltig gemeldet, statt die Ambiguitaet still anzulegen.
+    vergebene_pseudonyme = set(
+        session.execute(
+            select(CustomTerm.replacement).where(
+                CustomTerm.tenant_id == tenant.id,
+                CustomTerm.replacement.is_not(None),
+            )
+        ).scalars()
+    )
     in_diesem_lauf_vergeben: set[str] = set()
 
     for begriff in begriffe:
@@ -316,7 +349,17 @@ def importiere(
         if begriff.term in in_diesem_lauf_vergeben:
             zusammenfassung.datei_dubletten += 1
             continue
+        if begriff.replacement and begriff.replacement in vergebene_pseudonyme:
+            zusammenfassung.ungueltig.append(
+                (
+                    {"term": begriff.term, "replacement": begriff.replacement},
+                    f"Festes Pseudonym {begriff.replacement!r} ist bereits vergeben",
+                )
+            )
+            continue
 
+        if begriff.replacement:
+            vergebene_pseudonyme.add(begriff.replacement)
         in_diesem_lauf_vergeben.add(begriff.term)
         zusammenfassung.zaehle_angelegt(begriff.entity_type)
 
@@ -327,6 +370,7 @@ def importiere(
                     term=begriff.term,
                     entity_type=begriff.entity_type,
                     match_mode=begriff.match_mode,
+                    replacement=begriff.replacement,
                 )
             )
 

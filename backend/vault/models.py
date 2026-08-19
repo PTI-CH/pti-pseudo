@@ -237,6 +237,16 @@ class CustomTerm(Base):
     Gross-/Kleinschreibung ignorierend, ``regex``). Bewusst als Zeichenkette und
     nicht als DB-Enum: neue Modi sollen ohne Schemamigration hinzukommen
     koennen, und die zulaessigen Werte prueft die Fachschicht.
+
+    ``replacement`` ist das **feste Pseudonym**: statt eines gezaehlten
+    ``[[ORGANIZATION_3]]`` bekommt dieser Begriff immer denselben, selbst
+    gewaehlten Ersatztext. Gedacht fuer Begriffe, die in jedem Dokument
+    wiederkehren und deren Ersatz lesbar bleiben soll. ``None`` heisst:
+    Pseudonym wie ueblich vergeben.
+
+    Die Laenge ist auf 100 Zeichen begrenzt, weil der Wert eins zu eins in
+    ``MappingEntry.pseudonym`` (``String(100)``) landet — waere sie groesser,
+    schluege erst die Datenbank zu, und zwar mitten in einem Dokumentenlauf.
     """
 
     __tablename__ = "custom_terms"
@@ -248,6 +258,7 @@ class CustomTerm(Base):
     term: Mapped[str] = mapped_column(String(500), nullable=False)
     entity_type: Mapped[str] = mapped_column(String(50), nullable=False)
     match_mode: Mapped[str] = mapped_column(String(20), nullable=False, default="exact")
+    replacement: Mapped[str | None] = mapped_column(String(100), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=_utcnow
     )

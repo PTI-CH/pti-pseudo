@@ -94,7 +94,7 @@ Alle anderen Fehler folgen dem Standard-FastAPI-Format `{"detail": "…"}`
 | `400` | Ungültige Eingabe — unbekannter Modus, unbekannter Entitätstyp, leere Kategorienliste, ungültige Kennung |
 | `403` | Aktion einem Administrator in der Oberfläche vorbehalten — über einen Schlüssel `DELETE /mappings/{id}`, ausserdem die gar nicht extern erreichbare Schlüsselverwaltung `/api/v1/api-keys` |
 | `404` | Zuordnungstabelle oder Begriff nicht gefunden (auch wenn sie existiert, aber einem anderen Mandanten gehört) |
-| `409` | Der Begriff steht bereits in der Liste (`POST /terms`) |
+| `409` | Der Begriff steht bereits in der Liste, oder sein festes Pseudonym ist schon einem anderen Begriff zugeordnet (`POST /terms`) |
 | `413` | Datei oder Text über dem Grössenlimit (siehe unten) |
 | `415` | Dateiformat nicht unterstützt |
 | `422` | Pydantic-Validierung (z. B. Pflichtfeld fehlt) |
@@ -384,7 +384,7 @@ curl -H "X-Api-Key: ptps_…" \
 ```json
 {
   "terms": [
-    {"id": "…", "term": "Projekt Nordwind", "entity_type": "ORGANIZATION", "label": "Organisation", "match_mode": "normalized", "created_at": "2026-08-18T09:00:00+00:00"}
+    {"id": "…", "term": "Projekt Nordwind", "entity_type": "ORGANIZATION", "label": "Organisation", "match_mode": "normalized", "replacement": null, "created_at": "2026-08-18T09:00:00+00:00"}
   ],
   "entity_types": [{"value": "PERSON", "label": "Person"}, {"value": "...", "label": "..."}]
 }
@@ -393,11 +393,30 @@ curl -H "X-Api-Key: ptps_…" \
 ```bash
 curl -X POST https://pseudo.pti-tip-hub.ch/api/ext/v1/terms \
   -H "X-Api-Key: ptps_…" -H "Content-Type: application/json" \
-  -d '{"term": "Projekt Nordwind", "entity_type": "ORGANIZATION", "match_mode": "normalized"}'
+  -d '{"term": "Projekt Nordwind", "entity_type": "ORGANIZATION", "match_mode": "normalized", "replacement": "[[PROJEKT_N]]"}'
 ```
 
 `match_mode`: `exact` (achtet auf Gross-/Kleinschreibung) oder `normalized`
 (gleicht Umlautschreibweisen und Leerraum an, Default).
+
+`replacement` ist das **feste Pseudonym**: statt eines gezählten
+`[[ORGANIZATION_3]]` bekommt dieser Begriff immer denselben Ersatztext.
+Weglassen oder `null` heisst: zählen wie sonst. Höchstens 100 Zeichen — der Wert
+landet unverändert in der Zuordnungstabelle, deren Spalte genau so breit ist.
+
+Drei Eigenschaften, die man kennen muss:
+
+- **Je Mandant eindeutig.** Ein bereits vergebenes festes Pseudonym wird mit
+  `409` abgelehnt: zwei Klartexte hinter demselben Symbol wären nach
+  `documents:reverse` nicht mehr auseinanderzuhalten.
+- **Bestehende Zuordnungen bleiben.** Wer einem Begriff nachträglich ein festes
+  Pseudonym gibt, ändert nichts an Vaults, die den Begriff schon kennen — sonst
+  zeigte ein bereits ausgeliefertes Dokument auf ein Symbol, das der Vault nicht
+  mehr führt.
+- **Die Form ist Ihre Verantwortung.** Ein Ersatztext, der auch als gewöhnliche
+  Wortfolge vorkommen kann (`Firma A`), wird beim Zurückführen **überall** im
+  Dokument durch den Klarnamen ersetzt — auch dort, wo er harmlos gemeint war.
+  Die doppelte Klammerform kommt in natürlichem Text praktisch nicht vor.
 
 ```bash
 curl -X DELETE -H "X-Api-Key: ptps_…" \

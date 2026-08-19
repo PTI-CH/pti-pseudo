@@ -84,7 +84,12 @@ def _load_custom_terms(session: Session, tenant_id) -> list[dict]:
         select(CustomTerm).where(CustomTerm.tenant_id == tenant_id)
     ).scalars()
     return [
-        {"term": r.term, "entity_type": r.entity_type, "match_mode": r.match_mode}
+        {
+            "term": r.term,
+            "entity_type": r.entity_type,
+            "match_mode": r.match_mode,
+            "replacement": r.replacement,
+        }
         for r in rows
     ]
 

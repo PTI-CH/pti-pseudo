@@ -187,6 +187,27 @@ Die 140-Zeichen-Grenze für `label` ist seither nur noch historisch begründet.
 unumkehrbar und bleibt Administratoren in der Oberfläche vorbehalten.
 Details: [API.md](API.md).
 
+## Schemaänderungen
+
+`init_db()` im Lifespan ruft `create_all` — das legt **fehlende Tabellen** an,
+aber keine fehlenden **Spalten**. Eine neue Spalte in einem bestehenden Modell
+entsteht in Produktion also nicht von selbst, und sie fällt nicht beim Deploy
+auf, sondern beim ersten Zugriff: `column … does not exist`. Weil die
+Begriffsliste bei *jedem* Lauf gelesen wird, wäre das Werkzeug damit ganz
+ausser Betrieb.
+
+Deshalb: **jede neue Spalte gehört in `NACHZUZIEHEN` in
+`scripts/schema_nachziehen.py`.** Das Skript läuft im Deploy zwischen Upload
+und Neustart, ist idempotent und rein additiv (kein `DROP`, kein `RENAME`).
+Schlägt es fehl, bricht der Deploy **vor** dem Neustart ab — der Knoten läuft
+mit der alten Fassung weiter. Dann nicht von Hand neu starten, sondern erst die
+Ursache beheben (meist eine fehlende `DATABASE_URL` in der SSH-Sitzung).
+
+Alembic bleibt das richtige Werkzeug und fehlt bislang. Es auf einer laufenden
+Produktionsdatenbank einzuführen heisst, den Bestand korrekt auf eine
+Basisversion zu stempeln — ein Schritt, der nicht nebenbei mit einer
+Funktionsänderung ausgeliefert werden sollte.
+
 ## Betriebs-Eigenheiten von Infomaniak jCloud
 
 - **Env-Variablen nur über das Dashboard, danach Dashboard-Restart.** Ein

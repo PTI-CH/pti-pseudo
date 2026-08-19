@@ -150,9 +150,20 @@ export default function Begriffsliste() {
               type="text"
               value={neuerErsatz}
               onChange={(e) => setNeuerErsatz(e.target.value)}
-              placeholder="optional, sonst automatisch"
+              maxLength={100}
+              placeholder="optional, z. B. [[LIEFERANT_A]]"
               className="w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
+            {/* Der Hinweis ist keine Formalie: ein Ersatztext, der auch als
+                gewöhnliche Wortfolge vorkommen kann, wird beim Rückführen
+                überall im Dokument durch den Klarnamen ersetzt — auch dort, wo
+                er harmlos gemeint war. Die doppelte Klammerform kommt in
+                natürlichem Text praktisch nicht vor. */}
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+              Leer lassen für ein automatisches <code>[[TYP_1]]</code>. Wählen Sie sonst
+              etwas, das im Fliesstext nie vorkommt — bei „Firma A“ würde die Rückführung
+              jedes „Firma A“ im Dokument in den Klarnamen zurückverwandeln.
+            </p>
           </div>
         </div>
         <div className="flex justify-end mt-4">

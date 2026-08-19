@@ -196,17 +196,25 @@ auf, sondern beim ersten Zugriff: `column … does not exist`. Weil die
 Begriffsliste bei *jedem* Lauf gelesen wird, wäre das Werkzeug damit ganz
 ausser Betrieb.
 
-Deshalb: **jede neue Spalte gehört in `NACHZUZIEHEN` in
-`scripts/schema_nachziehen.py`.** Das Skript läuft im Deploy zwischen Upload
-und Neustart, ist idempotent und rein additiv (kein `DROP`, kein `RENAME`).
-Schlägt es fehl, bricht der Deploy **vor** dem Neustart ab — der Knoten läuft
-mit der alten Fassung weiter. Dann nicht von Hand neu starten, sondern erst die
-Ursache beheben (meist eine fehlende `DATABASE_URL` in der SSH-Sitzung).
+Deshalb: **jede neue Spalte gehört in `NACHZUZIEHENDE_SPALTEN` in
+`backend/db.py`.** `ensure_schema()` zieht sie im Lifespan nach — idempotent,
+rein additiv (kein `DROP`, kein `RENAME`), serialisiert über einen
+PostgreSQL-Advisory-Lock gegen den Wettlauf zweier gunicorn-Worker.
 
-Alembic bleibt das richtige Werkzeug und fehlt bislang. Es auf einer laufenden
-Produktionsdatenbank einzuführen heisst, den Bestand korrekt auf eine
-Basisversion zu stempeln — ein Schritt, der nicht nebenbei mit einer
-Funktionsänderung ausgeliefert werden sollte.
+**Nicht als Deploy-Schritt über SSH.** Am 2026-08-19 versucht und gemessen: Die
+Dashboard-Variablen des Knotens gelten für den Dienstprozess, **eine
+SSH-Sitzung erbt sie nicht** — das Skript brach mit `RuntimeError: DATABASE_URL
+ist nicht gesetzt` ab und der Deploy blieb vor dem Neustart stehen. Derselbe
+Stolperstein trifft jedes andere Skript, das über den SSH-Gate an die Datenbank
+will.
+
+`scripts/schema_nachziehen.py` bleibt als Hand-Werkzeug (`--pruefen` meldet nur)
+für Umzüge und die Ein-Knoten-Variante; es benutzt dieselbe Liste.
+
+Alembic bleibt das richtige Werkzeug für alles jenseits additiver Spalten und
+fehlt bislang. Es auf einer laufenden Produktionsdatenbank einzuführen heisst,
+den Bestand korrekt auf eine Basisversion zu stempeln — ein Schritt, der nicht
+nebenbei mit einer Funktionsänderung ausgeliefert werden sollte.
 
 ## Betriebs-Eigenheiten von Infomaniak jCloud
 

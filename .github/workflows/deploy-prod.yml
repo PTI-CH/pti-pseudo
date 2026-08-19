@@ -160,29 +160,13 @@ jobs:
           python -c "import de_core_news_md; print('spaCy-Modell OK')"
           python -c "import presidio_analyzer, presidio_anonymizer; print('Presidio OK (editable aus dem Baum)')"
           python -c "import backend.main; print('Einstiegspunkt OK')"
-          # Schema nachziehen — VOR dem Neustart, als eigener Schritt.
-          #
-          # init_db() im Lifespan legt nur fehlende TABELLEN an, keine fehlenden
-          # Spalten. Eine neue Spalte faellt sonst erst beim ersten Request auf,
-          # und weil die Begriffsliste bei jedem Lauf gelesen wird, waere das
-          # Werkzeug damit ganz aus dem Betrieb.
-          #
-          # Hier und nicht beim Prozessstart: bei zwei Workern starten zwei
-          # Prozesse gleichzeitig, ein automatisches Nachziehen waere ein
-          # Wettlauf um dieselbe Aenderung. Das Skript ist idempotent und rein
-          # additiv (siehe Modulkopf).
-          #
-          # Schlaegt es fehl (etwa weil DATABASE_URL in dieser SSH-Sitzung
-          # nicht gesetzt ist), bricht der Deploy hier ab — VOR dem Neustart.
-          # Der Knoten laeuft dann mit der alten Fassung weiter; auf der Platte
-          # liegt bereits der neue Code, der aber erst beim naechsten Neustart
-          # greift. In dem Fall: Variable im Dashboard pruefen und den Deploy
-          # wiederholen, NICHT den Knoten von Hand neu starten.
-          echo "→ python scripts/schema_nachziehen.py"
-          if ! python "$ROOT_DIR/scripts/schema_nachziehen.py"; then
-            echo "::error::Schema konnte nicht nachgezogen werden. Der Knoten wurde NICHT neu gestartet und laeuft mit der alten Fassung weiter. Nicht von Hand neu starten — erst die Ursache beheben (meist eine fehlende DATABASE_URL), dann den Deploy wiederholen."
-            exit 1
-          fi
+          # KEIN Schema-Schritt an dieser Stelle. Am 2026-08-19 versucht und
+          # gemessen: die Dashboard-Variablen des Knotens gelten fuer den
+          # Dienstprozess, nicht fuer diese SSH-Sitzung — das Skript brach mit
+          # `RuntimeError: DATABASE_URL ist nicht gesetzt` ab. Fehlende Spalten
+          # zieht deshalb `backend.db.ensure_schema` im Lifespan nach, also
+          # beim Neustart im naechsten Schritt; der Wettlauf zweier Worker ist
+          # dort ueber einen Advisory-Lock aufgeloest.
           # Runner-Konfiguration an ihren Platz ausserhalb von ROOT.
           # Steuert APP_MODULE, SSLEnabled und WORKERS — Begruendung in der Datei.
           cp "$ROOT_DIR/deploy/pythonenv" /home/jelastic/pythonenv

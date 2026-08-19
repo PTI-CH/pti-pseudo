@@ -1,70 +1,50 @@
-"""Zieht fehlende Spalten in einer bereits angelegten Datenbank nach.
+"""Zieht fehlende Spalten von Hand nach — dieselbe Logik wie beim App-Start.
 
-Warum es dieses Skript gibt
----------------------------
-``backend.db.init_db`` ruft ``create_all`` und legt damit ausschliesslich
-**fehlende Tabellen** an. Eine neue Spalte in einem bestehenden Modell entsteht
-dadurch nicht — die Tabelle existiert ja bereits. In Produktion faellt das nicht
-beim Deploy auf, sondern beim ersten Zugriff: PostgreSQL antwortet mit
-``column … does not exist``, und weil die Begriffsliste bei **jedem**
-Pseudonymisierungslauf gelesen wird, waere das Werkzeug damit vollstaendig
-ausser Betrieb.
+Im Normalbetrieb braucht es dieses Skript **nicht**: ``backend.db.ensure_schema``
+laeuft im Lifespan der Anwendung, also bei jedem Knoten-Neustart und damit bei
+jedem Deploy. Dort steht ``DATABASE_URL`` garantiert zur Verfuegung.
 
-Warum nicht Alembic
--------------------
-Alembic ist das richtige Werkzeug und gehoert langfristig hierher. Es auf einer
-bereits laufenden Produktionsdatenbank einzufuehren heisst aber, den Bestand
-korrekt auf eine Basisversion zu stempeln — ein Schritt, der stimmen muss und
-den man nicht nebenbei mit einer Funktionsaenderung ausliefert. Bis dahin dieser
-Weg: ausdruecklich aufgerufen, idempotent, ohne jedes ``DROP``.
+Wozu es trotzdem da ist:
 
-Die beiden Eigenschaften, auf die es ankommt:
+* **Nachschauen, ohne etwas zu starten.** ``--pruefen`` meldet, was fehlen
+  wuerde, und aendert nichts.
+* **Betrieb ausserhalb des Anwendungsprozesses** — etwa die Ein-Knoten-Variante
+  mit SQLite (siehe JELASTIC_SETUP.md), ein Umzug oder eine Wiederherstellung
+  aus dem Backup, bei der das Schema vor dem ersten Start stimmen soll.
 
-* **Idempotent.** Jeder Lauf prueft erst den Ist-Zustand. Zweimal aufrufen
-  aendert nichts, ein Deploy ohne Schemaaenderung laeuft durch.
-* **Nur additiv.** Es werden ausschliesslich Spalten *hinzugefuegt*. Nichts
-  wird geloescht, umbenannt oder umgetypt. Ein Fehler in dieser Datei kann
-  damit keine Zuordnung vernichten — und die Zuordnungstabelle ist der einzige
-  Datenbestand, dessen Verlust nicht zu reparieren ist.
+Was es **nicht** kann: ueber den SSH-Gate laufen. Die Dashboard-Variablen des
+Jelastic-Knotens gelten fuer den Dienstprozess, nicht fuer eine SSH-Sitzung —
+am 2026-08-19 im Deploy nachgemessen, das Skript brach dort mit
+``RuntimeError: DATABASE_URL ist nicht gesetzt`` ab. Wer es dort trotzdem
+braucht, setzt die Variable im Aufruf selbst.
 
-Aufruf (im Deploy nach dem Upload, vor dem Neustart)::
+Die nachzuziehenden Spalten stehen in ``backend.db.NACHZUZIEHENDE_SPALTEN`` —
+eine einzige Liste fuer beide Wege. Aufruf::
 
-    python scripts/schema_nachziehen.py
-
-Beendet sich mit 0, wenn das Schema stimmt oder erfolgreich ergaenzt wurde,
-sonst mit 1.
+    python scripts/schema_nachziehen.py [--pruefen]
 """
 
 from __future__ import annotations
 
-import logging
+import argparse
 import sys
 from pathlib import Path
 
-from sqlalchemy import inspect, text
+from sqlalchemy import inspect
 
 _ROOT = Path(__file__).resolve().parents[1]
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
-from backend.db import get_engine  # noqa: E402
-
-logger = logging.getLogger("pti.schema")
-
-#: Nachzuziehende Spalten: ``(Tabelle, Spalte, SQL-Typ)``.
-#:
-#: Der Typ steht hier als SQL und nicht als SQLAlchemy-Typ, weil genau er im
-#: ``ALTER TABLE`` landet — er soll ohne Uebersetzungsschritt nachlesbar sein
-#: und zum Modell passen. Neue Eintraege kommen unten dazu und bleiben stehen;
-#: eine Zeile, deren Spalte laengst existiert, kostet eine Pruefung.
-NACHZUZIEHEN: tuple[tuple[str, str, str], ...] = (
-    # 2026-08-19 — festes Pseudonym je Begriff (CustomTerm.replacement).
-    ("custom_terms", "replacement", "VARCHAR(100)"),
+from backend.db import (  # noqa: E402
+    NACHZUZIEHENDE_SPALTEN,
+    ensure_schema,
+    get_engine,
 )
 
 
 def fehlende_spalten(engine) -> list[tuple[str, str, str]]:
-    """Ermittelt, welche Eintraege aus :data:`NACHZUZIEHEN` wirklich fehlen.
+    """Ermittelt, welche Eintraege aus der Liste in dieser Datenbank fehlen.
 
     Ueber den Inspector statt ueber ``ADD COLUMN IF NOT EXISTS``: das
     ``IF NOT EXISTS`` kennt PostgreSQL, SQLite aber nicht — und die Tests
@@ -77,11 +57,8 @@ def fehlende_spalten(engine) -> list[tuple[str, str, str]]:
     vorhandene_tabellen = set(inspector.get_table_names())
 
     offen: list[tuple[str, str, str]] = []
-    for tabelle, spalte, sql_typ in NACHZUZIEHEN:
+    for tabelle, spalte, sql_typ in NACHZUZIEHENDE_SPALTEN:
         if tabelle not in vorhandene_tabellen:
-            logger.info(
-                "Tabelle %s existiert noch nicht — init_db legt sie an.", tabelle
-            )
             continue
         spalten = {s["name"] for s in inspector.get_columns(tabelle)}
         if spalte not in spalten:
@@ -92,9 +69,9 @@ def fehlende_spalten(engine) -> list[tuple[str, str, str]]:
 def ziel_beschreibung(engine) -> str:
     """Benennt die Zieldatenbank — ohne Passwort, aber eindeutig.
 
-    Steht so im Deploy-Protokoll. Ohne diese Zeile liesse sich hinterher nicht
-    belegen, *welche* Datenbank ein Lauf angefasst hat — und ein Lauf gegen die
-    falsche haette hier gemeldet, alles sei in Ordnung.
+    Ohne diese Zeile liesse sich hinterher nicht belegen, *welche* Datenbank
+    ein Lauf angefasst hat — und ein Lauf gegen die falsche haette gemeldet,
+    alles sei in Ordnung.
     """
     url = engine.url
     if url.get_backend_name() == "sqlite":
@@ -102,13 +79,16 @@ def ziel_beschreibung(engine) -> str:
     return f"{url.get_backend_name()}: {url.host}:{url.port}/{url.database}"
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
     """Zieht die fehlenden Spalten nach und meldet, was geschehen ist."""
-    logging.basicConfig(level=logging.INFO, format="%(message)s")
-    # Ohne DATABASE_URL wirft ``get_engine`` — und genau so soll es sein: ein
-    # Deploy, der die Datenbank nicht erreicht, muss stehen bleiben, bevor der
-    # Knoten neu startet. Dann laeuft die alte Fassung weiter, statt dass eine
-    # neue auf ein Schema trifft, das sie nicht kennt.
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--pruefen",
+        action="store_true",
+        help="Nur melden, was fehlt, und nichts aendern.",
+    )
+    args = parser.parse_args(argv)
+
     engine = get_engine()
     print(f"→ Zieldatenbank {ziel_beschreibung(engine)}")
 
@@ -118,20 +98,17 @@ def main() -> int:
         return 0
 
     for tabelle, spalte, sql_typ in offen:
-        anweisung = f"ALTER TABLE {tabelle} ADD COLUMN {spalte} {sql_typ}"
-        print(f"→ {anweisung}")
-        with engine.begin() as verbindung:
-            verbindung.execute(text(anweisung))
+        print(f"→ fehlt: {tabelle}.{spalte} ({sql_typ})")
+    if args.pruefen:
+        return 1
 
-    # Gegenprobe: nach dem Lauf darf nichts mehr offen sein. Ohne sie meldete
-    # das Skript auch dann Erfolg, wenn die Datenbank das ALTER stillschweigend
-    # verworfen haette.
+    ergaenzt = ensure_schema(engine)
     rest = fehlende_spalten(engine)
     if rest:
         print(f"::error::Spalten fehlen weiterhin: {rest}")
         return 1
 
-    print(f"✅ {len(offen)} Spalte(n) nachgezogen.")
+    print(f"✅ {len(ergaenzt)} Spalte(n) nachgezogen.")
     return 0
 
 

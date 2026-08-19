@@ -11,14 +11,27 @@ Migrationswerkzeug und ruft bewusst kein Alembic auf:
 
 * Kein Alembic-Autorun beim Start. Bei zwei gunicorn-Workern starten zwei
   Prozesse gleichzeitig — ein automatisch angestossenes ``upgrade head`` waere
-  ein Wettlauf um dieselbe Alembic-Version. Migrationen laufen als eigener,
-  ausgeloester Schritt im Deploy, nicht als Nebenwirkung eines Prozessstarts.
+  ein Wettlauf um dieselbe Alembic-Version.
 * **Schemaaenderungen laufen als idempotente Migration, nie als
   ``drop``/``create``.** Ein ``drop_all`` auf dieser Datenbank vernichtet die
   Zuordnungen unwiederbringlich; ein Restore aus dem Backup bringt sie nur bis
   zum letzten Dump zurueck. ``create_all`` legt ausschliesslich Fehlendes an und
   fasst bestehende Tabellen nicht an — bereits vorhandene Spalten aendert es
-  aber auch nicht. Genau dafuer ist Alembic da.
+  aber auch nicht.
+
+Fehlende **Spalten** zieht ``ensure_schema`` nach. Es laeuft ebenfalls im
+Lifespan, aber unter einem PostgreSQL-Advisory-Lock, der genau den oben
+beschriebenen Wettlauf aufloest — der zweite Worker wartet und findet danach
+nichts mehr zu tun. Dass es im Prozess laeuft und nicht als Deploy-Schritt ueber
+SSH, hat einen gemessenen Grund: Die Dashboard-Variablen des Knotens (darunter
+``DATABASE_URL``) gelten fuer den Dienstprozess, nicht fuer eine SSH-Sitzung.
+Am 2026-08-19 im Deploy nachgemessen — ein Skript ueber den SSH-Gate steht ohne
+Datenbank da.
+
+Alembic bleibt das richtige Werkzeug fuer alles, was ueber additive Spalten
+hinausgeht; es auf einer laufenden Produktionsdatenbank einzufuehren heisst,
+den Bestand korrekt auf eine Basisversion zu stempeln, und das gehoert nicht
+nebenbei in eine Funktionsaenderung.
 """
 
 from __future__ import annotations
@@ -26,7 +39,7 @@ from __future__ import annotations
 import os
 from functools import lru_cache
 
-from sqlalchemy import Engine, create_engine
+from sqlalchemy import Engine, create_engine, inspect, text
 from sqlalchemy.orm import Session, sessionmaker
 
 from backend.vault.models import Base
@@ -145,6 +158,87 @@ def get_sessionmaker() -> sessionmaker[Session]:
     )
 
 
+# -- Nachtrag fehlender Spalten ---------------------------------------------
+#
+# ``create_all`` legt fehlende TABELLEN an, aber keine fehlenden SPALTEN. Eine
+# neue Spalte in einem bestehenden Modell entsteht in einer laufenden Datenbank
+# also nicht — und sie faellt nicht beim Deploy auf, sondern beim ersten
+# Zugriff (``column … does not exist``). Weil die Begriffsliste bei jedem
+# Pseudonymisierungslauf gelesen wird, waere das Werkzeug damit ausser Betrieb.
+
+#: Nachzuziehende Spalten: ``(Tabelle, Spalte, SQL-Typ)``.
+#:
+#: Der Typ steht als SQL und nicht als SQLAlchemy-Typ, weil genau er im
+#: ``ALTER TABLE`` landet — er soll ohne Uebersetzungsschritt nachlesbar sein
+#: und zum Modell passen. Neue Eintraege kommen dazu und bleiben stehen; eine
+#: Zeile, deren Spalte laengst existiert, kostet eine Pruefung.
+#:
+#: **Nur additiv.** Hier stehen ausschliesslich Spalten, die *hinzukommen*.
+#: Nichts wird geloescht, umbenannt oder umgetypt — ein Fehler an dieser Stelle
+#: kann damit keine Zuordnung vernichten, und die Zuordnungstabelle ist der
+#: einzige Datenbestand, dessen Verlust nicht zu reparieren ist.
+NACHZUZIEHENDE_SPALTEN: tuple[tuple[str, str, str], ...] = (
+    # 2026-08-19 — festes Pseudonym je Begriff (CustomTerm.replacement).
+    ("custom_terms", "replacement", "VARCHAR(100)"),
+)
+
+#: Schluessel des PostgreSQL-Advisory-Locks, der den Nachtrag serialisiert.
+#: Frei gewaehlt, muss nur projektweit derselbe sein.
+_SCHEMA_LOCK_KEY = 8_150_419
+
+
+def ensure_schema(engine: Engine | None = None) -> list[tuple[str, str]]:
+    """Zieht fehlende Spalten aus :data:`NACHZUZIEHENDE_SPALTEN` nach.
+
+    Warum das hier laeuft und nicht als Deploy-Schritt ueber SSH: Die
+    Umgebungsvariablen des Knotens (darunter ``DATABASE_URL``) setzt das
+    Jelastic-Dashboard fuer den **Dienstprozess**. Eine SSH-Sitzung erbt sie
+    nicht — ein Skript ueber den SSH-Gate steht ohne Datenbank da. Am
+    2026-08-19 im Deploy nachgemessen: ``RuntimeError: DATABASE_URL ist nicht
+    gesetzt``. Der Anwendungsprozess hat sie dagegen immer.
+
+    Der Wettlauf zweier gunicorn-Worker, der gegen einen Autorun beim Start
+    spricht (siehe Modulkopf), wird hier durch einen **Transaktions-Advisory-
+    Lock** aufgeloest: Der zweite Worker wartet, findet danach nichts mehr zu
+    tun und laeuft weiter. Der Lock faellt mit dem Ende der Transaktion, auch
+    wenn der Prozess dazwischen stirbt. SQLite braucht ihn nicht — dort gibt es
+    nur einen Schreiber.
+
+    Bleibt es bei ``ALTER TABLE ... ADD COLUMN``: idempotent, rein additiv,
+    ohne ``DROP`` und ohne ``RENAME``.
+
+    :return: Die tatsaechlich ergaenzten ``(Tabelle, Spalte)`` — leer, wenn das
+        Schema bereits stimmte.
+    """
+    engine = engine or get_engine()
+    ergaenzt: list[tuple[str, str]] = []
+
+    with engine.begin() as verbindung:
+        if verbindung.dialect.name == "postgresql":
+            verbindung.execute(
+                text("SELECT pg_advisory_xact_lock(:schluessel)"),
+                {"schluessel": _SCHEMA_LOCK_KEY},
+            )
+
+        inspector = inspect(verbindung)
+        vorhandene_tabellen = set(inspector.get_table_names())
+
+        for tabelle, spalte, sql_typ in NACHZUZIEHENDE_SPALTEN:
+            if tabelle not in vorhandene_tabellen:
+                # Neue Datenbank: ``create_all`` legt die Tabelle samt aller
+                # Spalten an, hier ist nichts nachzutragen.
+                continue
+            spalten = {s["name"] for s in inspector.get_columns(tabelle)}
+            if spalte in spalten:
+                continue
+            verbindung.execute(
+                text(f"ALTER TABLE {tabelle} ADD COLUMN {spalte} {sql_typ}")
+            )
+            ergaenzt.append((tabelle, spalte))
+
+    return ergaenzt
+
+
 def init_db(engine: Engine | None = None) -> None:
     """Legt fehlende Tabellen an. Idempotent, mehrfach aufrufbar.
 
@@ -172,8 +266,10 @@ def reset_engine_cache() -> None:
 
 
 __all__ = [
+    "NACHZUZIEHENDE_SPALTEN",
     "Base",
     "create_db_engine",
+    "ensure_schema",
     "get_database_url",
     "get_engine",
     "get_sessionmaker",

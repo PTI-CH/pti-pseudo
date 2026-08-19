@@ -88,9 +88,20 @@ async def lifespan(app: FastAPI):
         logger.exception("Erkennungs-Engine konnte nicht geladen werden")
 
     try:
-        from backend.db import init_db
+        from backend.db import ensure_schema, init_db
 
         init_db()
+        # Fehlende Spalten nachziehen. ``init_db`` legt nur fehlende TABELLEN
+        # an — eine neue Spalte faellt sonst erst beim ersten Zugriff auf, und
+        # weil die Begriffsliste bei jedem Lauf gelesen wird, waere das
+        # Werkzeug damit ausser Betrieb. Serialisiert ueber einen
+        # Advisory-Lock, siehe ``backend.db.ensure_schema``.
+        ergaenzt = ensure_schema()
+        if ergaenzt:
+            logger.warning(
+                "Schema ergaenzt: %s",
+                ", ".join(f"{tabelle}.{spalte}" for tabelle, spalte in ergaenzt),
+            )
         logger.info("Datenbankschema sichergestellt")
     except Exception:
         logger.exception("Datenbank nicht erreichbar — Vault-Funktionen fallen aus")

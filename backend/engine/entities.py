@@ -228,6 +228,19 @@ CH_ENTITIES: List[str] = [name for name in CATALOG if name.startswith("CH_")]
 #: sieht eine vollstaendige Konfiguration wie eine Luecke aus.
 NUR_BEGRIFFSLISTE: List[str] = [name for name in CATALOG if name.startswith("PTI_")]
 
+#: Typen, die aus dem statistischen NER-Modell stammen und deshalb **je
+#: Vorkommen** entschieden werden.
+#:
+#: Alle anderen Typen entstehen aus Mustern mit Pruefsumme oder Regex (AHV,
+#: IBAN, E-Mail, Telefon …) oder aus der Begriffsliste. Die finden denselben
+#: Text zuverlaessig an jeder Stelle, an der er steht. Das NER-Modell tut das
+#: nicht: es bewertet den Satzkontext und kann denselben Namen im einen Absatz
+#: erkennen und im naechsten uebersehen. Genau diese Luecke schliesst
+#: :func:`backend.pipeline.propagate_findings` — und nur fuer diese Typen, weil
+#: eine Uebertragung bei den uebrigen nichts hinzufuegen wuerde ausser dem
+#: Risiko, einen bereits aufgeloesten Ueberlapp wieder einzufuehren.
+NER_ENTITIES: List[str] = [PERSON, LOCATION, ORGANIZATION]
+
 
 def get_label(entity_type: str) -> str:
     """Deutsches Anzeigelabel zu einem Entitätstyp.

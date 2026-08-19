@@ -55,6 +55,40 @@ stille Verschlechterung an einem anderen erkaufen.
 
 ---
 
+## Messstand vom 2026-08-19
+
+Nach Einfuehrung der Fund-Uebertragung (`pipeline.propagate_findings`) und dem
+neuen Dokument `wiederholte_nennung`. 8 → 9 Dokumente, 44 → 50 erwartete Funde:
+
+| | vorher | nachher |
+|---|---|---|
+| Gesamt-Precision | 93.3 % | **94.1 %** |
+| Gesamt-Recall | 95.5 % | **96.0 %** |
+| ORGANIZATION-Recall | 88.9 % | **93.3 %** |
+| Struktur-PII | 100 % | 100 % |
+
+Die Verbesserung kommt **allein** vom neuen Dokument: Auf den acht bisherigen
+Dokumenten aendert die Uebertragung nichts — dort gibt es keinen Namen, der an
+einer Stelle erkannt und an einer anderen uebersehen wird. Genau das war die
+Luecke: Der Satz kannte diese Fehlerklasse nicht und konnte sie deshalb weder
+messen noch bewachen.
+
+Gegenprobe zur Wirksamkeit: Ohne den Uebertragungsschritt werden in
+`wiederholte_nennung` **5 von 6** Vorkommen verfehlt. Das Dokument ist damit
+ein echter Waechter und keine Zierde.
+
+### Was die Uebertragung bewusst NICHT tut
+
+Sie erweitert oder ergaenzt Fundstellen — sie benennt keine um. Ordnet das
+Modell denselben Text mehrheitlich anders ein (`Sandra` haeufiger als Ort denn
+als Person), bleibt jede bereits erkannte Stelle bei ihrem Typ. Ohne diese
+Grenze waere die Erkennung nach der Uebertragung *anders*, nicht besser: in
+einem Zwischenstand hat sie korrekt erkannte `PERSON`-Stellen zu `LOCATION`
+umetikettiert. Der Fall steht als Test in
+`backend/tests/test_pipeline_propagation.py`.
+
+---
+
 ## Messstand vom 2026-08-18
 
 Erster echter Lauf über 7 synthetische Dokumente, 39 erwartete Funde:
@@ -96,6 +130,12 @@ als erstes verschwinden:
    erkannt. Kostet doppelt: ein verfehlter Fund UND ein Fehlalarm auf dem
    Vornamen. Ein halb erkannter Name ist der gefaehrlichste Fall — der Nachname
    bleibt im Dokument stehen.
+   Die Fund-Uebertragung hilft hier **nicht**: Sie kann einen Namen nur an
+   weitere Stellen tragen, wenn er wenigstens einmal vollstaendig erkannt
+   wurde. In diesem Dokument kommt `Sandra Zbinden` nur ein einziges Mal vor,
+   und dort greift der Namenssplit. Wo der volle Name anderswo erkannt wird,
+   raeumt die Uebertragung den Split hingegen auf und verdraengt das
+   Teilstueck (Regel 2 des Merges).
 2. **`Meldestelle für Geldwäscherei` wird nicht als ORGANIZATION erkannt.**
    Behoerdennamen aus dem PTI-Glossar sind dem Modell unbekannt. Genau dafuer
    gibt es die Begriffsliste (Ebene 0) — solche Namen gehoeren dort hinein,

@@ -77,6 +77,30 @@ Der Bericht listet auf, **was** verfehlt wurde und **was** ein Fehlalarm war —
 mit Dokumentname und Ampelstufe. Das ist der Einstieg fuer jede Verbesserung an
 der Engine.
 
+### Ein Fund gilt im ganzen Dokument
+
+Das NER-Modell entscheidet **je Vorkommen**: derselbe Name wird im
+ausformulierten Satz erkannt und in der Stichwortzeile daneben übersehen.
+Ersetzt würde ohne Gegenmassnahme nur die erkannte Stelle — im Ergebnisdokument
+stünde der Klarname weiter da, obwohl er in der Befundliste steht. Genau dieses
+Fehlerbild kam aus dem Betrieb.
+
+`pipeline.propagate_findings` trägt deshalb jeden Fundtext an allen weiteren
+Stellen nach. Drei Grenzen, die dabei gelten und die man kennen muss, bevor man
+daran schraubt:
+
+1. **Nur `PERSON`, `LOCATION`, `ORGANIZATION`** (`entities.NER_ENTITIES`).
+   Muster- und Begriffslisten-Erkenner finden ihren Text ohnehin überall.
+2. **Erweitern und ergänzen, nie umbenennen.** Ein Nachtrag auf einer bereits
+   erkannten Stelle wird verworfen — sonst überschriebe der häufigere Typ
+   korrekt erkannte Funde des anderen.
+3. **Wortgrenzengenau und gross-/kleinschreibungsempfindlich**, mindestens drei
+   Zeichen. Ein Fehlalarm auf einem kurzen Kürzel vervielfachte sich sonst über
+   das ganze Dokument.
+
+Der Wächter darüber ist das Golden-Set-Dokument `wiederholte_nennung`; ohne den
+Schritt verfehlt es 5 von 6 Vorkommen.
+
 Drei Regeln:
 
 1. **Marken nicht nachziehen.** Reisst eine Zielmarke, ist die Erkennung

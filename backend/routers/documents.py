@@ -17,6 +17,7 @@ Die Verarbeitung ist ephemer, nur die Zuordnung landet verschluesselt im Vault
 from __future__ import annotations
 
 import base64
+import json
 from typing import Annotated, Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
@@ -173,6 +174,39 @@ def _check_text_size(text: str) -> None:
         )
 
 
+def parse_selected(value: Optional[str]) -> Optional[list[dict]]:
+    """Liest die Befund-Auswahl aus dem Multipart-Formular.
+
+    Gegenstueck zu ``TextRequest.selected_entities`` fuer den Dateipfad: ein
+    Formularfeld kann keine Liste von Objekten tragen, also kommt sie als
+    JSON-Zeichenkette. Ohne dieses Feld waere das Abwaehlen eines Fehlalarms in
+    der Befundliste bei Dateien wirkungslos — die Oberflaeche zeigte
+    Kaestchen, die nichts bewirken.
+
+    Eine leere Liste ist ausdruecklich erlaubt und bedeutet „nichts ersetzen".
+    Das ist etwas anderes als ein fehlendes Feld (= Default-Policy) und muss
+    unterscheidbar bleiben, sonst kaeme beim Abwaehlen aller Funde das
+    vollstaendig pseudonymisierte Dokument zurueck.
+    """
+    if value is None:
+        return None
+    try:
+        parsed = json.loads(value)
+    except json.JSONDecodeError as exc:
+        raise HTTPException(
+            400, detail="selected_entities ist kein gueltiges JSON."
+        ) from exc
+    if not isinstance(parsed, list) or not all(isinstance(e, dict) for e in parsed):
+        raise HTTPException(
+            400,
+            detail=(
+                "selected_entities muss eine Liste von Objekten mit "
+                "segment_id/start/end sein."
+            ),
+        )
+    return parsed
+
+
 def parse_entities(value: list[str] | str | None) -> Optional[list[str]]:
     """Validiert die Kategorienwahl gegen den Katalog.
 
@@ -274,16 +308,23 @@ async def anonymize_file(
     vault_id: Annotated[Optional[str], Form()] = None,
     vault_label: Annotated[Optional[str], Form()] = None,
     entities: Annotated[Optional[str], Form()] = None,
+    selected_entities: Annotated[Optional[str], Form()] = None,
 ) -> dict:
     """Pseudonymisiert ein Dokument formaterhaltend.
 
     Die Datei kommt als Base64 zurueck statt als Datei-Download, weil die
     Antwort neben dem Dokument auch den Befund tragen muss — die Oberflaeche
     zeigt beides.
+
+    ``selected_entities`` traegt die geprueften Funde als JSON-Zeichenkette
+    (siehe :func:`parse_selected`). Ohne dieses Feld gaebe es fuer Dateien
+    keinen Weg, einen Fehlalarm abzuwaehlen — die Kaestchen in der
+    Befundliste haetten dann keine Wirkung.
     """
     data = await file.read()
     _check_size(data)
     parsed_entities = parse_entities(entities)
+    parsed_selected = parse_selected(selected_entities)
 
     tenant = get_tenant(session, request)
     terms = _load_custom_terms(session, tenant.id)
@@ -299,6 +340,7 @@ async def anonymize_file(
             file.filename or "unbenannt.txt",
             entities=parsed_entities,
             custom_terms=terms,
+            selected=parsed_selected,
         )
     except UnsupportedFormatError as exc:
         raise HTTPException(

@@ -158,7 +158,8 @@ curl -X POST https://pseudo.pti-tip-hub.ch/api/ext/v1/documents:detect \
       "end": 18,
       "score": 0.85,
       "confidence": "gruen",
-      "text": "Andreas Meier"
+      "text": "Andreas Meier",
+      "propagated": false
     }
   ],
   "char_count": 40
@@ -166,6 +167,15 @@ curl -X POST https://pseudo.pti-tip-hub.ch/api/ext/v1/documents:detect \
 ```
 
 `confidence` ist eine Ampelstufe (`gruen` ≥ 0.85, `gelb` ≥ 0.5, sonst `rot`).
+
+`propagated` ist `true`, wenn dieser Fund nicht von der Erkennung selbst
+stammt, sondern von einer gleichlautenden Stelle übernommen wurde. Hintergrund:
+Das NER-Modell entscheidet je Vorkommen und meldet denselben Namen im einen
+Absatz, im nächsten nicht. Ersetzt würde sonst nur die gemeldete Stelle — der
+Klarname bliebe im Dokument stehen, obwohl er im Befund steht. Für die
+Ersetzung sind beide Arten gleichwertig; das Feld ist reine Auskunft über die
+Herkunft. Übertragen werden nur `PERSON`, `LOCATION` und `ORGANIZATION`:
+Muster- und Begriffslisten-Erkenner finden ihren Text ohnehin an jeder Stelle.
 
 ### `POST /documents:anonymize`
 
@@ -223,6 +233,21 @@ curl -X POST https://pseudo.pti-tip-hub.ch/api/ext/v1/documents:anonymize-file \
   -F "vault_label=Anfrage #4711" \
   -F "entities=PERSON,CH_IBAN"
 ```
+
+`selected_entities` gibt es auch hier — als JSON-Zeichenkette, weil ein
+Multipart-Formular keine Listen von Objekten kennt. Je Eintrag mindestens
+`segment_id`, `start` und `end`, so wie sie ein vorheriger Lauf **über
+dieselbe Datei** geliefert hat:
+
+```bash
+  -F 'selected_entities=[{"segment_id":"body/p0","start":5,"end":18}]'
+```
+
+Achtung, das ist die häufigste Fehlerquelle bei diesem Feld: Die Segment-IDs
+stammen vom Adapter des jeweiligen Formats. Eine Auswahl aus einem
+`:detect`-Lauf (dort heisst das Segment immer `text`) passt **nicht** auf einen
+Dateilauf. Passt kein Eintrag, wird nichts ersetzt — der Aufruf meldet
+trotzdem `200`, erkennbar allein an `applied: 0`.
 
 ```json
 {

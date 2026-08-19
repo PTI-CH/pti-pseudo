@@ -182,6 +182,13 @@ _MELDESTELLE_GWG = "Meldestelle für Geldwäscherei"
 #: (Kantonspolizei + Kantonskürzel) — realistisches PTI-Fachvokabular.
 _KAPO_FR = "Kantonspolizei Freiburg"
 
+#: Frei erfundener Lieferantenname für ``_baue_wiederholte_nennung``.
+#: Bewusst so gewählt, dass das Modell ihn im ausformulierten Satz als
+#: Organisation erkennt, kontextlos aber übersieht — nur dann misst das
+#: Dokument, was es messen soll. Wird er ausgetauscht, ist dieses Verhalten
+#: neu zu prüfen, sonst misst der Testfall nichts mehr.
+_LIEFERANT = "Talblick"
+
 #: Abkürzungen aus dem Glossar — gezielte Fehlalarm-Fallen. Sehen wie
 #: Initialen oder Aktenzeichen aus, sind aber Institutions- bzw.
 #: Erlasskürzel und dürfen nie als PERSON oder CH_PLATE durchgehen.
@@ -774,6 +781,65 @@ def _baue_reiner_text() -> Testdokument:
     )
 
 
+# ── Dokument 8: derselbe Name mehrfach, unterschiedlich viel Kontext ────────
+
+
+def _baue_wiederholte_nennung() -> Testdokument:
+    """Ein Firmenname, der sechsmal vorkommt — nur einmal im vollen Satz.
+
+    Der Anlass ist ein Fehlerbild aus dem Betrieb: In der Befundliste stand ein
+    Lieferantenname als Fund, im heruntergeladenen Word-Dokument stand er
+    trotzdem noch im Klartext. Kein Fehler beim Zurückschreiben — das NER-Modell
+    hatte ihn nur an *einer* Stelle gemeldet, und ersetzt wird, was gemeldet
+    ist.
+
+    Dieses Dokument bildet genau das ab: derselbe Name in einem
+    ausformulierten Satz (dort erkennt ihn das Modell), in einer Stichwortzeile
+    und in Tabellenzellen (dort nicht). Ohne
+    ``pipeline.propagate_findings`` werden fünf der sechs Vorkommen verfehlt —
+    dieses Dokument ist der Wächter über diesen Schritt.
+
+    ``Talblick`` ist frei erfunden und bewusst so gewählt, dass das Modell ihn
+    im Fliesstext als Organisation erkennt, kontextlos aber übersieht.
+    """
+    dokument = Document()
+
+    dokument.add_paragraph(
+        f"Jedes Korps hat eigene Verträge resp. Auftragsverhältnisse mit "
+        f"{_LIEFERANT}. Gleichzeitig hat auch der Verein vereinzelt "
+        f"Vereinbarungen mit {_LIEFERANT} abgeschlossen."
+    )
+    dokument.add_paragraph(
+        f"Die Firma {_LIEFERANT} gibt zwar im Zusammenspiel mit dem Verein "
+        f"einen Releasetakt vor."
+    )
+    dokument.add_paragraph(f"Vertragspartner: {_LIEFERANT}")
+
+    tabelle = dokument.add_table(rows=2, cols=2)
+    tabelle.style = "Table Grid"
+    tabelle.rows[0].cells[0].text = "Lieferant"
+    tabelle.rows[0].cells[1].text = _LIEFERANT
+    tabelle.rows[1].cells[0].text = "Wartung"
+    tabelle.rows[1].cells[1].text = _LIEFERANT
+
+    # Sechs Vorkommen, sechs Erwartungen: der Abgleich in
+    # scripts/golden_set_report.py ist eine Multimenge, jedes Vorkommen zaehlt
+    # einzeln. Genau das ist hier der Punkt — eines zu finden reicht nicht.
+    erwartet = tuple(Erwartung(_LIEFERANT, "ORGANIZATION") for _ in range(6))
+    return Testdokument(
+        name="wiederholte_nennung",
+        dateiname="wiederholte_nennung.docx",
+        beschreibung=(
+            "Derselbe Lieferantenname sechsmal — einmal im ausformulierten "
+            "Satz, sonst kontextlos in Stichwortzeile und Tabelle. Misst, ob "
+            "ein Fund im ganzen Dokument gilt oder nur an seiner Fundstelle."
+        ),
+        inhalt=_als_bytes(dokument),
+        erwartet=erwartet,
+        verboten=(),
+    )
+
+
 # ── Modul-Konstante ─────────────────────────────────────────────────────────
 
 def _baue_begriffsliste() -> Testdokument:
@@ -862,6 +928,7 @@ DOKUMENTE: List[Testdokument] = [
     _baue_fussnote_kommentar(),
     _baue_pti_protokoll(),
     _baue_reiner_text(),
+    _baue_wiederholte_nennung(),
 ]
 
 

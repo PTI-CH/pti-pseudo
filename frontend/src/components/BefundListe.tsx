@@ -15,6 +15,14 @@ interface Props {
   befunde: Befund[];
   /** Kennungen der Funde, die ersetzt werden sollen. */
   ausgewaehlt: Set<string>;
+  /**
+   * Wie viele Funde der Server im aktuellen Ergebnis tatsächlich ersetzt hat.
+   *
+   * Kommt aus der Antwort und wird **nicht** hier gezählt. Vorher stand an
+   * dieser Stelle die Zahl der angehakten Kästchen — die behauptete auch dann
+   * „43 von 43“, wenn der Server aus anderen Gründen weniger ersetzt hatte.
+   */
+  angewendet: number | null;
   onAusgewaehlt: (ausgewaehlt: Set<string>) => void;
   onAnwenden: () => void;
   laeuft: boolean;
@@ -32,6 +40,7 @@ const REIHENFOLGE: Record<AmpelStufe, number> = { rot: 0, gelb: 1, gruen: 2 };
 export default function BefundListe({
   befunde,
   ausgewaehlt,
+  angewendet,
   onAusgewaehlt,
   onAnwenden,
   laeuft,
@@ -172,6 +181,18 @@ export default function BefundListe({
                     </td>
                     <td className="px-4 py-3 font-medium text-gray-900 dark:text-gray-100 break-all">
                       {b.text || <span className="text-gray-400 dark:text-gray-500">—</span>}
+                      {b.propagated && (
+                        <span
+                          className="ml-2 inline-block rounded bg-gray-100 dark:bg-gray-700 px-1.5 py-0.5 text-[10px] font-normal text-gray-500 dark:text-gray-400 align-middle"
+                          title={
+                            'Diese Stelle hat die Erkennung selbst nicht gemeldet. Sie wurde ' +
+                            'übernommen, weil derselbe Text an anderer Stelle im Dokument ' +
+                            'gefunden wurde — sonst bliebe er hier im Klartext stehen.'
+                          }
+                        >
+                          übertragen
+                        </span>
+                      )}
                     </td>
                     <td className="px-4 py-3 text-gray-500 dark:text-gray-400 font-mono text-xs break-all">
                       {b.replacement || '—'}
@@ -195,7 +216,23 @@ export default function BefundListe({
 
       <div className="flex items-center justify-between gap-3">
         <p className="text-xs text-gray-500 dark:text-gray-400">
-          {ausgewaehlt.size} von {befunde.length} Funden werden ersetzt.
+          {angewendet === null ? (
+            <>Noch nichts ersetzt.</>
+          ) : (
+            <>
+              Im vorliegenden Ergebnis {angewendet === 1 ? 'wurde' : 'wurden'}{' '}
+              <strong>
+                {angewendet} von {befunde.length}
+              </strong>{' '}
+              {angewendet === 1 ? 'Fund' : 'Funden'} ersetzt.
+            </>
+          )}
+          {angewendet !== null && ausgewaehlt.size !== angewendet && (
+            <>
+              {' '}
+              Ihre Auswahl umfasst jetzt {ausgewaehlt.size} — mit „Anwenden“ übernehmen.
+            </>
+          )}
         </p>
         <button
           type="button"

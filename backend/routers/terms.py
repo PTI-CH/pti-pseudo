@@ -12,7 +12,7 @@ einem, der die Eigenheiten einer Organisation kennt.
 from __future__ import annotations
 
 import uuid
-from typing import Annotated
+from typing import Annotated, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field, field_validator
@@ -38,6 +38,10 @@ class TermCreate(BaseModel):
     term: str = Field(..., min_length=2, max_length=500)
     entity_type: str = Field("PERSON")
     match_mode: str = Field("normalized")
+    #: Festes Pseudonym. Die 100 Zeichen sind keine willkuerliche Grenze,
+    #: sondern die Breite von ``mapping_entries.pseudonym`` — der Wert landet
+    #: dort eins zu eins.
+    replacement: Optional[str] = Field(None, max_length=100)
 
     @field_validator("term")
     @classmethod
@@ -46,6 +50,15 @@ class TermCreate(BaseModel):
         if not v:
             raise ValueError("Der Begriff darf nicht leer sein.")
         return v
+
+    @field_validator("replacement")
+    @classmethod
+    def _replacement(cls, v: Optional[str]) -> Optional[str]:
+        """Leerstring und reiner Leerraum bedeuten „kein festes Pseudonym"."""
+        if v is None:
+            return None
+        v = v.strip()
+        return v or None
 
     @field_validator("match_mode")
     @classmethod
@@ -74,6 +87,7 @@ async def list_terms(
                 "entity_type": r.entity_type,
                 "label": ents.get_label(r.entity_type),
                 "match_mode": r.match_mode,
+                "replacement": r.replacement,
                 "created_at": r.created_at.isoformat(),
             }
             for r in rows
@@ -120,11 +134,33 @@ async def create_term(
     if exists is not None:
         raise HTTPException(409, detail="Dieser Begriff steht bereits in der Liste.")
 
+    if payload.replacement is not None:
+        # Zwei Begriffe mit demselben festen Pseudonym waeren nach der
+        # Rueckfuehrung nicht mehr auseinanderzuhalten — und der Unique-Index
+        # ``(vault_id, pseudonym)`` liesse den zweiten ohnehin nicht in den
+        # Vault. Lieber hier eine klare Meldung als spaeter ein stiller
+        # Rueckfall auf ein gezaehltes Symbol.
+        belegt = session.execute(
+            select(CustomTerm).where(
+                CustomTerm.tenant_id == tenant.id,
+                CustomTerm.replacement == payload.replacement,
+            )
+        ).scalar_one_or_none()
+        if belegt is not None:
+            raise HTTPException(
+                409,
+                detail=(
+                    f"Das feste Pseudonym '{payload.replacement}' ist bereits "
+                    f"dem Begriff '{belegt.term}' zugeordnet."
+                ),
+            )
+
     row = CustomTerm(
         tenant_id=tenant.id,
         term=payload.term,
         entity_type=payload.entity_type,
         match_mode=payload.match_mode,
+        replacement=payload.replacement,
     )
     session.add(row)
     session.commit()
@@ -135,6 +171,7 @@ async def create_term(
         "entity_type": row.entity_type,
         "label": ents.get_label(row.entity_type),
         "match_mode": row.match_mode,
+        "replacement": row.replacement,
     }
 
 

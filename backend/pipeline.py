@@ -9,7 +9,7 @@ Der Adapter liefert Segmente reinen Textes, die Engine findet darin Entitaeten,
 der Vault vergibt (und merkt sich) die Pseudonyme, und der Adapter schreibt die
 Ersetzungen formaterhaltend zurueck.
 
-Zwei Regeln, die hier zentral durchgesetzt werden und nirgends sonst:
+Drei Regeln, die hier zentral durchgesetzt werden und nirgends sonst:
 
 1. **Ersetzungen werden von rechts nach links angewandt.** Der Adapter erwartet
    Offsets, die sich auf den unveraenderten Segmenttext beziehen. Wuerde man von
@@ -17,19 +17,29 @@ Zwei Regeln, die hier zentral durchgesetzt werden und nirgends sonst:
 2. **Ueberlappende Treffer sind bereits in der Engine aufgeloest**
    (``engine.merge``). Hier wird das nur noch geprueft, nicht repariert — ein
    Ueberlapp an dieser Stelle waere ein Fehler weiter oben und soll auffallen.
+3. **Ein Fund gilt im ganzen Dokument** (:func:`propagate_findings`). Das
+   NER-Modell entscheidet je Vorkommen: derselbe Name wird im einen Absatz
+   erkannt und im naechsten uebersehen. Ersetzt wuerde dann nur die erkannte
+   Stelle — im Ergebnisdokument stuende der Klarname weiter da, obwohl er in
+   der Befundliste steht. Deshalb wird jeder Fundtext nach der Erkennung an
+   allen weiteren Stellen nachgetragen.
 """
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from typing import Iterable, Optional, Sequence
 
+from presidio_analyzer import RecognizerResult
 from sqlalchemy.orm import Session
 
 from backend.adapters import get_adapter
 from backend.adapters.base import DocumentAdapter, Replacement, Segment
 from backend.engine import analyzer as engine
 from backend.engine import entities as ents
+from backend.engine.merge import merge_overlaps
+from backend.engine.recognizers.custom_terms import build_term_regex, coerce_term
 from backend.vault import service as vault_service
 from backend.vault.models import Vault
 
@@ -48,6 +58,10 @@ class Finding:
     end: int
     score: float
     text: str
+    #: ``True``, wenn dieser Fund nicht von der Engine kommt, sondern von
+    #: :func:`propagate_findings` aus einem gleichlautenden Fund uebertragen
+    #: wurde. Rein informativ — fuer die Ersetzung sind beide gleichwertig.
+    propagated: bool = False
 
     @property
     def label(self) -> str:
@@ -80,6 +94,7 @@ class Finding:
             "score": round(self.score, 4),
             "confidence": self.confidence,
             "text": self.text,
+            "propagated": self.propagated,
         }
 
 
@@ -108,6 +123,7 @@ def detect_in_segments(
     *,
     entities: Optional[Iterable[str]] = None,
     custom_terms: Optional[Sequence] = None,
+    propagate: bool = True,
 ) -> DetectionResult:
     """Laesst die Engine ueber alle Segmente laufen.
 
@@ -131,6 +147,10 @@ def detect_in_segments(
 
     Dieser eine Ort deckt beide Wege ab — Text- wie Dokumentpfad laufen ueber
     diese Funktion.
+
+    ``propagate`` steuert den Nachtrag gleichlautender Stellen
+    (:func:`propagate_findings`). Nur zum Abschalten in Tests und in der
+    Diagnose gedacht — im Betrieb immer an.
     """
     result = DetectionResult(segments=list(segments))
 
@@ -157,7 +177,218 @@ def detect_in_segments(
                     text=segment.text[r.start : r.end],
                 )
             )
+
+    if propagate:
+        result.findings = propagate_findings(result.segments, result.findings)
     return result
+
+
+# ── Uebertragung eines Fundes auf gleichlautende Stellen ────────────────────
+#
+# Warum das noetig ist, steht im Modulkopf unter Regel 3. Hier die Grenzen, die
+# dabei gezogen werden — jede einzelne verhindert einen konkreten Schaden.
+
+#: Mindestlaenge eines Fundtexts, damit er uebertragen wird.
+#:
+#: Kuerzeres traegt zu wenig Eigenheit: ein zweibuchstabiges Kuerzel steckt in
+#: zu vielen harmlosen Stellen, und ein Fehlalarm darauf wuerde sich ueber das
+#: ganze Dokument vervielfachen — aus einem falsch ersetzten Wort wuerden
+#: dreissig.
+MIN_UEBERTRAGUNGSLAENGE = 3
+
+
+@dataclass(frozen=True)
+class _Uebertragung:
+    """Ein Fundtext, der im ganzen Dokument nachgetragen wird."""
+
+    begriff: str
+    entity_type: str
+    score: float
+    muster: re.Pattern
+
+
+def _wortzeichen(zeichen: str) -> bool:
+    """Prueft, ob das Zeichen fuer die Wortgrenze als Wortbestandteil zaehlt."""
+    return zeichen.isalnum() or zeichen == "_"
+
+
+def _muster(begriff: str) -> re.Pattern:
+    r"""Sucht ``begriff`` wortgrenzengenau — aber nur, wo eine Grenze Sinn ergibt.
+
+    ``\bMeier\b`` waere falsch, sobald ein Begriff mit einem Satzzeichen
+    beginnt oder endet: ``\b`` verlangt dort einen Wortwechsel, den es nicht
+    gibt, und der Begriff wuerde nie gefunden. Die Grenze wird deshalb nur an
+    der Seite gesetzt, an der der Begriff selbst mit einem Wortzeichen anfaengt
+    bzw. aufhoert.
+
+    Bewusst **gross-/kleinschreibungsempfindlich**: die uebertragenen Typen
+    sind Eigennamen und stehen gross. Ein tolerantes ``Bund`` wuerde jedes
+    ``bund`` in ``Verbund`` mitnehmen — die Wortgrenze schuetzt davor, die
+    Kleinschreibung ist die zweite Sicherung.
+    """
+    vorne = r"(?<!\w)" if _wortzeichen(begriff[0]) else ""
+    hinten = r"(?!\w)" if _wortzeichen(begriff[-1]) else ""
+    return re.compile(vorne + re.escape(begriff) + hinten)
+
+
+def _uebertragbare_begriffe(findings: Sequence[Finding]) -> list[_Uebertragung]:
+    """Sammelt die Fundtexte, die uebertragen werden — laengste zuerst.
+
+    Uebertragen wird nur, was aus dem NER-Modell stammt
+    (:data:`~backend.engine.entities.NER_ENTITIES`). Muster- und
+    Begriffslisten-Erkenner finden ihren Text ohnehin an jeder Stelle; ihre
+    Treffer nachzutragen brauchte niemand und koennte nur einen Ueberlapp
+    wieder einfuehren, den ``engine.merge`` gerade aufgeloest hat.
+
+    Die Sortierung nach absteigender Laenge ist wesentlich: stehen
+    ``Andreas Meier`` und ``Meier`` beide in der Liste, muss der laengere
+    Begriff seine Stellen zuerst belegen. Sonst schnappt sich ``Meier`` das
+    halbe Vorkommen und der Rest bliebe als ``Andreas `` stehen.
+    """
+    je_text: dict[str, list[Finding]] = {}
+    for f in findings:
+        if f.entity_type not in ents.NER_ENTITIES:
+            continue
+        if f.text != f.text.strip():
+            # Ein Span mit Leerraum am Rand ist ein unsauberer Treffer; ihn zu
+            # vervielfaeltigen zoege den Schnittfehler durchs ganze Dokument.
+            continue
+        if len(f.text) < MIN_UEBERTRAGUNGSLAENGE:
+            continue
+        if not any(zeichen.isalpha() for zeichen in f.text):
+            continue
+        je_text.setdefault(f.text, []).append(f)
+
+    uebertragungen = []
+    for text, treffer in je_text.items():
+        typ, score = _mehrheitstyp(treffer)
+        uebertragungen.append(
+            _Uebertragung(
+                begriff=text, entity_type=typ, score=score, muster=_muster(text)
+            )
+        )
+    uebertragungen.sort(key=lambda u: (-len(u.begriff), u.begriff))
+    return uebertragungen
+
+
+def _mehrheitstyp(treffer: Sequence[Finding]) -> tuple[str, float]:
+    """Bestimmt den Typ, wenn die Engine denselben Text uneinheitlich einordnet.
+
+    Kommt regelmaessig vor: ``Zuerich`` ist im einen Absatz ``LOCATION``, im
+    anderen Teil einer ``ORGANIZATION``. Entschieden wird nach dem hoechsten
+    Score, bei Gleichstand nach der Haeufigkeit, zuletzt alphabetisch. Fachlich
+    ist die letzte Stufe beliebig — sie ist nur dafuer da, dass zwei Laeufe ueber
+    dasselbe Dokument garantiert dasselbe Ergebnis liefern (sonst wackelten die
+    Pseudonyme im Vault).
+    """
+    je_typ: dict[str, list[float]] = {}
+    for f in treffer:
+        je_typ.setdefault(f.entity_type, []).append(f.score)
+    typ = min(je_typ, key=lambda t: (-max(je_typ[t]), -len(je_typ[t]), t))
+    return typ, max(je_typ[typ])
+
+
+def propagate_findings(
+    segments: Sequence[Segment], findings: Sequence[Finding]
+) -> list[Finding]:
+    """Traegt jeden Fundtext an allen weiteren Stellen des Dokuments nach.
+
+    Der Kern der Sache: das NER-Modell entscheidet **je Vorkommen**. Steht ein
+    Name in Absatz 3 in einem Satz, den das Modell versteht, und in Absatz 9 in
+    einer Stichwortzeile ohne Kontext, wird er einmal gemeldet und einmal nicht.
+    Ersetzt wuerde ohne diesen Schritt nur die gemeldete Stelle — der Klarname
+    bliebe im Dokument stehen, obwohl er in der Befundliste steht. Genau dieser
+    Widerspruch war der Anlass.
+
+    Die nachgetragenen Funde sind von den echten nicht zu unterscheiden: sie
+    tragen denselben Typ und denselben Score und laufen durch dieselbe
+    Ersetzung. Nur ``Finding.propagated`` verraet ihre Herkunft, damit die
+    Oberflaeche sie kennzeichnen kann.
+
+    :param segments: Alle Segmente des Dokuments — auch die ohne Fund, denn
+        genau dort sitzen die uebersehenen Stellen.
+    :param findings: Die Funde der Engine.
+    :return: Die urspruenglichen Funde plus die nachgetragenen, in
+        Dokumentreihenfolge und garantiert ueberlappungsfrei.
+    """
+    uebertragungen = _uebertragbare_begriffe(findings)
+    if not uebertragungen:
+        return list(findings)
+
+    je_segment: dict[str, list[Finding]] = {}
+    for f in findings:
+        je_segment.setdefault(f.segment_id, []).append(f)
+
+    ergaenzt: list[Finding] = []
+    for segment in segments:
+        vorhanden = je_segment.pop(segment.id, [])
+        kandidaten = list(vorhanden)
+        # Deckungsgleiche Stellen sind tabu — und zwar unabhaengig vom Typ.
+        #
+        # Dass ein Nachtrag den Fund dupliziert, aus dem er stammt, ist der
+        # harmlose Teil. Der andere waere ein Schaden: ordnet die Engine
+        # denselben Text mehrheitlich anders ein (``Sandra`` haeufiger als Ort
+        # denn als Person), wuerde der Nachtrag einen korrekt erkannten Fund auf
+        # seiner eigenen Stelle umetikettieren. Uebertragen wird deshalb nur,
+        # was eine Stelle *hinzufuegt* oder *erweitert* — nie, was eine
+        # bestehende bloss umbenennt.
+        bekannt = {(f.start, f.end) for f in vorhanden}
+
+        for u in uebertragungen:
+            for treffer in u.muster.finditer(segment.text):
+                schluessel = (treffer.start(), treffer.end())
+                if schluessel in bekannt:
+                    continue
+                bekannt.add(schluessel)
+                kandidaten.append(
+                    Finding(
+                        segment_id=segment.id,
+                        entity_type=u.entity_type,
+                        start=treffer.start(),
+                        end=treffer.end(),
+                        score=u.score,
+                        text=u.begriff,
+                        propagated=True,
+                    )
+                )
+
+        ergaenzt.extend(_ohne_ueberlapp(kandidaten))
+
+    # Funde zu Segmenten, die nicht mitgeliefert wurden, bleiben unangetastet
+    # stehen — sie zu verlieren waere schlimmer als eine unsortierte Liste.
+    for rest in je_segment.values():
+        ergaenzt.extend(rest)
+    return ergaenzt
+
+
+def _ohne_ueberlapp(kandidaten: Sequence[Finding]) -> list[Finding]:
+    """Loest Ueberlappungen innerhalb eines Segments auf — mit der Engine-Regel.
+
+    Bewusst ueber :func:`backend.engine.merge.merge_overlaps` und nicht ueber
+    eine eigene Pruefung: es soll im ganzen Projekt genau **eine** Regel geben,
+    welcher von zwei konkurrierenden Treffern gewinnt. Das ist hier nicht
+    Kosmetik, sondern der Kern des Falls:
+
+    Das Modell erkennt in einer Stichwortzeile oft nur den Vornamen
+    (``Sandra``), waehrend es im Fliesstext den ganzen Namen sieht
+    (``Sandra Zbinden``). Wuerde der bereits erkannte Vorname seine Stelle
+    einfach behalten, bliebe der Nachname im Dokument stehen — und der
+    Nachtrag haette den Fall nur halb geloest. Regel 2 des Merges (bei
+    gleichem Score gewinnt der laengere Span) raeumt genau das auf.
+    """
+    if len(kandidaten) < 2:
+        return list(kandidaten)
+
+    je_stelle: dict[tuple[int, int, str], Finding] = {}
+    roh = []
+    for f in kandidaten:
+        je_stelle.setdefault((f.start, f.end, f.entity_type), f)
+        roh.append(
+            RecognizerResult(
+                entity_type=f.entity_type, start=f.start, end=f.end, score=f.score
+            )
+        )
+    return [je_stelle[(r.start, r.end, r.entity_type)] for r in merge_overlaps(roh)]
 
 
 def _select(
@@ -189,10 +420,58 @@ def _select(
     ]
 
 
+def feste_pseudonyme(
+    custom_terms: Optional[Sequence],
+) -> list[tuple[re.Pattern, str, str]]:
+    """Baut die Nachschlagetabelle fuer feste Pseudonyme aus der Begriffsliste.
+
+    Ein festes Pseudonym haengt am **Begriff**, nicht an der Fundstelle. Es
+    hier ueber dasselbe Regex aufzuloesen, mit dem der Erkenner gesucht hat,
+    statt es durch Presidio, ``merge_overlaps`` und die Fund-Uebertragung
+    durchzureichen, hat einen praktischen Grund: So bekommt auch ein
+    *nachgetragener* Fund (:func:`propagate_findings`) sein festes Pseudonym,
+    ohne dass die Uebertragung etwas davon wissen muss.
+
+    :return: Je Begriff mit festem Pseudonym ein Tripel
+        ``(Muster, entity_type, Pseudonym)``, nach Begriff sortiert — damit
+        bei zwei passenden Begriffen immer derselbe gewinnt.
+    """
+    tabelle: list[tuple[re.Pattern, str, str]] = []
+    for item in custom_terms or []:
+        term = coerce_term(item)
+        if not term.replacement:
+            continue
+        try:
+            muster = re.compile(build_term_regex(term))
+        except re.error:  # pragma: no cover - nur bei kaputtem Begriff
+            continue
+        tabelle.append((muster, term.entity_type, term.replacement))
+    tabelle.sort(key=lambda eintrag: (eintrag[2], eintrag[1]))
+    return tabelle
+
+
+def _festes_pseudonym(
+    finding: Finding, tabelle: Sequence[tuple[re.Pattern, str, str]]
+) -> Optional[str]:
+    """Sucht das feste Pseudonym zu einem Fund, falls es eines gibt.
+
+    ``fullmatch``, nicht ``search``: Der Fundtext muss dem Begriff **ganz**
+    entsprechen. Sonst bekaeme ein laengerer Treffer, der einen Listenbegriff
+    nur enthaelt (``Talblick AG`` gegenueber dem Begriff ``Talblick``), dessen
+    festes Pseudonym — und im Dokument stuende danach ein Symbol, das fuer
+    einen anderen Klartext steht.
+    """
+    for muster, entity_type, pseudonym in tabelle:
+        if finding.entity_type == entity_type and muster.fullmatch(finding.text):
+            return pseudonym
+    return None
+
+
 def build_replacements(
     session: Session,
     vault: Optional[Vault],
     findings: Sequence[Finding],
+    custom_terms: Optional[Sequence] = None,
 ) -> tuple[dict[str, list[Replacement]], dict[str, str]]:
     """Vergibt Pseudonyme und baut die Ersetzungsliste je Segment.
 
@@ -202,17 +481,22 @@ def build_replacements(
 
     Ohne ``vault`` (anonymer Modus) wird nur der Typ eingesetzt und nichts
     gespeichert. Das ist endgueltig und nicht rueckfuehrbar.
+
+    ``custom_terms`` liefert die festen Pseudonyme der Begriffsliste. Auch sie
+    landen im Vault — sonst fuende die Rueckfuehrung ihr Symbol nicht wieder.
     """
     per_segment: dict[str, list[Replacement]] = {}
     mapping: dict[str, str] = {}
+    tabelle = feste_pseudonyme(custom_terms)
 
     for f in findings:
+        fest = _festes_pseudonym(f, tabelle) if tabelle else None
         if vault is not None:
             pseudonym = vault_service.get_or_create_pseudonym(
-                session, vault, f.entity_type, f.text
+                session, vault, f.entity_type, f.text, festes_pseudonym=fest
             )
         else:
-            pseudonym = f"[[{f.entity_type}]]"
+            pseudonym = fest or f"[[{f.entity_type}]]"
         mapping[f.text] = pseudonym
         per_segment.setdefault(f.segment_id, []).append(
             Replacement(start=f.start, end=f.end, text=pseudonym)
@@ -258,7 +542,7 @@ def anonymize_text(
         [segment], entities=entities, custom_terms=custom_terms
     )
     applied = _select(detection.findings, selected, entities=entities)
-    per_segment, _ = build_replacements(session, vault, applied)
+    per_segment, _ = build_replacements(session, vault, applied, custom_terms)
 
     out = text
     for r in per_segment.get(TEXT_SEGMENT_ID, []):
@@ -289,7 +573,7 @@ def anonymize_document(
         segments, entities=entities, custom_terms=custom_terms
     )
     applied = _select(detection.findings, selected, entities=entities)
-    per_segment, _ = build_replacements(session, vault, applied)
+    per_segment, _ = build_replacements(session, vault, applied, custom_terms)
 
     out = adapter.apply_replacements(data, per_segment)
     if strip_metadata:

@@ -52,6 +52,14 @@ export default function Pseudonymisieren() {
    * darüber behauptet.
    */
   const [laufKategorien, setLaufKategorien] = useState<string[]>([]);
+  /**
+   * Die Quelle, aus der der aktuelle Befund entstand.
+   *
+   * Aus demselben Grund eine eigene Kopie wie `laufKategorien`: der Umschalter
+   * Text ⇄ Datei bleibt nach dem Lauf bedienbar. Wer dort wechselt und dann
+   * „Anwenden“ drückt, schickte sonst eine Auswahl an die falsche Quelle.
+   */
+  const [laufQuelle, setLaufQuelle] = useState<Quelle>('text');
   const [ausgewaehlt, setAusgewaehlt] = useState<Set<string>>(new Set());
 
   // Katalog beim Mount laden. Ohne Katalog gibt es keine sinnvolle Auswahl —
@@ -89,6 +97,7 @@ export default function Pseudonymisieren() {
     e: Ergebnis,
     ursprung: string,
     kategorien: string[],
+    quelleDesLaufs: Quelle,
   ): void {
     // Eine alte Blob-URL (Dateiergebnis) lebt nur im Browser-Speicher — wird
     // sie durch ein neues Ergebnis ersetzt, ohne dass sie je heruntergeladen
@@ -97,6 +106,7 @@ export default function Pseudonymisieren() {
     setErgebnis(e);
     setQuellText(ursprung);
     setLaufKategorien(kategorien);
+    setLaufQuelle(quelleDesLaufs);
     setAusgewaehlt(new Set(e.befunde.map((b: Befund) => b.id)));
   }
 
@@ -107,10 +117,10 @@ export default function Pseudonymisieren() {
       const kategorienListe = Array.from(gewaehlteKategorien);
       if (quelle === 'datei' && datei) {
         const e = await anonymisiereDatei(datei, modus, kategorienListe);
-        uebernimmErgebnis(e, '', kategorienListe);
+        uebernimmErgebnis(e, '', kategorienListe, 'datei');
       } else {
         const e = await anonymisiereText(text, modus, kategorienListe);
-        uebernimmErgebnis(e, text, kategorienListe);
+        uebernimmErgebnis(e, text, kategorienListe, 'text');
       }
     } catch (e) {
       // Ein fehlgeschlagener Lauf verwirft ein evtl. noch vorhandenes altes
@@ -124,13 +134,21 @@ export default function Pseudonymisieren() {
     }
   }
 
-  /** Erneut ersetzen — nur noch mit den Funden, die der Mensch bestätigt hat. */
+  /**
+   * Erneut ersetzen — nur noch mit den Funden, die der Mensch bestätigt hat.
+   *
+   * Gilt für beide Quellen. Bei einer Datei wird sie dazu erneut hochgeladen:
+   * der Server hält bewusst keine Dokument-Bytes vor, es gibt also nichts,
+   * worauf sich ein zweiter Aufruf beziehen könnte.
+   */
   async function anwenden(): Promise<void> {
     if (!ergebnis) return;
-    if (!quellText) {
-      setFehler(
-        'Die geprüfte Auswahl lässt sich nur auf Texteingaben anwenden. Bei Dateien starten Sie den Lauf bitte neu.',
-      );
+    if (laufQuelle === 'datei' && !datei) {
+      setFehler('Die Datei ist nicht mehr geladen. Bitte wählen Sie sie erneut aus.');
+      return;
+    }
+    if (laufQuelle === 'text' && !quellText) {
+      setFehler('Der Ausgangstext ist nicht mehr vorhanden. Bitte starten Sie den Lauf neu.');
       return;
     }
     if (laufKategorien.length === 0) {
@@ -143,8 +161,13 @@ export default function Pseudonymisieren() {
       const auswahl = ergebnis.befunde.filter((b) => ausgewaehlt.has(b.id));
       // Bewusst `laufKategorien` und nicht die aktuellen Checkboxen: der Befund
       // stammt aus dem Lauf, die Ersetzung muss zu ihm passen.
-      const neu = await anonymisiereText(quellText, modus, laufKategorien, auswahl);
-      // Die Auswahl des Menschen bleibt bestehen; nur Text und Vault erneuern sich.
+      const neu =
+        laufQuelle === 'datei' && datei
+          ? await anonymisiereDatei(datei, modus, laufKategorien, auswahl)
+          : await anonymisiereText(quellText, modus, laufKategorien, auswahl);
+      // Die alte Blob-URL wird durch die neue ersetzt und muss vorher weg.
+      gibErgebnisFrei(ergebnis);
+      // Die Auswahl des Menschen bleibt bestehen; nur Ergebnis und Vault erneuern sich.
       setErgebnis({ ...neu, befunde: ergebnis.befunde });
     } catch (e) {
       setFehler(fehlerMeldung(e));
@@ -160,6 +183,7 @@ export default function Pseudonymisieren() {
     setErgebnis(null);
     setQuellText('');
     setLaufKategorien([]);
+    setLaufQuelle('text');
     setAusgewaehlt(new Set());
     setFehler(null);
   }
@@ -310,6 +334,7 @@ export default function Pseudonymisieren() {
             <BefundListe
               befunde={ergebnis.befunde}
               ausgewaehlt={ausgewaehlt}
+              angewendet={ergebnis.angewendet}
               onAusgewaehlt={setAusgewaehlt}
               onAnwenden={() => void anwenden()}
               laeuft={wendetAn}

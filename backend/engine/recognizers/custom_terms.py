@@ -85,11 +85,17 @@ class CustomTerm:
     :param term: Der zu suchende Begriff.
     :param entity_type: Entitätstyp, unter dem der Treffer gemeldet wird.
     :param match_mode: ``exact`` oder ``normalized``.
+    :param replacement: Festes Pseudonym statt eines gezählten Symbols.
+        ``None`` heisst: Pseudonym wie üblich vergeben. Der Erkenner selbst
+        wertet das Feld **nicht** aus — er meldet nur Fundstellen. Eingesetzt
+        wird es erst in :func:`backend.pipeline.build_replacements`, wo die
+        Pseudonyme vergeben werden.
     """
 
     term: str
     entity_type: str = DEFAULT_ENTITY
     match_mode: MatchMode = MatchMode.EXACT
+    replacement: Optional[str] = None
 
     def __post_init__(self) -> None:
         """Eingaben prüfen und ``match_mode`` aus einem String übernehmen."""
@@ -149,6 +155,7 @@ def coerce_term(item: TermInput) -> CustomTerm:
             term=item["term"],
             entity_type=item.get("entity_type", DEFAULT_ENTITY),
             match_mode=item.get("match_mode", MatchMode.EXACT),
+            replacement=item.get("replacement") or None,
         )
     if isinstance(item, (tuple, list)):
         values = list(item)

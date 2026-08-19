@@ -359,3 +359,104 @@ def test_datei_ohne_erwartete_listen_bricht_kontrolliert_ab(
 
     with pytest.raises(SystemExit):
         importer.lade_datei(kaputte_datei)
+
+
+# ── Festes Pseudonym ───────────────────────────────────────────────────────
+#
+# Das Feld gab es in der Oberflaeche laenger, als es irgendwo ausgewertet wurde.
+# Damit derselbe Fehler nicht ueber den Massenimport zurueckkommt, hat es hier
+# eigene Faelle: uebernommen wird es, ueberlang oder doppelt wird es abgelehnt.
+
+
+def test_festes_pseudonym_wird_uebernommen(session: Session, tenant: Tenant) -> None:
+    daten = {
+        "sicher": [
+            {
+                "term": "Talblick Systeme",
+                "entity_type": "ORGANIZATION",
+                "match_mode": "normalized",
+                "replacement": "[[LIEFERANT_A]]",
+                "zu_pruefen": False,
+                "quellen": [],
+            },
+        ],
+        "zu_pruefen": [],
+    }
+    kandidaten = importer.sammle_kandidaten(daten, auch_zu_pruefen=False)
+    begriffe, ungueltig, _ = importer.validiere_alle(kandidaten)
+    assert ungueltig == []
+
+    importer.importiere(session, tenant, begriffe, dry_run=False)
+
+    eintraege = {e.term: e for e in bestand(session, tenant)}
+    assert eintraege["Talblick Systeme"].replacement == "[[LIEFERANT_A]]"
+
+
+def test_fehlendes_pseudonym_bleibt_leer(session: Session, tenant: Tenant) -> None:
+    """Ohne Angabe wird gezaehlt wie bisher — kein Leerstring in der Spalte."""
+    kandidaten = importer.sammle_kandidaten(BEISPIELDATEN, auch_zu_pruefen=False)
+    begriffe, _, _ = importer.validiere_alle(kandidaten)
+
+    importer.importiere(session, tenant, begriffe, dry_run=False)
+
+    assert all(e.replacement is None for e in bestand(session, tenant))
+
+
+def test_zu_langes_pseudonym_wird_abgelehnt(session: Session, tenant: Tenant) -> None:
+    """Ueber 100 Zeichen passt es nicht in ``mapping_entries.pseudonym``."""
+    daten = {
+        "sicher": [
+            {
+                "term": "Langblick AG",
+                "entity_type": "ORGANIZATION",
+                "match_mode": "exact",
+                "replacement": "X" * 101,
+                "zu_pruefen": False,
+                "quellen": [],
+            },
+        ],
+        "zu_pruefen": [],
+    }
+    kandidaten = importer.sammle_kandidaten(daten, auch_zu_pruefen=False)
+    begriffe, ungueltig, _ = importer.validiere_alle(kandidaten)
+
+    assert begriffe == []
+    assert len(ungueltig) == 1
+    assert "100" in ungueltig[0][1]
+
+
+def test_doppeltes_pseudonym_wird_nicht_angelegt(
+    session: Session, tenant: Tenant
+) -> None:
+    """Zwei Klartexte hinter demselben Symbol waeren nicht mehr zu trennen."""
+    daten = {
+        "sicher": [
+            {
+                "term": "Waldblick AG",
+                "entity_type": "ORGANIZATION",
+                "match_mode": "exact",
+                "replacement": "[[LIEFERANT_W]]",
+                "zu_pruefen": False,
+                "quellen": [],
+            },
+            {
+                "term": "Wiesenblick AG",
+                "entity_type": "ORGANIZATION",
+                "match_mode": "exact",
+                "replacement": "[[LIEFERANT_W]]",
+                "zu_pruefen": False,
+                "quellen": [],
+            },
+        ],
+        "zu_pruefen": [],
+    }
+    kandidaten = importer.sammle_kandidaten(daten, auch_zu_pruefen=False)
+    begriffe, _, _ = importer.validiere_alle(kandidaten)
+
+    zusammenfassung = importer.importiere(session, tenant, begriffe, dry_run=False)
+
+    eintraege = {e.term: e for e in bestand(session, tenant)}
+    assert eintraege["Waldblick AG"].replacement == "[[LIEFERANT_W]]"
+    # Der zweite Begriff wird nicht angelegt, sondern als ungueltig gemeldet.
+    assert "Wiesenblick AG" not in eintraege
+    assert any("bereits vergeben" in grund for _, grund in zusammenfassung.ungueltig)

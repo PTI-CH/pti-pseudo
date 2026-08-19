@@ -81,6 +81,14 @@ const MODUS_API: Record<Modus, string> = {
 export interface Befund {
   /** Stabile Kennung innerhalb einer Antwort; fehlt sie, vergeben wir eine. */
   id: string;
+  /**
+   * Abschnitt, in dem der Fund steht (`text`, `body/p3`, `header0/p0` …).
+   *
+   * Muss mitgeführt werden: Der Server identifiziert einen Fund über das Tripel
+   * `(segment_id, start, end)`. Fehlt der Abschnitt in `selected_entities`,
+   * passt kein einziger Fund auf die Auswahl und es wird **nichts** ersetzt.
+   */
+  segment_id: string;
   entity_type: string;
   /** Der im Original gefundene Klartext. */
   text: string;
@@ -90,12 +98,27 @@ export interface Befund {
   score: number;
   /** Das eingesetzte Pseudonym, z. B. [[PERSON_1]]. */
   replacement?: string;
+  /**
+   * `true`, wenn dieser Fund aus einer gleichlautenden Stelle übertragen wurde
+   * (siehe `pipeline.propagate_findings`). Für die Ersetzung gleichwertig, in
+   * der Liste aber gekennzeichnet — sonst wirkt er wie ein Doppeleintrag.
+   */
+  propagated?: boolean;
 }
 
 export interface Ergebnis {
   /** Verarbeiteter Text (bei Texteingabe). */
   text: string | null;
   befunde: Befund[];
+  /**
+   * Wie viele Funde der Server tatsächlich ersetzt hat.
+   *
+   * Bewusst die Server-Zahl und keine im Browser gezählte: Die Auswahl kann
+   * serverseitig anders ausfallen als angehakt (Default-Policy, Kategorienwahl,
+   * eine Auswahl, die auf keinen Fund passt). Eine selbst gerechnete Zahl
+   * behauptete dann etwas, das nicht geschehen ist.
+   */
+  angewendet: number | null;
   /** Nur im Modus `umkehrbar`: Kennung des angelegten Vaults. */
   vaultId: string | null;
   /** Bei Dateiverarbeitung: Link zum Herunterladen des Ergebnisses. */
@@ -127,6 +150,8 @@ interface RohAntwort {
   items?: unknown[];
   vault_id?: string | null;
   mapping_id?: string | null;
+  /** Anzahl tatsächlich ersetzter Funde. */
+  applied?: number | null;
   download_url?: string | null;
   /** Dateiantworten: Base64-codierte Bytes des Ergebnisdokuments. */
   content_base64?: string | null;
@@ -157,14 +182,17 @@ function normalisiereBefunde(roh: unknown[]): Befund[] {
   return roh.map((r, i) => {
     const o = (r ?? {}) as Record<string, unknown>;
     const score = Number(o.score ?? o.confidence ?? 0);
+    const segmentId = String(o.segment_id ?? 'text');
     return {
-      id: String(o.id ?? `${o.entity_type ?? 'E'}-${o.start ?? i}-${i}`),
+      id: String(o.id ?? `${segmentId}-${o.entity_type ?? 'E'}-${o.start ?? i}-${i}`),
+      segment_id: segmentId,
       entity_type: String(o.entity_type ?? o.type ?? 'UNBEKANNT'),
       text: String(o.text ?? o.value ?? o.original ?? ''),
       start: Number(o.start ?? 0),
       end: Number(o.end ?? 0),
       score: Number.isFinite(score) ? score : 0,
       replacement: o.replacement ? String(o.replacement) : undefined,
+      propagated: o.propagated === true,
     };
   });
 }
@@ -174,6 +202,7 @@ function normalisiereAntwort(roh: RohAntwort): Ergebnis {
   return {
     text: roh.anonymized_text ?? roh.text ?? roh.result ?? null,
     befunde: normalisiereBefunde(Array.isArray(befundeRoh) ? befundeRoh : []),
+    angewendet: typeof roh.applied === 'number' ? roh.applied : null,
     vaultId: roh.vault_id ?? roh.mapping_id ?? null,
     downloadUrl: roh.content_base64 ? base64ZuBlobUrl(roh.content_base64) : (roh.download_url ?? null),
     dateiname: roh.filename ?? null,
@@ -203,6 +232,25 @@ export async function ladeKategorien(): Promise<Kategorie[]> {
 }
 
 /**
+ * Ein Fund in der Form, in der ihn der Server als Auswahl wiedererkennt.
+ *
+ * `segment_id` ist der Teil, auf den es ankommt: Der Server vergleicht
+ * `(segment_id, start, end)`. Fehlt der Abschnitt, passt die Auswahl auf keinen
+ * einzigen Fund und es wird stillschweigend **nichts** ersetzt — der Aufruf
+ * meldet trotzdem Erfolg. Die übrigen Felder sind reine Beigabe für Protokolle.
+ */
+function auswahlEintrag(b: Befund) {
+  return {
+    segment_id: b.segment_id,
+    entity_type: b.entity_type,
+    start: b.start,
+    end: b.end,
+    score: b.score,
+    text: b.text,
+  };
+}
+
+/**
  * Text pseudonymisieren.
  *
  * `kategorien` wird **immer** explizit mitgeschickt (nie weggelassen) — leer
@@ -229,13 +277,7 @@ export async function anonymisiereText(
     entities: kategorien,
   };
   if (nurBefunde) {
-    koerper.selected_entities = nurBefunde.map((b) => ({
-      entity_type: b.entity_type,
-      start: b.start,
-      end: b.end,
-      score: b.score,
-      text: b.text,
-    }));
+    koerper.selected_entities = nurBefunde.map(auswahlEintrag);
   }
   return normalisiereAntwort(
     await alsJson<RohAntwort>(
@@ -254,17 +296,26 @@ export async function anonymisiereText(
  *
  * `kategorien` geht als kommagetrennte Liste ins Formular — Multipart kennt
  * keine echten Listenfelder, der Server splittet selbst (`parse_entities`).
+ * `nurBefunde` aus demselben Grund als JSON-Zeichenkette.
+ *
+ * Die Datei muss dabei erneut hochgeladen werden: Der Server hält bewusst keine
+ * Dokument-Bytes vor (siehe Modulkopf von `backend/routers/documents.py`), es
+ * gibt also nichts, worauf sich ein zweiter Aufruf beziehen könnte.
  */
 export async function anonymisiereDatei(
   datei: File,
   modus: Modus,
   kategorien: string[],
+  nurBefunde?: Befund[],
   signal?: AbortSignal,
 ): Promise<Ergebnis> {
   const daten = new FormData();
   daten.append('file', datei);
   daten.append('mode', MODUS_API[modus]);
   daten.append('entities', kategorien.join(','));
+  if (nurBefunde) {
+    daten.append('selected_entities', JSON.stringify(nurBefunde.map(auswahlEintrag)));
+  }
   return normalisiereAntwort(
     await alsJson<RohAntwort>(
       await hole('/api/v1/documents:anonymize-file', { method: 'POST', body: daten, signal }),

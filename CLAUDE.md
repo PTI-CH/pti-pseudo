@@ -77,6 +77,30 @@ Der Bericht listet auf, **was** verfehlt wurde und **was** ein Fehlalarm war —
 mit Dokumentname und Ampelstufe. Das ist der Einstieg fuer jede Verbesserung an
 der Engine.
 
+### Ein Fund gilt im ganzen Dokument
+
+Das NER-Modell entscheidet **je Vorkommen**: derselbe Name wird im
+ausformulierten Satz erkannt und in der Stichwortzeile daneben übersehen.
+Ersetzt würde ohne Gegenmassnahme nur die erkannte Stelle — im Ergebnisdokument
+stünde der Klarname weiter da, obwohl er in der Befundliste steht. Genau dieses
+Fehlerbild kam aus dem Betrieb.
+
+`pipeline.propagate_findings` trägt deshalb jeden Fundtext an allen weiteren
+Stellen nach. Drei Grenzen, die dabei gelten und die man kennen muss, bevor man
+daran schraubt:
+
+1. **Nur `PERSON`, `LOCATION`, `ORGANIZATION`** (`entities.NER_ENTITIES`).
+   Muster- und Begriffslisten-Erkenner finden ihren Text ohnehin überall.
+2. **Erweitern und ergänzen, nie umbenennen.** Ein Nachtrag auf einer bereits
+   erkannten Stelle wird verworfen — sonst überschriebe der häufigere Typ
+   korrekt erkannte Funde des anderen.
+3. **Wortgrenzengenau und gross-/kleinschreibungsempfindlich**, mindestens drei
+   Zeichen. Ein Fehlalarm auf einem kurzen Kürzel vervielfachte sich sonst über
+   das ganze Dokument.
+
+Der Wächter darüber ist das Golden-Set-Dokument `wiederholte_nennung`; ohne den
+Schritt verfehlt es 5 von 6 Vorkommen.
+
 Drei Regeln:
 
 1. **Marken nicht nachziehen.** Reisst eine Zielmarke, ist die Erkennung
@@ -162,6 +186,27 @@ Die 140-Zeichen-Grenze für `label` ist seither nur noch historisch begründet.
 (403) — die einzige Ausnahme von der Vollberechtigung: Löschen ist
 unumkehrbar und bleibt Administratoren in der Oberfläche vorbehalten.
 Details: [API.md](API.md).
+
+## Schemaänderungen
+
+`init_db()` im Lifespan ruft `create_all` — das legt **fehlende Tabellen** an,
+aber keine fehlenden **Spalten**. Eine neue Spalte in einem bestehenden Modell
+entsteht in Produktion also nicht von selbst, und sie fällt nicht beim Deploy
+auf, sondern beim ersten Zugriff: `column … does not exist`. Weil die
+Begriffsliste bei *jedem* Lauf gelesen wird, wäre das Werkzeug damit ganz
+ausser Betrieb.
+
+Deshalb: **jede neue Spalte gehört in `NACHZUZIEHEN` in
+`scripts/schema_nachziehen.py`.** Das Skript läuft im Deploy zwischen Upload
+und Neustart, ist idempotent und rein additiv (kein `DROP`, kein `RENAME`).
+Schlägt es fehl, bricht der Deploy **vor** dem Neustart ab — der Knoten läuft
+mit der alten Fassung weiter. Dann nicht von Hand neu starten, sondern erst die
+Ursache beheben (meist eine fehlende `DATABASE_URL` in der SSH-Sitzung).
+
+Alembic bleibt das richtige Werkzeug und fehlt bislang. Es auf einer laufenden
+Produktionsdatenbank einzuführen heisst, den Bestand korrekt auf eine
+Basisversion zu stempeln — ein Schritt, der nicht nebenbei mit einer
+Funktionsänderung ausgeliefert werden sollte.
 
 ## Betriebs-Eigenheiten von Infomaniak jCloud
 

@@ -10,6 +10,7 @@ pseudonymisiert statt geschwaerzt wird, waere weg.
 
 from __future__ import annotations
 
+import logging
 import re
 import unicodedata
 from typing import Sequence
@@ -20,6 +21,8 @@ from sqlalchemy.orm import Session
 from backend.vault import crypto
 from backend.vault.models import MappingEntry, Vault
 from backend.vault.pseudonyms import format_pseudonym, parse_pseudonym
+
+logger = logging.getLogger("pti.vault.service")
 
 # Whitespace jeder Art (auch geschuetzte Leerzeichen und Zeilenumbrueche aus
 # DOCX-Konvertierungen) wird zu einem einfachen Leerzeichen zusammengefasst.
@@ -90,8 +93,23 @@ def _next_counter(session: Session, vault: Vault, entity_type: str) -> int:
     return highest + 1
 
 
+def _pseudonym_vergeben(session: Session, vault: Vault, pseudonym: str) -> bool:
+    """Prueft, ob dieses Pseudonym im Vault bereits fuer etwas anderes steht."""
+    treffer = session.execute(
+        select(MappingEntry.id).where(
+            MappingEntry.vault_id == vault.id,
+            MappingEntry.pseudonym == pseudonym,
+        )
+    ).first()
+    return treffer is not None
+
+
 def get_or_create_pseudonym(
-    session: Session, vault: Vault, entity_type: str, original_text: str
+    session: Session,
+    vault: Vault,
+    entity_type: str,
+    original_text: str,
+    festes_pseudonym: str | None = None,
 ) -> str:
     """Liefert das Pseudonym fuer ``original_text`` und legt es noetigenfalls an.
 
@@ -105,6 +123,21 @@ def get_or_create_pseudonym(
     eine kleingeschriebene Variante. Bei mehreren Schreibweisen gewinnt die
     zuerst gesehene — eine bewusste Entscheidung, denn eine Zuordnung kann nur
     einen Klartext haben.
+
+    ``festes_pseudonym`` kommt aus der Begriffsliste und ersetzt das gezaehlte
+    Symbol. Zwei Einschraenkungen, beide bewusst:
+
+    * **Ein bestehender Eintrag wird nicht umgeschrieben.** Wer einem Begriff
+      nachtraeglich ein festes Pseudonym gibt, aendert damit nichts an Vaults,
+      die den Begriff schon kennen. Sonst zeigte ein bereits ausgeliefertes
+      Dokument auf ein Symbol, das der Vault nicht mehr fuehrt — die
+      Rueckfuehrung liefe ins Leere. Dieselbe Regel gilt schon fuer
+      ``PSEUDONYM_TEMPLATE``.
+    * **Ist das Symbol im Vault schon vergeben, gewinnt die Eindeutigkeit.**
+      Dann wird gezaehlt wie sonst auch. Zwei Klartexte hinter demselben Symbol
+      waeren bei der Rueckfuehrung nicht mehr auseinanderzuhalten — und der
+      Unique-Index ``(vault_id, pseudonym)`` liesse es ohnehin nicht zu; ohne
+      diese Pruefung braeche der Lauf mit einem 500 ab.
 
     ``flush`` am Ende, damit der Eintrag innerhalb derselben Transaktion sofort
     wiedergefunden wird. Das Commit bleibt Sache des Aufrufers: ein Dokument
@@ -122,9 +155,19 @@ def get_or_create_pseudonym(
     if existing is not None:
         return existing.pseudonym
 
-    pseudonym = format_pseudonym(
-        entity_type, _next_counter(session, vault, entity_type)
-    )
+    if festes_pseudonym and not _pseudonym_vergeben(session, vault, festes_pseudonym):
+        pseudonym = festes_pseudonym
+    else:
+        if festes_pseudonym:
+            logger.warning(
+                "Festes Pseudonym %r ist im Vault %s bereits vergeben — es wird "
+                "gezaehlt statt fest ersetzt.",
+                festes_pseudonym,
+                vault.id,
+            )
+        pseudonym = format_pseudonym(
+            entity_type, _next_counter(session, vault, entity_type)
+        )
     entry = MappingEntry(
         tenant_id=vault.tenant_id,
         vault_id=vault.id,

@@ -6,12 +6,11 @@ genau einen Mandanten, und alle Tabellen tragen trotzdem schon ``tenant_id``.
 Das ist Absicht: die Spalte nachtraeglich einzuziehen waere eine Migration ueber
 den gesamten Vault-Bestand, sie jetzt mitzufuehren kostet nichts.
 
-Zur Laenge von ``api_keys.label``: ``current_actor`` stellt ``apikey:`` voran
-und das Ergebnis landet in ``usage_events.username`` — einer ``String(150)``.
-Das Label muss deshalb auf **hoechstens 140 Zeichen** begrenzt werden, sonst
-scheitert der erste Aufruf eines Schluessels mit einem langen Namen erst beim
-Schreiben des Nutzungseintrags, also mitten in der Verarbeitung. Die Pruefung
-gehoert an den Verwaltungs-Endpunkt (Task 3); hier steht der Grund.
+Zur Laenge von ``api_keys.label``: die 140-Zeichen-Grenze am Verwaltungs-Endpunkt
+stammt aus der Zeit, als ``current_actor`` die Bezeichnung in
+``usage_events.username`` (``String(150)``) schrieb; seit der Attribution ueber
+die Schluessel-ID ist dort die Laenge fest und die Grenze nur noch eine
+harmlose Obergrenze fuer die Anzeige — sie bleibt deshalb stehen.
 """
 
 from __future__ import annotations
@@ -100,13 +99,23 @@ def current_actor(request: Request) -> str:
     * SSO-Pfad: der Hub-Benutzername. Bewusst ``username`` und nicht die UUID —
       ``user.person`` kann im CRM ``null`` sein, und ein Top-Level-``email``
       gibt es dort nicht.
-    * API-Pfad: ``apikey:<Bezeichnung>``. Das Praefix macht in der
+    * API-Pfad: ``apikey:<Schluessel-ID>``. Das Praefix macht in der
       Nutzungserfassung auf einen Blick sichtbar, dass hier keine Person
       gearbeitet hat, sondern eine andere PTI-Anwendung.
+
+    Warum die **ID** und nicht die Bezeichnung: Bezeichnungen sind nicht
+    eindeutig. Ein widerrufener Schluessel wird gern unter demselben Namen neu
+    ausgestellt — eine Auswertung nach Bezeichnung wuerde die Zahlen beider
+    vermengen und dem neuen Schluessel die Aufrufe des alten zuschreiben. Die
+    ID ist eindeutig und unveraenderlich; die Bezeichnung setzt die Auswertung
+    beim Anzeigen ueber den Join wieder daran (siehe
+    ``routers/api_keys.py``). Der Preis ist, dass ein roher Blick in
+    ``usage_events`` nur noch eine UUID zeigt — das ist der Tabelle, die
+    ausdruecklich nur Metadaten traegt, zumutbar.
     """
     api_key = getattr(request.state, "api_key", None)
     if api_key is not None:
-        return f"apikey:{api_key.label}"
+        return f"apikey:{api_key.id}"
     return str(current_user(request).get("username") or "unbekannt")
 
 

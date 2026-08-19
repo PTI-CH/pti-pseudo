@@ -157,6 +157,7 @@ LAST_USED_WRITE_INTERVAL_SECONDS = 60
 def get_tenant(session: Session, request: Request | None = None) -> Tenant
     # request.state.api_key vorhanden -> dessen Tenant; sonst Default-Mandant
 def current_username(request) -> str   # Hub-Username, oder f"apikey:{api_key.label}"
+# (überholt — seit dem Nachtrag in Spec §8: f"apikey:{api_key.id}")
 ```
 - Produces (`main.py`): `for prefix, deps in (("/api/v1", []), ("/api/ext/v1", [Depends(require_api_key)])): app.include_router(r, prefix=prefix, dependencies=deps)` für `documents`, `vaults`, `terms`, `entities`. Der ext-Einhängepunkt bekommt `tags`-Präfix nicht — die Tags bleiben, damit `/api/docs` beide zeigt.
 
@@ -200,6 +201,7 @@ def test_rundlauf_anonymize_reverse_ueber_ext(client): ...     # Text und Datei,
 
 def test_nutzungseintrag_traegt_apikey_aktor(client):
     # nach einem ext-Aufruf: UsageEvent.username == "apikey:Testapp"
+    # (überholt — seit dem Nachtrag in Spec §8: "apikey:<id>")
 
 def test_ext_pfad_verlangt_schluessel_auch_wenn_hub_auth_off(client):
     # identisch zu test_ohne_header_401 — dokumentiert die Absicht

@@ -515,11 +515,17 @@ def test_ext_und_v1_teilen_denselben_mandanten(client: TestClient) -> None:
 
 
 def test_nutzungseintrag_traegt_apikey_aktor(client: TestClient) -> None:
-    """Der Aufrufer muss in ``usage_events`` erkennbar sein — nie mit Inhalten."""
+    """Der Aufrufer muss in ``usage_events`` erkennbar sein — nie mit Inhalten.
+
+    Der Aktor traegt die **Schluessel-ID**, nicht die Bezeichnung: Bezeichnungen
+    sind nicht eindeutig (ein widerrufener Schluessel wird gern unter demselben
+    Namen neu ausgestellt), die ID ist es. Siehe ``core/deps.current_actor``.
+    """
     from sqlalchemy import select
 
+    from backend.core.api_key_auth import hash_token
     from backend.db import get_sessionmaker
-    from backend.vault.models import UsageEvent
+    from backend.vault.models import ApiKey, UsageEvent
 
     token = _lege_schluessel_an(label="Aktor")
     r = client.post(
@@ -530,8 +536,14 @@ def test_nutzungseintrag_traegt_apikey_aktor(client: TestClient) -> None:
     assert r.status_code == 200, r.text
 
     with get_sessionmaker()() as session:
+        schluessel_id = str(
+            session.execute(
+                select(ApiKey.id).where(ApiKey.key_hash == hash_token(token))
+            ).scalar_one()
+        )
         namen = set(session.execute(select(UsageEvent.username)).scalars().all())
-    assert "apikey:Aktor" in namen
+    assert f"apikey:{schluessel_id}" in namen
+    assert "apikey:Aktor" not in namen
 
 
 # ── Abgrenzung der beiden Pfade ────────────────────────────────────────────

@@ -156,7 +156,8 @@ Zuordnungstabelle.
 
 `backend/core/deps.py` bekommt einen einheitlichen Aktor-Begriff:
 `current_username(request)` liefert für den SSO-Pfad den Hub-Username, für
-den API-Pfad `apikey:<label>`. `get_tenant(session, request)` liefert den
+den API-Pfad `apikey:<label>` (**seit dem Nachtrag in Abschnitt 8:
+`apikey:<Schlüssel-ID>`**). `get_tenant(session, request)` liefert den
 Mandanten des Schlüssels bzw. den Default. Damit landen API-Aufrufe in
 `usage_events` mit erkennbarem Aktor — nie mit Inhalten.
 
@@ -217,7 +218,8 @@ hinter SSO). Verweis aus `README.MD`.
   Token → Widerruf → 401 → abgelaufen → 401 → ohne Header → 401 → falscher
   Token → 401), Nicht-Admin darf keine Schlüssel anlegen (403), API-Pfad ohne
   Cookie funktioniert, `/api/v1` ohne Cookie weiterhin nicht (Gate-Test mit
-  `HUB_AUTH` an), Nutzungseintrag trägt `apikey:<label>`, Rundlauf
+  `HUB_AUTH` an), Nutzungseintrag trägt den Schlüssel-Aktor (heute
+  `apikey:<Schlüssel-ID>`, siehe Abschnitt 8), Rundlauf
   anonymize → reverse über `/api/ext/v1` (Text und Datei).
 - Frontend: `tsc` und `vite build` müssen sauber durchlaufen; manuelle Prüfung
   im Browser (Kategorien-Checkboxen wirken; Dateipfad liefert Download).
@@ -228,3 +230,51 @@ hinter SSO). Verweis aus `README.MD`.
 
 Scopes pro Schlüssel, Rate-Limits, Mandanten-Isolation pro Anwendung,
 Async-Jobs für grosse Dateien, Schlüsselrotation mit Überlappungsfrist.
+
+## 8. Nachtrag 2026-08-19: Nutzungsauswertung je Schlüssel
+
+Nachgereicht, weil `last_used_at` nur die halbe Frage beantwortet: es sagt
+*ob* ein Schlüssel noch benutzt wird, nicht *wie stark und wofür*. Genau das
+braucht aber, wer entscheiden soll, ob ein Schlüssel weg kann.
+
+**Attribution über die Schlüssel-ID.** `current_actor` schreibt
+`apikey:<Schlüssel-ID>` statt `apikey:<Bezeichnung>`. Bezeichnungen sind nicht
+eindeutig — ein widerrufener Schlüssel wird gern unter demselben Namen neu
+ausgestellt, und eine Auswertung nach Bezeichnung schriebe dem neuen die
+Aufrufe des alten zu. Die 140-Zeichen-Grenze für `label` bleibt bestehen, ihre
+ursprüngliche Begründung (`String(150)` in `usage_events.username`) ist damit
+aber historisch.
+
+Nutzungseinträge aus der Zeit **vor** der Umstellung tragen noch
+`apikey:<Bezeichnung>` und fehlen deshalb in der Auswertung. Sie werden bewusst
+**nicht** migriert: eine Zuordnung zurück auf die Schlüssel wäre genau aus dem
+Grund unzuverlässig, aus dem die Umstellung nötig war — Bezeichnungen sind
+nicht eindeutig, und zwei Schlüssel gleichen Namens liessen sich nachträglich
+nicht mehr auseinanderhalten. Die Oberfläche weist im Zeitraum „Alles" mit
+einer Fussnote darauf hin.
+
+**Endpunkt.** `GET /api/v1/api-keys/usage?days=<1..3650>` — nur SSO, nur
+`role == admin`, bewusst **nicht** unter `/api/ext/v1`: sonst könnte eine
+aufrufende Anwendung die Nutzungsprofile ihrer Schwester-Anwendungen auslesen.
+`days` ist standardmässig 30, `days=0` wertet den gesamten Zeitraum aus, alles
+ausserhalb 1..3650 ist ein 400. Aggregiert wird in Python statt in SQL: die
+Mengen sind klein, und eine Summe über die JSON-Spalte `entity_counts` wäre
+zwischen PostgreSQL und SQLite ohnehin nicht portabel zu haben.
+
+**Was gezeigt wird.** Je Schlüssel Aufrufe, Zeichen, Aufrufe je Aktion,
+Trefferzahlen je Entitätstyp, erstes und letztes Ereignis sowie eine Tagesreihe
+(nur Tage mit Ereignissen). Jeder Schlüssel des Mandanten kommt vor — auch der
+widerrufene (sonst verschwände der Widerruf die Nachvollziehbarkeit
+rückwirkend) und der nie benutzte (dann mit Nullen). Sortiert nach Aufrufen
+absteigend.
+
+Quelle ist ausschliesslich `usage_events`, und die Tabelle trägt per
+Konstruktion nur Metadaten: kein Text, kein Dateiname, kein erkannter Wert,
+kein Pseudonym. Die Auswertung kann deshalb nichts Inhaltliches verraten — ein
+Test prüft das am Rohtext der Antwort.
+
+**Oberfläche.** Abschnitt „Nutzung" unterhalb der Schlüsseltabelle:
+Zeitraumwahl (7/30/90/365 Tage, alles), Tabelle mit Bezeichnung,
+Status-Badge, Aufrufen, Zeichen und letztem Aufruf, je Zeile aufklappbar mit
+Chips „Nach Aktion" und „Nach Kategorie" sowie einer Balkenreihe der Tage
+(reine `div`s, keine Diagramm-Bibliothek).

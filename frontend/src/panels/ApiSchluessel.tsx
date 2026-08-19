@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 import { Check, Copy, Loader2, Plus, RefreshCw } from 'lucide-react';
+import ApiNutzung from '../components/ApiNutzung';
 import Hinweis from '../components/Hinweis';
+import StatusBadge, { schluesselStatus } from '../components/SchluesselStatus';
 import {
   erzeugeApiSchluessel,
   fehlerMeldung,
@@ -11,32 +13,6 @@ import {
 
 /** Höchstlänge der Bezeichnung — spiegelt `label String(200)` im Server, mit Reserve. */
 const BEZEICHNUNG_MAX = 140;
-
-type Status = 'aktiv' | 'widerrufen' | 'abgelaufen';
-
-/**
- * Status wird bewusst im Frontend abgeleitet statt nur `aktiv` aus der API zu
- * übernehmen: „abgelaufen“ ist ein reiner Zeitvergleich (`expiresAt` in der
- * Vergangenheit, nicht widerrufen) und muss sich beim blossen Neuladen der
- * Seite aktualisieren, ohne dass der Server dafür etwas Neues schreibt.
- */
-function status(s: ApiSchluessel): Status {
-  if (s.revokedAt) return 'widerrufen';
-  if (s.expiresAt && new Date(s.expiresAt).getTime() < Date.now()) return 'abgelaufen';
-  return 'aktiv';
-}
-
-const STATUS_LABEL: Record<Status, string> = {
-  aktiv: 'Aktiv',
-  widerrufen: 'Widerrufen',
-  abgelaufen: 'Abgelaufen',
-};
-
-const STATUS_FARBE: Record<Status, string> = {
-  aktiv: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400',
-  widerrufen: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
-  abgelaufen: 'bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-400',
-};
 
 function datumLesbar(iso: string | null): string {
   if (!iso) return '';
@@ -75,6 +51,14 @@ export default function ApiSchluesselPanel() {
   const [neuerToken, setNeuerToken] = useState<string | null>(null);
   const [tokenKopiert, setTokenKopiert] = useState(false);
 
+  /**
+   * Zaehler statt Callback: die Nutzungsauswertung laedt selbst und braucht
+   * nur den Anstoss. Nach jedem Erzeugen und jedem Widerruf hat sich die
+   * Liste der Schluessel geaendert — sonst fehlte dort der neue Schluessel
+   * bzw. staende der widerrufene noch als aktiv.
+   */
+  const [nutzungSignal, setNutzungSignal] = useState(0);
+
   async function neuLaden(): Promise<void> {
     setLaden(true);
     setFehler(null);
@@ -109,6 +93,7 @@ export default function ApiSchluesselPanel() {
       setNeueBezeichnung('');
       setNeuesAblaufdatum('');
       await neuLaden();
+      setNutzungSignal((n) => n + 1);
     } catch (e) {
       setFehler(fehlerMeldung(e));
     } finally {
@@ -141,6 +126,7 @@ export default function ApiSchluesselPanel() {
     try {
       await widerrufeApiSchluessel(id);
       await neuLaden();
+      setNutzungSignal((n) => n + 1);
     } catch (e) {
       setFehler(fehlerMeldung(e));
     } finally {
@@ -298,7 +284,7 @@ export default function ApiSchluesselPanel() {
               </thead>
               <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
                 {schluessel.map((s) => {
-                  const st = status(s);
+                  const st = schluesselStatus(s);
                   return (
                     <tr key={s.id} className="hover:bg-gray-50 dark:hover:bg-gray-700/50">
                       <td className="px-4 py-3 font-medium text-gray-900 dark:text-gray-100 break-all">
@@ -314,11 +300,7 @@ export default function ApiSchluesselPanel() {
                         {s.lastUsedAt ? datumLesbar(s.lastUsedAt) : 'nie'}
                       </td>
                       <td className="px-4 py-3 whitespace-nowrap">
-                        <span
-                          className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_FARBE[st]}`}
-                        >
-                          {STATUS_LABEL[st]}
-                        </span>
+                        <StatusBadge status={st} />
                       </td>
                       <td className="px-4 py-3 text-right whitespace-nowrap">
                         {st === 'aktiv' && (
@@ -350,6 +332,8 @@ export default function ApiSchluesselPanel() {
           </div>
         </div>
       )}
+
+      <ApiNutzung neuladenSignal={nutzungSignal} />
 
       <Hinweis ton="info">
         <p className="font-medium">Aufruf der externen API</p>

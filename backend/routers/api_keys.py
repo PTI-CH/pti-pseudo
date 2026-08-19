@@ -14,10 +14,11 @@ API-Schluessel als gleichwertig zur Admin-Rolle gilt.
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from collections import Counter, defaultdict
+from datetime import datetime, timedelta, timezone
 from typing import Annotated, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -25,14 +26,26 @@ from sqlalchemy.orm import Session
 from backend.core.api_key_auth import generate_token, hash_token, key_prefix_of
 from backend.core.deps import current_username, get_session, get_tenant
 from backend.core.hub_access_auth import is_admin
-from backend.vault.models import ApiKey, as_utc
+from backend.vault.models import ApiKey, UsageEvent, as_utc
 
 router = APIRouter(tags=["api-keys"])
 
-#: Siehe ``backend/core/deps.py``-Modulkopf: ``current_actor`` stellt
-#: ``apikey:`` (7 Zeichen) voran, das Ergebnis landet in
-#: ``usage_events.username`` — einer ``String(150)``. 140 + 7 = 147 <= 150.
+#: Obergrenze der Bezeichnung. Historisch begruendet: solange der Aktor
+#: ``apikey:<Bezeichnung>`` hiess, musste er in ``usage_events.username``
+#: (``String(150)``) passen. Seit der Attribution ueber die Schluessel-ID ist
+#: die Aktor-Laenge fest; die Grenze bleibt als harmlose Schranke fuer die
+#: Anzeige bestehen.
 LABEL_MAX_LENGTH = 140
+
+#: Vorgabe des Auswertungsfensters in Tagen.
+USAGE_DEFAULT_DAYS = 30
+
+#: Obergrenze des Fensters (zehn Jahre). Groessere Werte sind kein sinnvolles
+#: Fenster mehr, sondern ein Tippfehler — ``days=0`` ist der Weg zu "alles".
+USAGE_MAX_DAYS = 3650
+
+#: Praefix, das ``current_actor`` einem Maschinen-Aufruf voranstellt.
+ACTOR_PREFIX = "apikey:"
 
 
 class ApiKeyCreate(BaseModel):
@@ -112,6 +125,158 @@ async def list_api_keys(
         .order_by(ApiKey.created_at.desc())
     ).scalars()
     return {"api_keys": [_to_dict(r) for r in rows]}
+
+
+def _usage_since(days: Optional[int]) -> tuple[Optional[int], Optional[datetime]]:
+    """Prueft das Fenster und liefert ``(days, since)``.
+
+    ``None`` und ``0`` bedeuten beide "alles" — ``0`` ist die Form, die sich
+    ueber eine Query-Zeichenkette ausdruecken laesst. Alles ausserhalb von
+    1..``USAGE_MAX_DAYS`` ist ein Bedienfehler und wird als 400 gemeldet, nicht
+    stillschweigend zurechtgebogen: eine Auswertung, die ein anderes Fenster
+    zeigt als das angefragte, ist schlimmer als eine Fehlermeldung.
+    """
+    if days is None or days == 0:
+        return None, None
+    if days < 1 or days > USAGE_MAX_DAYS:
+        raise HTTPException(
+            400,
+            detail=(
+                f"'days' muss zwischen 1 und {USAGE_MAX_DAYS} liegen "
+                "(0 oder weglassen = gesamter Zeitraum)."
+            ),
+        )
+    return days, datetime.now(timezone.utc) - timedelta(days=days)
+
+
+@router.get("/api-keys/usage")
+async def api_key_usage(
+    request: Request,
+    session: Annotated[Session, Depends(get_session)],
+    days: Annotated[Optional[int], Query()] = USAGE_DEFAULT_DAYS,
+) -> dict:
+    """Nutzungsauswertung je Schluessel — Aufrufe, Aktionen, Kategorien, Zeichen.
+
+    Beantwortet, was ``last_used_at`` nur halb beantwortet: nicht *ob* ein
+    Schluessel noch benutzt wird, sondern **wie stark und wofuer**. Das ist die
+    Grundlage fuer die Entscheidung, einen Schluessel zu widerrufen.
+
+    Zugeordnet wird ueber die **Schluessel-ID**, nicht ueber die Bezeichnung
+    (``current_actor`` schreibt ``apikey:<id>``, siehe ``core/deps.py``):
+    Bezeichnungen sind nicht eindeutig, ein widerrufener Schluessel wird gern
+    unter demselben Namen neu ausgestellt — nach Bezeichnung gruppiert bekaeme
+    der neue die Aufrufe des alten zugeschrieben.
+
+    Ausgewertet wird ausschliesslich ``usage_events``, und die Tabelle traegt
+    per Konstruktion **nur Metadaten**: wer, was, wie viele, wann. Kein Text,
+    kein Dateiname, kein erkannter Wert, kein Pseudonym (siehe
+    ``UsageEvent``-Docstring). Diese Antwort kann deshalb nichts Inhaltliches
+    verraten — auch nicht versehentlich.
+
+    Aggregiert wird bewusst in Python und nicht in SQL: die Mengen sind klein
+    (Schluessel je Mandant im einstelligen Bereich), die Summen ueber
+    ``entity_counts`` waeren als JSON-Aggregat portabel zwischen PostgreSQL und
+    SQLite ohnehin nicht zu haben — und Lesbarkeit schlaegt hier Laufzeit.
+
+    Jeder Schluessel des Mandanten kommt vor, auch der widerrufene und der nie
+    benutzte (dann mit Nullen). Sortiert nach Aufrufen absteigend, bei
+    Gleichstand nach Erzeugungszeitpunkt absteigend.
+    """
+    _require_admin(request)
+    fenster, since = _usage_since(days)
+    tenant = get_tenant(session, request)
+
+    keys = list(
+        session.execute(
+            select(ApiKey)
+            .where(ApiKey.tenant_id == tenant.id)
+            .order_by(ApiKey.created_at.desc())
+        ).scalars()
+    )
+
+    # Je Schluessel-ID ein Sammelbecken. ``defaultdict`` waere bequemer,
+    # erzeugte aber Eintraege fuer Aktoren, deren Schluessel es nicht mehr
+    # gibt — die gehoeren nicht in eine Liste, die nach Schluesseln geht.
+    stat: dict[str, dict] = {
+        str(k.id): {
+            "requests": 0,
+            "char_count": 0,
+            "by_action": Counter(),
+            "entity_counts": Counter(),
+            "first_event_at": None,
+            "last_event_at": None,
+            "daily": defaultdict(lambda: {"requests": 0, "char_count": 0}),
+        }
+        for k in keys
+    }
+
+    stmt = select(UsageEvent).where(
+        UsageEvent.tenant_id == tenant.id,
+        UsageEvent.username.like(f"{ACTOR_PREFIX}%"),
+    )
+    if since is not None:
+        stmt = stmt.where(UsageEvent.created_at >= since)
+
+    for ereignis in session.execute(stmt).scalars():
+        eintrag = stat.get(ereignis.username[len(ACTOR_PREFIX) :])
+        if eintrag is None:
+            # Schluessel geloescht (heute nur per Hand) — die Zahlen haben
+            # keine Zeile mehr, in der sie stehen koennten.
+            continue
+
+        eintrag["requests"] += 1
+        eintrag["char_count"] += ereignis.char_count or 0
+        eintrag["by_action"][ereignis.action] += 1
+        if isinstance(ereignis.entity_counts, dict):
+            for typ, anzahl in ereignis.entity_counts.items():
+                if isinstance(anzahl, int):
+                    eintrag["entity_counts"][typ] += anzahl
+
+        wann = as_utc(ereignis.created_at)
+        if wann is not None:
+            if eintrag["first_event_at"] is None or wann < eintrag["first_event_at"]:
+                eintrag["first_event_at"] = wann
+            if eintrag["last_event_at"] is None or wann > eintrag["last_event_at"]:
+                eintrag["last_event_at"] = wann
+            tag = eintrag["daily"][wann.date().isoformat()]
+            tag["requests"] += 1
+            tag["char_count"] += ereignis.char_count or 0
+
+    zeilen = []
+    for key in keys:
+        s = stat[str(key.id)]
+        zeilen.append(
+            {
+                "id": str(key.id),
+                "label": key.label,
+                "key_prefix": key.key_prefix,
+                "active": key.is_active,
+                "revoked_at": _iso(key.revoked_at),
+                "expires_at": _iso(key.expires_at),
+                "requests": s["requests"],
+                "char_count": s["char_count"],
+                "by_action": dict(s["by_action"].most_common()),
+                "entity_counts": dict(s["entity_counts"].most_common()),
+                "first_event_at": _iso(s["first_event_at"]),
+                "last_event_at": _iso(s["last_event_at"]),
+                # Nur Tage mit Ereignissen, aufsteigend. Luecken bleiben
+                # Luecken: die Oberflaeche zeichnet Balken, keine Zeitachse.
+                "daily": [
+                    {"date": datum, **werte}
+                    for datum, werte in sorted(s["daily"].items())
+                ],
+            }
+        )
+
+    # ``keys`` ist bereits nach ``created_at`` absteigend sortiert; ein
+    # stabiler Sort nach Aufrufen erhaelt diese Reihenfolge bei Gleichstand.
+    zeilen.sort(key=lambda z: z["requests"], reverse=True)
+
+    return {
+        "days": fenster,
+        "since": _iso(since),
+        "keys": zeilen,
+    }
 
 
 @router.post("/api-keys", status_code=201)

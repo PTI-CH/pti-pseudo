@@ -44,7 +44,12 @@ nachträglich korrigieren. Löschen darf deshalb nur ein Mensch mit CRM-Rolle
 `admin` in der Oberfläche.
 
 Jeder Aufruf über einen Schlüssel erscheint in der Nutzungserfassung als Aktor
-`apikey:<Bezeichnung>` (nie mit Inhalten).
+`apikey:<Schlüssel-ID>` (nie mit Inhalten). Bewusst die ID und nicht die
+Bezeichnung: Bezeichnungen sind nicht eindeutig — ein widerrufener Schlüssel
+wird gern unter demselben Namen neu ausgestellt, und eine Auswertung nach
+Bezeichnung schriebe dem neuen die Aufrufe des alten zu. Administratoren sehen
+die Auswertung in der Oberfläche unter **API-Schlüssel → Nutzung**
+(`GET /api/v1/api-keys/usage`, nicht über die externe API erreichbar).
 
 Die Schlüsselverwaltung selbst (`POST/GET/DELETE /api/v1/api-keys`) ist
 **nicht** über diese externe API erreichbar — nur über die Oberfläche mit

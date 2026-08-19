@@ -154,9 +154,11 @@ darf nur mit `dependencies=[Depends(require_api_key)]` eingehängt werden
 (siehe `DUAL_MOUNT_ROUTERS` in `main.py`). `api_keys.router` gehört **nie** in
 diese Liste: sonst könnte ein Schlüssel sich selbst weitere Schlüssel
 ausstellen. `HUB_AUTH=off` öffnet den ext-Pfad nicht — er verlangt auch lokal
-einen gültigen Schlüssel. `label` bei der Schlüsselerzeugung ist auf 140
-Zeichen begrenzt, weil `apikey:<label>` als Aktor in `usage_events.username`
-(`String(150)`) landet. **`DELETE /mappings/{id}` ist für Schlüssel gesperrt**
+einen gültigen Schlüssel. Der Aktor eines Maschinen-Aufrufs ist
+`apikey:<Schlüssel-ID>` — **nie die Bezeichnung**, die ist nicht eindeutig; die
+Auswertung `GET /api/v1/api-keys/usage` (nur SSO, nur Admin) gruppiert danach.
+Die 140-Zeichen-Grenze für `label` ist seither nur noch historisch begründet.
+**`DELETE /mappings/{id}` ist für Schlüssel gesperrt**
 (403) — die einzige Ausnahme von der Vollberechtigung: Löschen ist
 unumkehrbar und bleibt Administratoren in der Oberfläche vorbehalten.
 Details: [API.md](API.md).

@@ -223,8 +223,13 @@ def test_zeitstempel_tragen_immer_eine_zonenangabe(client: TestClient) -> None:
 
 
 def test_label_grenzen(client: TestClient) -> None:
-    """1..140 Zeichen: ``usage_events.username`` ist String(150), Aktor
-    ``apikey:<label>`` braucht 7 Zeichen Vorspann."""
+    """1..140 Zeichen.
+
+    Die Zahl stammt aus der Zeit, als der Aktor ``apikey:<Bezeichnung>`` hiess
+    und in ``usage_events.username`` (``String(150)``) passen musste. Seit der
+    Attribution ueber die Schluessel-ID ist die Aktor-Laenge fest; die Grenze
+    bleibt als harmlose Obergrenze fuer die Anzeige bestehen.
+    """
     zu_lang = client.post("/api/v1/api-keys", json={"label": "x" * 141})
     assert zu_lang.status_code == 422, zu_lang.text
 

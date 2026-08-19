@@ -479,3 +479,105 @@ export async function widerrufeApiSchluessel(id: string): Promise<void> {
     await hole(`/api/v1/api-keys/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   );
 }
+
+// ─── Nutzung je API-Schlüssel ───────────────────────────────────────────────
+//
+// Quelle: `GET /api/v1/api-keys/usage`. Zugeordnet wird serverseitig über die
+// Schlüssel-ID (`usage_events.username` = `apikey:<id>`) — Bezeichnungen sind
+// nicht eindeutig. Die Antwort enthält ausschliesslich Zahlen und Zeitstempel,
+// nie Inhalte.
+
+/** Ein Tag der Balkenreihe. `datum` ist ein UTC-Datum (`YYYY-MM-DD`). */
+export interface NutzungTag {
+  datum: string;
+  aufrufe: number;
+  zeichen: number;
+}
+
+/** Nutzung eines einzelnen Schlüssels im gewählten Zeitfenster. */
+export interface NutzungSchluessel {
+  id: string;
+  label: string;
+  keyPrefix: string;
+  aktiv: boolean;
+  revokedAt: string | null;
+  expiresAt: string | null;
+  aufrufe: number;
+  zeichen: number;
+  /** Aktion (`detect`, `anonymize`, …) → Anzahl Aufrufe. */
+  nachAktion: Record<string, number>;
+  /** Entitätstyp (`PERSON`, `CH_IBAN`, …) → Summe der Treffer. */
+  nachKategorie: Record<string, number>;
+  erstesEreignis: string | null;
+  letztesEreignis: string | null;
+  /** Nur Tage mit Ereignissen, aufsteigend. Lücken bleiben Lücken. */
+  tage: NutzungTag[];
+}
+
+export interface ApiNutzung {
+  /** Fenstergrösse in Tagen, oder `null` für den gesamten Zeitraum. */
+  tage: number | null;
+  seit: string | null;
+  schluessel: NutzungSchluessel[];
+}
+
+interface RohNutzungTag {
+  date: string;
+  requests: number;
+  char_count: number;
+}
+
+interface RohNutzungSchluessel {
+  id: string;
+  label: string;
+  key_prefix: string;
+  active: boolean;
+  revoked_at: string | null;
+  expires_at: string | null;
+  requests: number;
+  char_count: number;
+  by_action: Record<string, number>;
+  entity_counts: Record<string, number>;
+  first_event_at: string | null;
+  last_event_at: string | null;
+  daily: RohNutzungTag[];
+}
+
+/**
+ * Nutzungsauswertung aller Schlüssel des Mandanten.
+ *
+ * `tage = null` fragt den gesamten Zeitraum ab. Der Server erwartet dafür
+ * `days=0` — ein weggelassener Parameter bedeutet dort die Vorgabe von
+ * 30 Tagen, nicht „alles“.
+ */
+export async function ladeApiNutzung(days: number | null): Promise<ApiNutzung> {
+  const pfad = `/api/v1/api-keys/usage?days=${days ?? 0}`;
+  const daten = await alsJson<{
+    days?: number | null;
+    since?: string | null;
+    keys?: RohNutzungSchluessel[];
+  }>(await hole(pfad));
+  return {
+    tage: daten?.days ?? null,
+    seit: daten?.since ?? null,
+    schluessel: (Array.isArray(daten?.keys) ? daten.keys : []).map((k) => ({
+      id: k.id,
+      label: k.label,
+      keyPrefix: k.key_prefix,
+      aktiv: k.active,
+      revokedAt: k.revoked_at,
+      expiresAt: k.expires_at,
+      aufrufe: k.requests,
+      zeichen: k.char_count,
+      nachAktion: k.by_action ?? {},
+      nachKategorie: k.entity_counts ?? {},
+      erstesEreignis: k.first_event_at,
+      letztesEreignis: k.last_event_at,
+      tage: (k.daily ?? []).map((t) => ({
+        datum: t.date,
+        aufrufe: t.requests,
+        zeichen: t.char_count,
+      })),
+    })),
+  };
+}

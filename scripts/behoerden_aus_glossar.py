@@ -181,6 +181,40 @@ PRAEPOSITIONEN: frozenset[str] = frozenset(
     }
 )
 
+#: Namen, die die Kopfnomen-Regel faelschlich als Organisation einstuft.
+#:
+#: Sie stammen aus der Durchsicht vom 2026-08-24 — fuenf von 132, also rund
+#: 4 %. Alle fuenf rutschen aus demselben Grund durch: Nicht das Kopfnomen
+#: traegt das Behoerdenwort, sondern eine **Beifuegung**. Die Regel prueft
+#: jedes Wort vor der ersten Praeposition und kann Kopf und Beifuegung ohne
+#: Wortartenerkennung nicht unterscheiden.
+#:
+#: Eine handgepflegte Ausnahmeliste ist hier das ehrlichere Mittel als eine
+#: immer feinere Regel: Jeder Eintrag steht mit Grund da und ist beim
+#: naechsten Glossar-Stand nachpruefbar. Eine Regel, die diese fuenf zusaetzlich
+#: abfaengt, wuerde mit hoher Wahrscheinlichkeit echte Behoerden mitnehmen —
+#: derselbe Fehler, der beim ersten Entwurf der Wortart-Regel in der Engine
+#: sieben echte Funde gekostet hat.
+AUSNAHMEN: dict[str, str] = {
+    "elektronische Geschäftsverwaltung": (
+        "Ein Verfahren, kein Organ. Kopfnomen 'Geschäftsverwaltung' endet auf "
+        "'verwaltung'."
+    ),
+    "nationale Schnittstelle": (
+        "Eine technische Schnittstelle. 'Schnittstelle' endet auf 'stelle' wie "
+        "'Meldestelle' — die Endung allein traegt hier nicht."
+    ),
+    "Nationale Bildungsplattform Polizei": (
+        "Eine Plattform. 'Polizei' steht als Beifuegung, nicht als Kopf."
+    ),
+    "Schweizer Polizei Informatik Kongress": (
+        "Eine Veranstaltung. 'Polizei' steht als Beifuegung."
+    ),
+    "Datenschutzbeauftragte(r) Organisation": (
+        "Eine Rolle. 'Organisation' beschreibt hier den Wirkungsbereich."
+    ),
+}
+
 #: Zerlegt an Leerzeichen und Satzzeichen, aber **nicht** am Bindestrich —
 #: ``Polizei-Abfrageplattform`` ist ein Wort. Der Kopf eines Kompositums steht
 #: hinten, deshalb entscheidet dort die Endung ``plattform`` und nicht der
@@ -348,7 +382,7 @@ def _saubere_form(wert: Any) -> str:
     r"""Trimmt und macht Zeilenumbrueche im Glossartext unschaedlich.
 
     Zwei Eintraege des Materials tragen einen harten Umbruch mitten im Namen
-    (``Konkordat über die polizeiliche\\nZusammenarbeit …``). Ungeglaettet
+    (``Konkordat über die polizeiliche\nZusammenarbeit …``). Ungeglaettet
     stuende der Umbruch im Begriff und faende nie ein Vorkommen.
     """
     if not isinstance(wert, str):
@@ -358,6 +392,10 @@ def _saubere_form(wert: Any) -> str:
 
 def teile_auf(eintraege: Iterable[dict[str, Any]]) -> tuple[list, list, list, list]:
     """Sortiert die Eintraege in vier Toepfe.
+
+    Namen aus :data:`AUSNAHMEN` gelten als verworfen, unabhaengig davon, was
+    die Kopfnomen-Regel sagt — die Durchsicht durch einen Menschen schlaegt
+    die Regel.
 
     Returns
     -------
@@ -383,7 +421,7 @@ def teile_auf(eintraege: Iterable[dict[str, Any]]) -> tuple[list, list, list, li
         kurz = _saubere_form(eintrag.get("de"))
         if not voll:
             continue
-        if not ist_organisation(voll):
+        if voll in AUSNAHMEN or not ist_organisation(voll):
             verworfen.append((kurz, voll))
             continue
         (behoerden if ist_qualifiziert(voll) else gattungen).append((kurz, voll))
@@ -477,6 +515,12 @@ def drucke_bericht(
     print("  Organ, aber einwortig — kommt auch als gewoehnliches Substantiv vor.\n")
     for kurz, voll in sorted(gattungen, key=lambda p: p[1].lower()):
         print(f"  [{kopfnomen(voll):<18}] {kurz or '—':<12} {voll}")
+
+    print(f"\n=== AUSNAHMEN VON HAND ({len(AUSNAHMEN)}) ===")
+    print("  Von der Kopfnomen-Regel falsch eingestuft, bei der Durchsicht\n"
+          "  aussortiert. Stehen hier, damit sie nicht still wirken.\n")
+    for name, grund in sorted(AUSNAHMEN.items()):
+        print(f"  {name}\n      {grund}")
 
     print(f"\n=== VERWORFEN ({len(verworfen)}) ===")
     print("  Kopfnomen benennt kein Organ — Gesetz, System, Rolle, Fachbegriff.\n")

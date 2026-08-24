@@ -11,11 +11,12 @@ und ein ``curl``-Upload liefert oft gar keinen Typ. Der Dateiname ist im Zweifel
 das verlässlichere Signal, deshalb wird er zuerst probiert, wenn die Eingabe wie
 ein Dateiname aussieht.
 
-Phase 1 unterstützt DOCX, TXT und CSV. **PDF ist ausdrücklich Phase 5** — ein
-PDF formaterhaltend zu verändern heisst, Glyphenpositionen und eingebettete
-Schriften neu zu setzen; das ist ein eigenes Teilprojekt und keine Variante des
-hier implementierten Segment-Modells. Ein PDF-Upload bekommt deshalb eine
-eigene, klare Fehlermeldung statt eines generischen „nicht unterstützt".
+Unterstützt werden DOCX, XLSX, PPTX, TXT und CSV. **PDF bleibt ausdrücklich
+offen** — ein PDF formaterhaltend zu verändern heisst, Glyphenpositionen und
+eingebettete Schriften neu zu setzen; das ist ein eigenes Teilprojekt und keine
+Variante des hier implementierten Segment-Modells. Ein PDF-Upload bekommt
+deshalb eine eigene, klare Fehlermeldung statt eines generischen „nicht
+unterstützt".
 """
 
 from __future__ import annotations
@@ -25,7 +26,9 @@ from typing import Dict, List, Tuple, Type
 
 from backend.adapters.base import DocumentAdapter, Replacement, Segment
 from backend.adapters.docx_adapter import DocxAdapter, DocxLocation
+from backend.adapters.pptx_adapter import PptxAdapter, PptxLocation
 from backend.adapters.text_adapter import CsvAdapter, TextAdapter
+from backend.adapters.xlsx_adapter import XlsxAdapter, XlsxLocation
 
 __all__ = [
     "DocumentAdapter",
@@ -33,6 +36,10 @@ __all__ = [
     "Replacement",
     "DocxAdapter",
     "DocxLocation",
+    "XlsxAdapter",
+    "XlsxLocation",
+    "PptxAdapter",
+    "PptxLocation",
     "TextAdapter",
     "CsvAdapter",
     "get_adapter",
@@ -51,7 +58,13 @@ class UnsupportedFormatError(ValueError):
 
 
 #: Reihenfolge = Priorität. Die erste Klasse, die passt, gewinnt.
-_ADAPTERS: Tuple[Type[DocumentAdapter], ...] = (DocxAdapter, CsvAdapter, TextAdapter)
+_ADAPTERS: Tuple[Type[DocumentAdapter], ...] = (
+    DocxAdapter,
+    XlsxAdapter,
+    PptxAdapter,
+    CsvAdapter,
+    TextAdapter,
+)
 
 #: MIME-Typen, die Browser und Office-Werkzeuge zusätzlich zu den offiziellen
 #: für unsere Formate senden. Ohne diese Karte scheitert ein CSV-Upload aus
@@ -66,7 +79,7 @@ _MIME_ALIASES: Dict[str, Type[DocumentAdapter]] = {
 #: Formate, die bewusst später kommen — mit Begründung für die Fehlermeldung.
 _PLANNED: Dict[str, str] = {
     ".pdf": (
-        "PDF wird erst in Phase 5 unterstützt. Formaterhaltendes Ersetzen in PDF "
+        "PDF wird noch nicht unterstützt. Formaterhaltendes Ersetzen in PDF "
         "erfordert ein eigenes Textlayout-Verfahren. Bitte das Dokument vorher "
         "als DOCX oder TXT exportieren."
     ),
@@ -74,9 +87,13 @@ _PLANNED: Dict[str, str] = {
         "Das alte Word-Format (.doc) wird nicht unterstützt. Bitte in Word "
         "einmal als .docx speichern."
     ),
-    ".xlsx": (
-        "Excel-Dateien (.xlsx) sind für Phase 5 vorgesehen. Bitte das "
-        "Tabellenblatt als CSV exportieren."
+    ".xls": (
+        "Das alte Excel-Format (.xls) wird nicht unterstützt. Bitte in Excel "
+        "einmal als .xlsx speichern."
+    ),
+    ".ppt": (
+        "Das alte PowerPoint-Format (.ppt) wird nicht unterstützt. Bitte in "
+        "PowerPoint einmal als .pptx speichern."
     ),
     ".rtf": ("RTF wird nicht unterstützt. Bitte in Word einmal als .docx speichern."),
 }
@@ -84,9 +101,7 @@ _PLANNED: Dict[str, str] = {
 _PLANNED_MIME: Dict[str, str] = {
     "application/pdf": _PLANNED[".pdf"],
     "application/msword-doc": _PLANNED[".doc"],
-    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": _PLANNED[
-        ".xlsx"
-    ],
+    "application/vnd.ms-powerpoint": _PLANNED[".ppt"],
     "application/rtf": _PLANNED[".rtf"],
     "text/rtf": _PLANNED[".rtf"],
 }
@@ -184,6 +199,5 @@ def get_adapter(content_type_or_filename: str) -> DocumentAdapter:
 
     raise UnsupportedFormatError(
         f"Nicht unterstütztes Format: {raw!r}. "
-        f"Unterstützt werden in Phase 1: {', '.join(supported_formats())}. "
-        "PDF folgt in Phase 5."
+        f"Unterstützt werden: {', '.join(supported_formats())}. PDF folgt später."
     )

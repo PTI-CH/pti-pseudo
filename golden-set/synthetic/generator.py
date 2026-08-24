@@ -96,6 +96,11 @@ from backend.engine.recognizers.ahv import (  # noqa: E402
 from backend.engine.recognizers.iban_ch import is_valid_swiss_iban  # noqa: E402
 from backend.engine.recognizers.phone_ch import is_valid_swiss_phone  # noqa: E402
 
+# Die Fabrik fuer XLSX- und PPTX-Pakete liegt bei den Tests, weil sie
+# Testmaterial erzeugt und nirgends im Betrieb gebraucht wird. Warum sie von
+# Hand baut statt openpyxl/python-pptx zu benutzen, steht in ihrem Modulkopf.
+from backend.tests.ooxml_fabrik import baue_pptx, baue_xlsx  # noqa: E402
+
 __all__ = ["Erwartung", "Testdokument", "DOKUMENTE", "schreibe_dateien"]
 
 
@@ -919,6 +924,109 @@ def _baue_begriffsliste() -> Testdokument:
     )
 
 
+def _baue_xlsx_personenliste() -> Testdokument:
+    """Prüft den XLSX-Weg: Zeile als Datensatz, Struktur-PII in Zellen.
+
+    Eine Personenliste ist der Regelfall einer Arbeitsmappe im Betrieb — und
+    der Fall, für den bisher „bitte als CSV exportieren" die Antwort war.
+
+    Zwei Dinge sind hier absichtlich so gebaut:
+
+    * ``Nachname`` steht als Spaltenüberschrift **und** die Mappe enthält
+      Datenzellen; Excel legt gleiche Texte nur einmal ab. Der Adapter darf
+      diese gemeinsame Zeichenkette nicht überschreiben — der Unit-Test dazu
+      steht in ``backend/tests/test_adapter_xlsx.py``, hier wird der ganze
+      Weg durch die Engine geprüft.
+    * Die AHV-Nummer steht als Text in einer Zelle. Struktur-PII muss auch
+      dort 100 % Recall erreichen, wo kein Satz drumherum steht — Muster mit
+      Prüfziffer brauchen keinen Kontext, das Sprachmodell schon.
+    """
+    ahv = format_ahv("7561234567897"[:12] + str(compute_check_digit("756123456789")))
+    assert is_valid_ahv(ahv)
+
+    daten = baue_xlsx(
+        [
+            (
+                "Beteiligte",
+                [
+                    ["Nachname", "Vorname", "AHV-Nummer", "E-Mail"],
+                    ["Zwicky", "Marlene", ahv, "marlene.zwicky@example.ch"],
+                    ["Oberholzer", "Fabian", "", "fabian.oberholzer@example.ch"],
+                ],
+            ),
+            ("Hinweise", [["Fallnummer 2026-118 wurde von Marlene Zwicky eröffnet."]]),
+        ]
+    )
+
+    # ``Zwicky\tMarlene``: In der Zeile stehen Nach- und Vorname in getrennten
+    # Zellen, verbunden durch den Tabulator des Adapters. Das Modell liest das
+    # als **einen** Namen — richtig so, und der Beleg dafuer, dass die Zeile
+    # als Datensatz die richtige Segmentgroesse ist. Bei einem Segment je
+    # Zelle stuende hier zweimal ein kontextloses Einzelwort.
+    erwartet = (
+        Erwartung("Zwicky\tMarlene", "PERSON"),
+        Erwartung(ahv, "CH_AHV"),
+        Erwartung("marlene.zwicky@example.ch", "EMAIL_ADDRESS"),
+        Erwartung("fabian.oberholzer@example.ch", "EMAIL_ADDRESS"),
+        Erwartung("Marlene Zwicky", "PERSON"),
+    )
+
+    return Testdokument(
+        name="xlsx_personenliste",
+        dateiname="personenliste.xlsx",
+        beschreibung=(
+            "XLSX: eine Zeile ist ein Datensatz; Struktur-PII steht in Zellen "
+            "ohne Satzkontext."
+        ),
+        inhalt=daten,
+        erwartet=erwartet,
+        verboten=(),
+    )
+
+
+def _baue_pptx_praesentation() -> Testdokument:
+    """Prüft den PPTX-Weg — vor allem die Notizen.
+
+    Die Notizen des Vortragenden sind der praktisch wichtigste Fundort einer
+    Präsentation: Dort steht regelmässig, was auf der Folie bewusst *nicht*
+    steht. Eine Pseudonymisierung, die nur die Folien anfasst, liefert ein
+    Dokument, das sauber *aussieht*.
+
+    Auf Folie 1 ist der Name zusätzlich über vier Runs zerschnitten — der
+    Zustand, den PowerPoint erzeugt, wenn jemand ein Wort nachträglich
+    bearbeitet. Wer Run für Run sucht, findet ihn nie.
+    """
+    daten = baue_pptx(
+        [
+            (
+                [
+                    ["Lagebericht"],
+                    ["Verfasst von ", "Silvia ", "Rüeg", "segger."],
+                ],
+                ["Intern: Auskunft erteilte Herr Urs Bättig, Kantonspolizei."],
+            ),
+            ([["Weiteres Vorgehen"]], []),
+        ]
+    )
+
+    erwartet = (
+        Erwartung("Silvia Rüegsegger", "PERSON"),
+        Erwartung("Urs Bättig", "PERSON"),
+    )
+
+    return Testdokument(
+        name="pptx_notizen",
+        dateiname="lagebericht.pptx",
+        beschreibung=(
+            "PPTX: Name über vier Runs zerschnitten, und ein zweiter Name "
+            "steht nur in den Notizen."
+        ),
+        inhalt=daten,
+        erwartet=erwartet,
+        verboten=(),
+    )
+
+
 #: Die ausgelieferte Behoerdenliste. Erzeugt von
 #: ``scripts/behoerden_aus_glossar.py`` aus dem Translator-Glossar.
 _BEHOERDEN_DATEI = _REPO_ROOT / "scripts" / "data" / "behoerden.json"
@@ -1023,6 +1131,8 @@ def _baue_behoerdenliste() -> Testdokument:
 DOKUMENTE: List[Testdokument] = [
     _baue_begriffsliste(),
     _baue_behoerdenliste(),
+    _baue_xlsx_personenliste(),
+    _baue_pptx_praesentation(),
     _baue_mehrere_runs(),
     _baue_struktur_pii(),
     _baue_fehlalarm_fallen(),

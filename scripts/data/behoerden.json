@@ -225,14 +225,6 @@
       ]
     },
     {
-      "term": "Datenschutzbeauftragte(r) Organisation",
-      "entity_type": "ORGANIZATION",
-      "match_mode": "normalized",
-      "quellen": [
-        "pti-translator/PTI Glossar"
-      ]
-    },
-    {
       "term": "Dienst Überwachung Post- und Fernmeldeverkehr",
       "entity_type": "ORGANIZATION",
       "match_mode": "normalized",
@@ -330,14 +322,6 @@
     },
     {
       "term": "Eidgenössisches Finanzdepartement",
-      "entity_type": "ORGANIZATION",
-      "match_mode": "normalized",
-      "quellen": [
-        "pti-translator/PTI Glossar"
-      ]
-    },
-    {
-      "term": "elektronische Geschäftsverwaltung",
       "entity_type": "ORGANIZATION",
       "match_mode": "normalized",
       "quellen": [
@@ -801,22 +785,6 @@
       ]
     },
     {
-      "term": "Nationale Bildungsplattform Polizei",
-      "entity_type": "ORGANIZATION",
-      "match_mode": "normalized",
-      "quellen": [
-        "pti-translator/PTI Glossar"
-      ]
-    },
-    {
-      "term": "nationale Schnittstelle",
-      "entity_type": "ORGANIZATION",
-      "match_mode": "normalized",
-      "quellen": [
-        "pti-translator/PTI Glossar"
-      ]
-    },
-    {
       "term": "Nationales Zentralbüro Interpol",
       "entity_type": "ORGANIZATION",
       "match_mode": "normalized",
@@ -874,14 +842,6 @@
     },
     {
       "term": "Schaffhauser Polizei",
-      "entity_type": "ORGANIZATION",
-      "match_mode": "normalized",
-      "quellen": [
-        "pti-translator/PTI Glossar"
-      ]
-    },
-    {
-      "term": "Schweizer Polizei Informatik Kongress",
       "entity_type": "ORGANIZATION",
       "match_mode": "normalized",
       "quellen": [
@@ -1729,16 +1689,6 @@
       "hinweis": "Abkuerzung von 'Dienst Überwachung Post- und Fernmeldeverkehr'"
     },
     {
-      "term": "DSBO",
-      "entity_type": "ORGANIZATION",
-      "match_mode": "exact",
-      "zu_pruefen": true,
-      "quellen": [
-        "pti-translator/PTI Glossar"
-      ],
-      "hinweis": "Abkuerzung von 'Datenschutzbeauftragte(r) Organisation'"
-    },
-    {
       "term": "DVS",
       "entity_type": "ORGANIZATION",
       "match_mode": "exact",
@@ -1917,16 +1867,6 @@
         "pti-translator/PTI Glossar"
       ],
       "hinweis": "Abkuerzung von 'Schweizerische Konferenz der kantonalen Gesundheitsdirektorinnen und -direktoren'"
-    },
-    {
-      "term": "GEVER",
-      "entity_type": "ORGANIZATION",
-      "match_mode": "exact",
-      "zu_pruefen": true,
-      "quellen": [
-        "pti-translator/PTI Glossar"
-      ],
-      "hinweis": "Abkuerzung von 'elektronische Geschäftsverwaltung'"
     },
     {
       "term": "GPK",
@@ -2469,16 +2409,6 @@
       "hinweis": "Abkuerzung von 'Meldestelle für Geldwäscherei'"
     },
     {
-      "term": "N-VIS",
-      "entity_type": "ORGANIZATION",
-      "match_mode": "exact",
-      "zu_pruefen": true,
-      "quellen": [
-        "pti-translator/PTI Glossar"
-      ],
-      "hinweis": "Abkuerzung von 'nationale Schnittstelle'"
-    },
-    {
       "term": "NAZ",
       "entity_type": "ORGANIZATION",
       "match_mode": "exact",
@@ -2487,16 +2417,6 @@
         "pti-translator/PTI Glossar"
       ],
       "hinweis": "Abkuerzung von 'Nationale Alarmzentrale'"
-    },
-    {
-      "term": "NBPP",
-      "entity_type": "ORGANIZATION",
-      "match_mode": "exact",
-      "zu_pruefen": true,
-      "quellen": [
-        "pti-translator/PTI Glossar"
-      ],
-      "hinweis": "Abkuerzung von 'Nationale Bildungsplattform Polizei'"
     },
     {
       "term": "NDB",
@@ -2717,16 +2637,6 @@
         "pti-translator/PTI Glossar"
       ],
       "hinweis": "Abkuerzung von 'Schweizerisches Polizei-Institut'"
-    },
-    {
-      "term": "SPIK",
-      "entity_type": "ORGANIZATION",
-      "match_mode": "exact",
-      "zu_pruefen": true,
-      "quellen": [
-        "pti-translator/PTI Glossar"
-      ],
-      "hinweis": "Abkuerzung von 'Schweizer Polizei Informatik Kongress'"
     },
     {
       "term": "SRO",

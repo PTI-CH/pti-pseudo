@@ -71,31 +71,33 @@ Nicht abgedeckt (bewusst, siehe auch :meth:`DocxAdapter.strip_metadata`)
 from __future__ import annotations
 
 import io
-import zipfile
 from dataclasses import dataclass
-from typing import Dict, Iterable, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 from docx import Document
 from lxml import etree
 
+from backend.adapters import ooxml
 from backend.adapters.base import DocumentAdapter, Replacement, Segment
+from backend.adapters.ooxml import ParagraphSchema, make_qn, strip_docprops
+
+#: Paket-Ebene: unveraendert aus ``ooxml`` uebernommen. Die modulinternen
+#: Namen bleiben, damit die Aufrufstellen unten unberuehrt sind.
+_PARSER = ooxml.PARSER
+_serialize = ooxml.serialize
+_write_package = ooxml.write_package
 
 __all__ = ["DocxAdapter", "DocxLocation"]
 
 # ── Namensräume ────────────────────────────────────────────────────────────
+#: Nur der Word-eigene Namensraum steht hier. ``xml``, ``dc``, ``cp`` und
+#: ``ep`` gehören zum Paket, nicht zum Format, und kommen aus
+#: ``ooxml.PACKAGE_NS`` — dieselben Werte gelten für xlsx und pptx.
 _NS = {
     "w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main",
-    "xml": "http://www.w3.org/XML/1998/namespace",
-    "cp": "http://schemas.openxmlformats.org/package/2006/metadata/core-properties",
-    "dc": "http://purl.org/dc/elements/1.1/",
-    "ep": "http://schemas.openxmlformats.org/officeDocument/2006/extended-properties",
 }
 
-
-def qn(prefixed: str) -> str:
-    """Wandelt ``"w:t"`` in den Clark-Notation-Tag ``"{…main}t"``."""
-    prefix, _, local = prefixed.partition(":")
-    return "{%s}%s" % (_NS[prefix], local)
+qn = make_qn(_NS)
 
 
 _W_NS_BRACED = "{%s}" % _NS["w"]
@@ -113,32 +115,34 @@ _SEPARATOR_TAGS = {
     qn("w:cr"): "\n",
 }
 
-#: XXE-sicherer Parser. ``resolve_entities=False`` verhindert, dass ein
-#: präpariertes Dokument über eine Entity lokale Dateien einliest.
-_PARSER = etree.XMLParser(resolve_entities=False, no_network=True, huge_tree=False)
+#: Wie Word Absätze, Runs und Text ablegt. PowerPoint benutzt dieselbe
+#: Struktur mit ``a:``-Tags — deshalb liegt die Run-Arithmetik in ``ooxml``
+#: und nicht hier.
+_SCHEMA = ParagraphSchema(
+    paragraph=_PARA_TAG,
+    run=_RUN_TAG,
+    text=_TEXT_TAG,
+    separators=_SEPARATOR_TAGS,
+    space_attr=_XML_SPACE,
+)
 
 #: Der Haupt-Part kommt in der Segmentreihenfolge immer zuerst.
 _MAIN_PART = "word/document.xml"
 
-_CORE_PROPS_PART = "docProps/core.xml"
-_APP_PROPS_PART = "docProps/app.xml"
 
-#: Felder in ``docProps/core.xml``, die geleert werden.
-_CORE_FIELDS = (
-    qn("dc:creator"),
-    qn("cp:lastModifiedBy"),
-    qn("dc:title"),
-    qn("dc:subject"),
-    qn("cp:keywords"),
-    qn("dc:description"),
-    qn("cp:revision"),
-)
+def _read_package(data: bytes):
+    """Liest das Paket; die Fehlermeldung nennt DOCX beim Namen."""
+    return ooxml.read_package(data, "DOCX")
 
-#: Felder in ``docProps/app.xml``, die geleert werden.
-_APP_FIELDS = (
-    qn("ep:Company"),
-    qn("ep:Manager"),
-)
+
+def _paragraph_spans(paragraph):
+    """Absatztext und Run-Landkarte nach Word-Schema."""
+    return ooxml.paragraph_spans(paragraph, _SCHEMA)
+
+
+def _apply_to_paragraph(paragraph, expected_text: str, replacements) -> None:
+    """Wendet die Ersetzungen eines Segments nach Word-Schema an."""
+    ooxml.apply_to_paragraph(paragraph, expected_text, replacements, _SCHEMA)
 
 
 @dataclass(frozen=True)
@@ -161,77 +165,6 @@ class DocxLocation:
 
     part_name: str
     paragraph_index: int
-
-
-@dataclass
-class _Span:
-    """Eine Spanne des konkatenierten Absatztexts und ihr XML-Knoten."""
-
-    node: etree._Element
-    run: etree._Element
-    start: int
-    end: int
-    #: ``True`` für ``w:t`` (Text änderbar), ``False`` für ``w:tab``/``w:br``.
-    writable: bool
-
-    @property
-    def length(self) -> int:
-        """Ursprüngliche Länge der Spanne im Segmenttext."""
-        return self.end - self.start
-
-
-# ── ZIP-Ebene ──────────────────────────────────────────────────────────────
-
-
-def _read_package(data: bytes) -> Tuple[List[zipfile.ZipInfo], Dict[str, bytes]]:
-    """Liest alle ZIP-Einträge; Reihenfolge und Metadaten bleiben erhalten."""
-    try:
-        with zipfile.ZipFile(io.BytesIO(data)) as zf:
-            infos = list(zf.infolist())
-            blobs = {info.filename: zf.read(info.filename) for info in infos}
-    except zipfile.BadZipFile as exc:
-        raise ValueError(
-            "Die Datei ist kein gültiges DOCX (kein lesbarer ZIP-Container)."
-        ) from exc
-    if "[Content_Types].xml" not in blobs:
-        raise ValueError(
-            "Die Datei ist kein gültiges DOCX ([Content_Types].xml fehlt)."
-        )
-    return infos, blobs
-
-
-def _write_package(
-    infos: Iterable[zipfile.ZipInfo],
-    blobs: Dict[str, bytes],
-    replaced: Dict[str, bytes],
-) -> bytes:
-    """Packt das Paket neu — Reihenfolge, Zeitstempel und Kompression bleiben.
-
-    Nur die Parts aus ``replaced`` werden ersetzt; alles andere wird
-    byte-identisch durchgereicht. Bilder, Themes und Einstellungen fasst der
-    Adapter damit nachweislich nicht an.
-    """
-    buffer = io.BytesIO()
-    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
-        for info in infos:
-            payload = replaced.get(info.filename, blobs[info.filename])
-            entry = zipfile.ZipInfo(info.filename, date_time=info.date_time)
-            entry.compress_type = info.compress_type
-            entry.external_attr = info.external_attr
-            entry.internal_attr = info.internal_attr
-            entry.create_system = info.create_system
-            zf.writestr(entry, payload)
-    return buffer.getvalue()
-
-
-def _serialize(root: etree._Element) -> bytes:
-    """Serialisiert einen Part so, wie Word es tut (Deklaration, standalone)."""
-    return etree.tostring(
-        root.getroottree(),
-        xml_declaration=True,
-        encoding="UTF-8",
-        standalone=True,
-    )
 
 
 class _DocxPackage:
@@ -281,221 +214,6 @@ class _DocxPackage:
         """Serialisiert die geänderten Parts und packt das Paket neu."""
         replaced = {name: _serialize(self.roots[name]) for name in self.modified}
         return _write_package(self.infos, self.blobs, replaced)
-
-
-# ── Run-Landkarte ──────────────────────────────────────────────────────────
-
-
-def _runs_of_paragraph(paragraph: etree._Element) -> List[etree._Element]:
-    """Sammelt die Runs, die **zu diesem** Absatz gehören — in Lesereihenfolge.
-
-    Nicht einfach ``paragraph.findall("w:r")``: Runs stecken regelmässig in
-    Zwischenelementen — ``w:hyperlink``, ``w:ins``/``w:del`` (nachverfolgte
-    Änderungen), ``w:smartTag``, ``w:bookmarkStart``-Umgebungen und inline
-    ``w:sdt`` (Content-Controls). Deshalb wird rekursiv abgestiegen.
-
-    Zwei Abbruchbedingungen halten die Segmente überlappungsfrei:
-
-    * Bei einem ``w:r`` wird **nicht weiter** abgestiegen. Eine Textbox hängt
-      als ``w:r/…/w:txbxContent/w:p`` unter einem Run; ihre Absätze sind eigene
-      Segmente und würden sonst doppelt erfasst.
-    * Ein verschachteltes ``w:p`` wird übersprungen — es ist ein eigenes
-      Segment und wird über ``root.iter("w:p")`` ohnehin gefunden.
-    """
-    runs: List[etree._Element] = []
-
-    def walk(element: etree._Element) -> None:
-        for child in element:
-            tag = child.tag
-            if not isinstance(tag, str):
-                continue  # Kommentare und Processing Instructions
-            if tag == _RUN_TAG:
-                runs.append(child)
-            elif tag == _PARA_TAG:
-                continue
-            else:
-                walk(child)
-
-    walk(paragraph)
-    return runs
-
-
-def _paragraph_spans(paragraph: etree._Element) -> Tuple[str, List[_Span]]:
-    """Konkateniert den Absatztext und liefert die Landkarte dazu.
-
-    Returns
-    -------
-    (text, spans)
-        ``text`` ist der Segmenttext, ``spans`` die lückenlose, aufsteigend
-        sortierte Zuordnung von Offset-Bereichen zu XML-Knoten.
-    """
-    pieces: List[str] = []
-    spans: List[_Span] = []
-    offset = 0
-
-    for run in _runs_of_paragraph(paragraph):
-        for node in run:
-            tag = node.tag
-            if not isinstance(tag, str):
-                continue
-            if tag == _TEXT_TAG:
-                value = node.text or ""
-            elif tag in _SEPARATOR_TAGS:
-                value = _SEPARATOR_TAGS[tag]
-            else:
-                # w:drawing, w:rPr, w:delText, w:instrText, w:footnoteReference …
-                continue
-            spans.append(
-                _Span(
-                    node=node,
-                    run=run,
-                    start=offset,
-                    end=offset + len(value),
-                    writable=(tag == _TEXT_TAG),
-                )
-            )
-            pieces.append(value)
-            offset += len(value)
-
-    return "".join(pieces), spans
-
-
-def _set_text(node: etree._Element, value: str) -> None:
-    """Schreibt Text in einen ``w:t`` und setzt bei Bedarf ``xml:space``.
-
-    Ohne ``xml:space="preserve"`` darf ein XML-Verarbeiter führende und
-    folgende Leerzeichen zusammenfalten — Word tut das auch. Aus
-    ``"Sehr geehrter [[PERSON_1]] "`` würde sonst still ein fehlendes
-    Leerzeichen vor dem nächsten Run.
-    """
-    node.text = value
-    if value[:1].isspace() or value[-1:].isspace():
-        node.set(_XML_SPACE, "preserve")
-
-
-def _validate(replacements: List[Replacement], text_length: int) -> List[Replacement]:
-    """Prüft Offsets und Überlappungen; liefert aufsteigend sortiert zurück."""
-    ordered = sorted(replacements, key=lambda r: (r.start, r.end))
-    previous_end = 0
-    for repl in ordered:
-        if repl.end > text_length:
-            raise ValueError(
-                f"Ersetzung {repl.start}–{repl.end} liegt ausserhalb des Segments "
-                f"(Länge {text_length})"
-            )
-        if repl.start < previous_end:
-            raise ValueError(
-                f"Überlappende Ersetzungen: {repl.start}–{repl.end} überschneidet "
-                f"sich mit der vorangehenden, die bis {previous_end} reicht"
-            )
-        previous_end = repl.end
-    return ordered
-
-
-def _insert(spans: List[_Span], repl: Replacement) -> None:
-    """Behandelt eine reine Einfügung (``repl.start == repl.end``).
-
-    Eine Einfügung trifft per Definition keine Spanne mit echter Überlappung
-    (``s.start < end and s.end > start`` kann für ``start == end`` nie zwei
-    verschiedene Spannen echt schneiden). Die Einfügeposition kann trotzdem
-    mitten in beschreibbarem Text liegen (Regelfall: die nächste — oder bei
-    einer Absatzmitte die passende — Spanne bekommt den Text) oder exakt an
-    einer Run-Grenze, an der ein nicht beschreibbarer Knoten (``w:tab``,
-    ``w:br``/``w:cr``) angrenzt. Im zweiten Fall gäbe es early-return-frei
-    *keinen* Knoten, dessen ``[start, end]``-Bereich die Position exakt
-    trifft — der nächstgelegene beschreibbare Run übernimmt den Text
-    trotzdem: bevorzugt der davor liegende (angehängt), sonst der nächste
-    danach (vorangestellt). Neue Runs werden nie angelegt — das würde die in
-    :class:`DocxLocation` zugesicherte Stabilität der Absatz-Indizes verletzen.
-    """
-    position = repl.start
-    before: Optional[_Span] = None
-    after: Optional[_Span] = None
-    for span in spans:
-        if not span.writable:
-            continue
-        if span.end <= position:
-            before = span
-        elif after is None and span.start >= position:
-            after = span
-
-    target = before if before is not None else after
-    if target is None:
-        raise ValueError(
-            f"Für die Einfügung an Position {position} gibt es keinen "
-            f"beschreibbaren w:t-Knoten im Absatz."
-        )
-
-    current = target.node.text or ""
-    local = len(current) if target is before else 0
-    _set_text(target.node, current[:local] + repl.text + current[local:])
-
-
-def _apply_one(spans: List[_Span], repl: Replacement) -> None:
-    """Wendet **eine** Ersetzung auf die Run-Landkarte an.
-
-    Der Aufrufer garantiert, dass die Ersetzungen von rechts nach links
-    kommen. Nur deshalb dürfen hier die *ursprünglichen* Offsets gegen den
-    *aktuellen* Knotentext gerechnet werden: Alle bereits angewendeten
-    Ersetzungen lagen weiter rechts, der Textbereich links davon ist unberührt.
-    """
-    touched = [s for s in spans if s.start < repl.end and s.end > repl.start]
-
-    if not touched:
-        # Reine Einfügung (start == end) trifft keine Spanne echt.
-        _insert(spans, repl)
-        return
-
-    target = next((s for s in touched if s.writable), None)
-    if target is None:
-        raise ValueError(
-            f"Für die Ersetzung {repl.start}–{repl.end} gibt es keinen "
-            f"beschreibbaren w:t-Knoten im Absatz."
-        )
-
-    for span in touched:
-        local_start = max(0, repl.start - span.start)
-        local_end = min(span.length, repl.end - span.start)
-
-        if not span.writable:
-            # Tabulator oder Umbruch liegt im Trefferbereich: Er gehört zum
-            # ersetzten Text und verschwindet mit ihm. Sein Elternteil (der
-            # Run) bleibt bestehen.
-            if local_end > local_start:
-                parent = span.node.getparent()
-                if parent is not None:
-                    parent.remove(span.node)
-            continue
-
-        current = span.node.text or ""
-        if span is target:
-            # Der Ersatztext geht vollständig in den ersten berührten Run —
-            # dessen Zeichenformatierung gewinnt für den ganzen Platzhalter.
-            _set_text(
-                span.node, current[:local_start] + repl.text + current[local_end:]
-            )
-        else:
-            # Weitere berührte Runs verlieren nur ihren überlappenden Teil.
-            _set_text(span.node, current[:local_start] + current[local_end:])
-
-
-def _apply_to_paragraph(
-    paragraph: etree._Element,
-    expected_text: str,
-    replacements: List[Replacement],
-) -> None:
-    """Wendet alle Ersetzungen eines Segments auf einen Absatz an."""
-    text, spans = _paragraph_spans(paragraph)
-    if text != expected_text:
-        raise ValueError(
-            "Der Absatz passt nicht mehr zum Segment. Wurden extract_segments() "
-            "und apply_replacements() mit denselben Bytes aufgerufen?"
-        )
-    ordered = _validate(replacements, len(text))
-    # Von rechts nach links — sonst verschiebt jede Ersetzung die Offsets der
-    # noch ausstehenden um ihre Längendifferenz.
-    for repl in reversed(ordered):
-        _apply_one(spans, repl)
 
 
 # ── Beschriftung über python-docx ──────────────────────────────────────────
@@ -668,28 +386,9 @@ class DocxAdapter(DocumentAdapter):
         erfordert auch Anpassungen an ``[Content_Types].xml`` und den
         Beziehungen und gehört deshalb in einen eigenen Schritt) sowie
         ``w:author``-Attribute an Kommentaren und nachverfolgten Änderungen.
+
+        Die Umsetzung liegt in ``ooxml.strip_docprops``: die ``docProps``
+        gehören zum Paket und nicht zum Format, xlsx und pptx brauchen genau
+        dasselbe.
         """
-        infos, blobs = _read_package(data)
-        replaced: Dict[str, bytes] = {}
-
-        for part_name, fields in (
-            (_CORE_PROPS_PART, _CORE_FIELDS),
-            (_APP_PROPS_PART, _APP_FIELDS),
-        ):
-            blob = blobs.get(part_name)
-            if blob is None:
-                continue
-            try:
-                root = etree.fromstring(blob, _PARSER)
-            except etree.XMLSyntaxError:
-                continue
-            changed = False
-            for field_tag in fields:
-                for node in root.iter(field_tag):
-                    if node.text:
-                        node.text = ""
-                        changed = True
-            if changed:
-                replaced[part_name] = _serialize(root)
-
-        return _write_package(infos, blobs, replaced)
+        return strip_docprops(data, "DOCX")

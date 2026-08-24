@@ -56,6 +56,7 @@ from backend.engine.recognizers.iban_ch import SwissIbanRecognizer
 from backend.engine.recognizers.phone_ch import SwissPhoneRecognizer
 from backend.engine.recognizers.plate_ch import SwissPlateRecognizer
 from backend.engine.recognizers.plz_ch import SwissPostalCodeRecognizer
+from backend.engine.wortarten import verwerfe_gattungswoerter
 
 logger = logging.getLogger("pti.engine.analyzer")
 
@@ -222,14 +223,25 @@ def analyze(
     :param analyzer: Vorgefertigte Engine — überschreibt ``custom_terms``.
         Gedacht für Tests und für Aufrufer, die die Engine selbst verwalten.
     :param merge: Auf ``False`` setzen, um die rohen Presidio-Treffer zu
-        sehen. Nur für Diagnose; im Betrieb immer ``True``.
+        sehen. Nur für Diagnose; im Betrieb immer ``True``. Schaltet auch die
+        Wortart-Regel ab.
     :return: Treffer, nach Textposition sortiert und ohne Überlappungen.
 
-    Der Unterschied zu einem nackten ``AnalyzerEngine.analyze`` ist genau
-    dieser letzte Schritt: Presidio liefert pro Erkenner unabhängige Treffer,
-    die sich auf demselben Textstück stapeln. Ohne
-    :func:`~backend.engine.merge.merge_overlaps` würde eine E-Mail-Adresse als
-    E-Mail, als Person und in zwei Bruchstücken als URL gemeldet.
+    Zwei Unterschiede zu einem nackten ``AnalyzerEngine.analyze``:
+
+    * **Überlappungen werden aufgelöst.** Presidio liefert pro Erkenner
+      unabhängige Treffer, die sich auf demselben Textstück stapeln. Ohne
+      :func:`~backend.engine.merge.merge_overlaps` würde eine E-Mail-Adresse
+      als E-Mail, als Person und in zwei Bruchstücken als URL gemeldet.
+    * **Gattungswörter fallen weg.** Ein einzelnes Substantiv, das das Modell
+      selbst nicht als Eigennamen führt, ist kein Personen-, Orts- oder
+      Organisationsname — Begründung und die gemessenen Kosten stehen in
+      :mod:`backend.engine.wortarten`.
+
+    Der NLP-Durchlauf passiert dafür **einmal**, nicht zweimal: Die Artefakte
+    werden hier erzeugt und an Presidio durchgereicht, statt sie für die
+    Wortart-Regel ein zweites Mal zu berechnen. Bei einem Modell, das je Lauf
+    Sekunden kostet, ist das kein Feinschliff.
     """
     if analyzer is None:
         analyzer = (
@@ -238,14 +250,29 @@ def analyze(
             else get_default_analyzer()
         )
 
+    artifacts = None
+    try:
+        artifacts = analyzer.nlp_engine.process_text(text, language)
+    except Exception:  # pragma: no cover — defensiv
+        # Ohne Artefakte laeuft Presidio wie bisher und die Wortart-Regel
+        # entfaellt. Ein Ausfall hier darf die Erkennung nicht anhalten.
+        logger.warning("NLP-Artefakte nicht verfuegbar; Wortart-Regel entfaellt.")
+
     results = analyzer.analyze(
         text=text,
         language=language,
         entities=list(entities) if entities else None,
         score_threshold=score_threshold,
+        nlp_artifacts=artifacts,
     )
 
-    return merge_overlaps(results) if merge else list(results)
+    if not merge:
+        return list(results)
+
+    behalten, _verworfen = verwerfe_gattungswoerter(
+        results, artifacts.tokens if artifacts is not None else None
+    )
+    return merge_overlaps(behalten)
 
 
 def supported_entities(analyzer: Optional[AnalyzerEngine] = None) -> List[str]:

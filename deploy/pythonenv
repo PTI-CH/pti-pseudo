@@ -55,3 +55,9 @@ export ENV DATABASE_URL VAULT_MASTER_KEY RELAY_SECRET
 export CRM_BASE_URL HUB_BASE_URL HUB_APP_KEY PUBLIC_BASE_URL
 export SPACY_MODEL LLM_PROVIDER MAX_UPLOAD_BYTES SYNC_THRESHOLD_BYTES
 export HUB_AUTH DEV_ROLE PSEUDONYM_TEMPLATE
+# Phase 3. Steht schon hier, damit der Schluessel wirkt, sobald er im Panel
+# gesetzt wird — `LLM_PROVIDER` allein nuetzt nichts, wenn der Schluessel dazu
+# den Prozess nie erreicht. `export` fuer eine ungesetzte Variable ist
+# folgenlos (siehe oben), diese Zeile kostet also nichts, solange Phase 3 nicht
+# aktiv ist.
+export INFOMANIAK_AI_KEY

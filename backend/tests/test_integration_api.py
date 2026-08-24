@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import base64
 import io
+import zipfile
 from typing import Iterator
 
 import pytest
@@ -153,23 +154,24 @@ def test_pseudonyme_sind_ueber_laeufe_hinweg_stabil(client: TestClient) -> None:
     assert p1 and p1 == p2, f"Pseudonym nicht stabil: {p1} vs {p2}"
 
 
-def test_transliterierte_umlaute_erzeugen_fehlalarme(client: TestClient) -> None:
-    """Dokumentiert eine gemessene Schwaeche des deutschen NER-Modells.
+def test_transliterierte_umlaute_fangen_wir_ab(client: TestClient) -> None:
+    """Die Wortart-Regel faengt eine gemessene Schwaeche des NER-Modells ab.
 
     ``de_core_news_md`` haelt das transliterierte ``Spaeter`` fuer einen
     Personennamen, das korrekt geschriebene ``Später`` dagegen nicht — das Wort
     in Ersatzschreibweise stand nie in den Trainingsdaten und sieht damit aus
     wie ein unbekanntes Eigennamen-Token.
 
-    Folgen fuer den Betrieb:
+    **Das Modell tut das unveraendert.** Nachgemessen am 2026-08-24: Der rohe
+    Presidio-Lauf meldet ``Spaeter`` weiterhin als PERSON. Neu ist, dass
+    ``backend.engine.wortarten`` den Fund verwirft, weil dasselbe Modell das
+    Token als ``NOUN`` und nicht als ``PROPN`` fuehrt — die beiden Schichten
+    des Modells widersprechen sich, und die Wortart hat recht.
 
-    * Eingaben sollten echte Umlaute enthalten. Wer ae/oe/ue schreibt, bekommt
-      mehr Fehlalarme.
-    * Testdaten in diesem Repository muessen deshalb ebenfalls echte Umlaute
-      verwenden, sonst misst das Golden-Set die falsche Groesse.
-
-    Dieser Test haelt den Befund fest. Schlaegt er eines Tages fehl, hat sich
-    das Modell verbessert — dann darf er entfallen.
+    Der Betriebshinweis bleibt trotzdem gueltig: Eingaben sollten echte
+    Umlaute enthalten, und Testdaten in diesem Repository erst recht. Die
+    Regel greift nur bei **einzelnen** Tokens; ein transliterierter Name aus
+    Vor- und Nachname geht weiterhin als Fehlalarm durch.
     """
     mit_umlaut = client.post(
         "/api/v1/documents:detect", json={"text": "Später kam Andreas Meier erneut."}
@@ -182,9 +184,9 @@ def test_transliterierte_umlaute_erzeugen_fehlalarme(client: TestClient) -> None
     personen_ohne = [e["text"] for e in transliteriert if e["entity_type"] == "PERSON"]
 
     assert personen_mit == ["Andreas Meier"]
-    assert "Spaeter" in personen_ohne, (
-        "Der bekannte Fehlalarm ist verschwunden — Modell aktualisiert? "
-        f"Gefunden: {personen_ohne}"
+    assert personen_ohne == ["Andreas Meier"], (
+        "Der Fehlalarm auf 'Spaeter' ist zurueck — greift die Wortart-Regel "
+        f"nicht mehr? Gefunden: {personen_ohne}"
     )
 
 
@@ -321,6 +323,80 @@ def test_docx_durchlauf_erhaelt_das_format(client: TestClient) -> None:
     text = "\n".join(p.text for p in wieder.paragraphs)
     assert "Andreas Meier" not in text, f"Name ueber Run-Grenzen nicht ersetzt: {text!r}"
     assert "hat unterschrieben." in text, f"Resttext beschaedigt: {text!r}"
+
+
+def test_xlsx_durchlauf_erhaelt_das_format(client: TestClient) -> None:
+    """Mappe rein, Mappe raus — und die gemeinsame Zeichenkette bleibt heil.
+
+    Der Weg durch die HTTP-Schicht, nicht nur durch den Adapter: Ein Upload
+    mit dem MIME-Typ, den Excel schickt, muss beim XlsxAdapter landen und ein
+    oeffenbares Ergebnis zurueckgeben.
+    """
+    from backend.tests.ooxml_fabrik import baue_xlsx
+
+    mappe = baue_xlsx(
+        [("Beteiligte", [["Nachname", "Vorname"], ["Zwicky", "Marlene"]])]
+    )
+    r = client.post(
+        "/api/v1/documents:anonymize-file",
+        files={
+            "file": (
+                "beteiligte.xlsx",
+                mappe,
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            )
+        },
+        data={"mode": "reversible", "vault_label": "Mappentest"},
+    )
+    assert r.status_code == 200, r.text
+    ergebnis = base64.b64decode(r.json()["content_base64"])
+
+    with zipfile.ZipFile(io.BytesIO(ergebnis)) as zf:
+        assert zf.testzip() is None, "das Ergebnis ist kein oeffenbares XLSX"
+        blatt = zf.read("xl/worksheets/sheet1.xml").decode("utf-8")
+    assert "Marlene" not in blatt, f"Name nicht ersetzt: {blatt!r}"
+    # Die Ueberschriften stehen in der gemeinsamen Tabelle und duerfen dort
+    # unberuehrt bleiben — sonst haette die Ersetzung ueber die Zelle
+    # hinausgewirkt.
+    with zipfile.ZipFile(io.BytesIO(mappe)) as vorher:
+        with zipfile.ZipFile(io.BytesIO(ergebnis)) as nachher:
+            assert vorher.read("xl/sharedStrings.xml") == nachher.read(
+                "xl/sharedStrings.xml"
+            )
+
+
+def test_pptx_durchlauf_erfasst_die_notizen(client: TestClient) -> None:
+    """Der Name in den Notizen muss ebenso verschwinden wie der auf der Folie.
+
+    Eine Praesentation, bei der nur die Folien pseudonymisiert sind, *sieht*
+    sauber aus — die Notizen des Vortragenden liest niemand nach.
+    """
+    from backend.tests.ooxml_fabrik import baue_pptx
+
+    praesentation = baue_pptx(
+        [([["Es schrieb ", "Andrea ", "Bei", "spiel."]], ["Auskunft: Beat Kunz."])]
+    )
+    r = client.post(
+        "/api/v1/documents:anonymize-file",
+        files={
+            "file": (
+                "lage.pptx",
+                praesentation,
+                "application/vnd.openxmlformats-officedocument."
+                "presentationml.presentation",
+            )
+        },
+        data={"mode": "reversible", "vault_label": "Folientest"},
+    )
+    assert r.status_code == 200, r.text
+    ergebnis = base64.b64decode(r.json()["content_base64"])
+
+    with zipfile.ZipFile(io.BytesIO(ergebnis)) as zf:
+        assert zf.testzip() is None, "das Ergebnis ist kein oeffenbares PPTX"
+        folie = zf.read("ppt/slides/slide1.xml").decode("utf-8")
+        notizen = zf.read("ppt/notesSlides/notesSlide1.xml").decode("utf-8")
+    assert "Andrea" not in folie, f"Name ueber Run-Grenzen nicht ersetzt: {folie!r}"
+    assert "Beat Kunz" not in notizen, f"Name in den Notizen blieb stehen: {notizen!r}"
 
 
 def test_unbekanntes_format_liefert_415(client: TestClient) -> None:

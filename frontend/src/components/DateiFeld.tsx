@@ -1,8 +1,14 @@
 import { useRef, useState, type DragEvent } from 'react';
 import { FileText, Upload, X } from 'lucide-react';
 
-/** Formate, die die Engine in Phase 1 liest. */
-export const ERLAUBTE_ENDUNGEN = ['.docx', '.txt', '.csv'] as const;
+/**
+ * Formate, die die Engine liest.
+ *
+ * Muss zu `supported_formats()` im Backend passen (`backend/adapters/__init__.py`).
+ * Steht hier zusätzlich, damit eine unpassende Datei schon beim Ablegen
+ * abgewiesen wird und nicht erst nach dem Hochladen.
+ */
+export const ERLAUBTE_ENDUNGEN = ['.docx', '.xlsx', '.pptx', '.txt', '.csv'] as const;
 const ACCEPT = ERLAUBTE_ENDUNGEN.join(',');
 
 interface Props {

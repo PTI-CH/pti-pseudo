@@ -307,7 +307,7 @@ export async function anonymisiereText(
 }
 
 /**
- * Datei pseudonymisieren (multipart). Unterstützt .docx, .txt und .csv.
+ * Datei pseudonymisieren (multipart). Unterstützt .docx, .xlsx, .pptx, .txt und .csv.
  *
  * `kategorien` geht als kommagetrennte Liste ins Formular — Multipart kennt
  * keine echten Listenfelder, der Server splittet selbst (`parse_entities`).

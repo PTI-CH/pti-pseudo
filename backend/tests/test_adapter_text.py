@@ -273,10 +273,11 @@ def test_registry_csv_vor_text():
 @pytest.mark.parametrize(
     "eingabe, teil_der_meldung",
     [
-        ("bericht.pdf", "Phase 5"),
-        ("application/pdf", "Phase 5"),
+        ("bericht.pdf", "PDF wird noch nicht unterstützt"),
+        ("application/pdf", "PDF wird noch nicht unterstützt"),
         ("alt.doc", ".docx speichern"),
-        ("tabelle.xlsx", "CSV exportieren"),
+        ("alt.xls", ".xlsx speichern"),
+        ("alt.ppt", ".pptx speichern"),
         ("bild.png", "Nicht unterstütztes Format"),
         ("", "weder ein Dateiname"),
     ],
@@ -284,16 +285,15 @@ def test_registry_csv_vor_text():
 def test_registry_meldet_nicht_unterstuetzte_formate_auf_deutsch(
     eingabe, teil_der_meldung
 ):
-    """Die Fehlermeldung ist deutsch, konkret und nennt bei PDF die Phase."""
+    """Die Fehlermeldung ist deutsch und sagt konkret, was zu tun ist."""
     with pytest.raises(UnsupportedFormatError) as fehler:
         get_adapter(eingabe)
     assert teil_der_meldung in str(fehler.value)
 
 
 def test_unterstuetzte_formate_liste():
-    """Phase 1 kennt DOCX, TXT und CSV — und ausdrücklich kein PDF."""
+    """Die Office-Formate und Text — und ausdrücklich kein PDF."""
     formate = supported_formats()
-    assert ".docx" in formate
-    assert ".txt" in formate
-    assert ".csv" in formate
+    for endung in (".docx", ".xlsx", ".pptx", ".txt", ".csv"):
+        assert endung in formate
     assert ".pdf" not in formate

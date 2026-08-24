@@ -55,6 +55,111 @@ stille Verschlechterung an einem anderen erkaufen.
 
 ---
 
+## Messstand vom 2026-08-24 (abends) — Gate wieder gruen
+
+Nach der Wortart-Regel (`backend/engine/wortarten.py`), die den Befund des
+vorigen Abschnitts aufloest:
+
+| | vorher | nachher | Marke |
+|---|---|---|---|
+| Gesamt-Precision | 89.4 % | **90.8 %** | ≥ 90 % — gehalten |
+| Gesamt-Recall | 96.7 % | **96.7 %** | — |
+| PERSON | 90.5 % / 95.0 % | **95.0 % / 95.0 %** | ≥ 90 % Recall — gehalten |
+| Struktur-PII | 100 % | 100 % | 100 % — gehalten |
+
+**Die Marke wurde nicht gesenkt, sondern die Erkennung verbessert.** Ein
+einzelnes Token, das dasselbe Modell als ``NOUN`` und nicht als ``PROPN``
+fuehrt, ist kein Personenname. `Lagebericht` verschwindet damit aus den
+Fehlalarmen — und mit ihm der laengst dokumentierte Fehlalarm auf `Spaeter`
+in transliterierter Schreibweise.
+
+### Der Zwischenschritt, der widerlegt wurde
+
+Die erste Fassung der Regel galt fuer alle drei NER-Typen. Gemessen:
+
+| | Precision | Recall |
+|---|---|---|
+| alle drei Typen | 98.1 % | **85.2 %** |
+| nur `PERSON` | 90.8 % | 96.7 % |
+
+Sie kostete `Talblick` (eine Firma, sechsmal) und `Bahnhofstrasse`. Der Grund
+ist Sprache, nicht Zufall: Organisations- und Ortsnamen *sind* im Deutschen
+ueberwiegend aus gewoehnlichen Woertern gebaut. Sieben echte Funde gegen zwei
+Fehlalarme waere in diesem Werkzeug ein schlechtes Geschaeft — die Regel gilt
+deshalb nur fuer `PERSON`.
+
+Das ist genau der Zweck dieses Verzeichnisses: Die naheliegende, breite Regel
+sah gut aus und war falsch, und ohne Messung waere das erst im Betrieb
+aufgefallen.
+
+### Was weiterhin offen ist
+
+Drei Fehlalarme bleiben und sind alle vom Typ „Sachbegriff als Entitaet",
+diesmal als ORGANIZATION und LOCATION: `Kontrollschild`, `Fallnummer`
+(zweimal), `Intern`, `Polizei-Abfrageplattform`. Sie zu erfassen erfordert
+etwas anderes als die Wortart — der naechste Ansatz waere der Satzkontext,
+also Phase 3.
+
+---
+
+## Messstand vom 2026-08-24 (nachmittags) — GATE ROT (aufgeloest)
+
+Nach den Dokumenten `xlsx_personenliste` und `pptx_notizen`, die den neuen
+XLSX- und PPTX-Adapter durch die ganze Engine fuehren. 10 → 12 Dokumente,
+54 → 61 erwartete Funde:
+
+| | vorher | nachher | Marke |
+|---|---|---|---|
+| Gesamt-Precision | 92.9 % | **89.4 %** | ≥ 90 % — **gerissen** |
+| Gesamt-Recall | 96.3 % | **96.7 %** | — |
+| PERSON-Recall | 93.8 % | **95.0 %** | ≥ 90 % — gehalten |
+| Struktur-PII | 100 % | 100 % | 100 % — gehalten |
+
+**Die Marke wird nach Hausregel nicht nachgezogen.** Der Satz ist um zwei
+schwierige Dokumente gewachsen, und die Messung sagt etwas Wahres: Die
+Erkennung ist auf Tabellen und Folien schlechter als auf Fliesstext.
+
+### Warum, und warum das kein Zufall ist
+
+Drei neue Fehlalarme, alle vom selben Typ:
+
+```
+[xlsx_personenliste] LOCATION 'Fallnummer'
+[pptx_notizen]       PERSON   'Lagebericht'
+[pptx_notizen]       ORGANIZATION 'Intern'
+```
+
+Das sind einzelne, grossgeschriebene Substantive ohne Satzkontext — Schwaeche 3
+(„Sachbegriffe als Entitaeten"), dieselbe wie bei `Kontrollschild` und
+`Fallnummer`. Neu ist nicht die Schwaeche, sondern **wie stark sie zu Buche
+schlaegt**: Ein Folientitel ist ein Wort. Eine Tabellenueberschrift ist ein
+Wort. Fliesstext liefert dem Modell einen Satz, eine Praesentation nicht.
+
+Die Formate, die dieser Stand neu unterstuetzt, sind also genau die, auf denen
+das Modell am schwaechsten ist. Das ist eine Aussage ueber die Engine, nicht
+ueber die Adapter — die Adapter liefern den Text vollstaendig und korrekt ab,
+nachgewiesen in `backend/tests/test_adapter_xlsx.py` und `…_pptx.py`.
+
+### Der naheliegende Ansatz
+
+Alle drei Fehlalarme sind **einzelne Tokens**, die das Modell selbst als
+Nomen (nicht als Eigenname) taggt. Eine Regel „ein alleinstehendes Token,
+das spaCy als `NOUN` und nicht als `PROPN` fuehrt, ist kein PERSON/LOCATION/
+ORGANIZATION" wuerde alle drei treffen. Das ist Engine-Arbeit mit eigenem
+Risiko — spaCy taggt auch echte Namen gelegentlich als `NOUN`, und dann
+verschwaende die Regel Recall, also genau das Gut, das hier zaehlt. Sie
+gehoert in einen eigenen Durchgang mit diesem Satz als Waechter.
+
+### Ein Befund ueber die Segmentgroesse
+
+`Zwicky\tMarlene` steht als **erwarteter** Fund im Satz: In der Tabelle stehen
+Nach- und Vorname in getrennten Zellen, und das Modell liest sie ueber den
+Tabulator hinweg als einen Namen. Das ist der Beleg, dass die Zeile die
+richtige Segmentgroesse ist — bei einem Segment je Zelle stuenden dort zwei
+kontextlose Einzelwoerter, und genau die uebersieht das Modell.
+
+---
+
 ## Messstand vom 2026-08-24
 
 Nach dem neuen Dokument `behoerdenliste`, das die ausgelieferte Behoerdenliste

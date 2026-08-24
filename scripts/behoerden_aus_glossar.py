@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Behoerdennamen aus dem Translator-Glossar zu einer Importdatei aufbereiten.
+r"""Behoerdennamen aus dem Translator-Glossar zu einer Importdatei aufbereiten.
 
 Anlass ist ein gemessener Befund des Golden-Sets: ``Meldestelle für
 Geldwäscherei`` wird vom Sprachmodell nicht als ``ORGANIZATION`` erkannt.
@@ -103,7 +103,9 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 
 #: Der Glossar-Export des Translators. Liegt im Schwester-Repo, nicht hier —
 #: er wird gelesen, nie geschrieben.
-STANDARD_QUELLE = REPO_ROOT.parent / "pti-translator" / "backend" / "data" / "glossaries.json"
+STANDARD_QUELLE = (
+    REPO_ROOT.parent / "pti-translator" / "backend" / "data" / "glossaries.json"
+)
 
 STANDARD_ZIEL = REPO_ROOT / "scripts" / "data" / "behoerden.json"
 
@@ -334,11 +336,16 @@ def lade_eintraege(pfad: Path) -> list[dict[str, Any]]:
         raise SystemExit(f"{pfad} ist kein gueltiges JSON: {fehler}") from None
     if not isinstance(daten, list):
         raise SystemExit(f"{pfad} sollte eine Liste von Glossaren enthalten.")
-    return [e for glossar in daten for e in glossar.get("entries", []) if isinstance(e, dict)]
+    return [
+        e
+        for glossar in daten
+        for e in glossar.get("entries", [])
+        if isinstance(e, dict)
+    ]
 
 
 def _saubere_form(wert: Any) -> str:
-    """Trimmt und macht Zeilenumbrueche im Glossartext unschaedlich.
+    r"""Trimmt und macht Zeilenumbrueche im Glossartext unschaedlich.
 
     Zwei Eintraege des Materials tragen einen harten Umbruch mitten im Namen
     (``Konkordat über die polizeiliche\\nZusammenarbeit …``). Ungeglaettet
@@ -478,6 +485,7 @@ def drucke_bericht(
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Liest das Glossar, teilt auf und schreibt — oder berichtet nur."""
     parser = argparse.ArgumentParser(
         description="Behoerdennamen aus dem Translator-Glossar aufbereiten.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -495,7 +503,10 @@ def main(argv: list[str] | None = None) -> int:
     behoerden, gattungen, abkuerzungen, verworfen = teile_auf(eintraege)
 
     mit_voller_form = len(behoerden) + len(gattungen) + len(verworfen)
-    print(f"Glossar: {len(eintraege)} Eintraege, davon {mit_voller_form} mit voller Form.")
+    print(
+        f"Glossar: {len(eintraege)} Eintraege, "
+        f"davon {mit_voller_form} mit voller Form."
+    )
     print(f"  sicher     — qualifizierte Behoerden: {len(behoerden)}")
     print(f"  zu_pruefen — Gattungsbezeichnungen:   {len(gattungen)}")
     print(f"  zu_pruefen — Abkuerzungen:            {len(abkuerzungen)}")

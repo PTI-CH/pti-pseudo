@@ -87,7 +87,7 @@ export default function App() {
             <Rueckfuehren />
           </div>
           <div className={bereich === 'begriffe' ? '' : 'hidden'}>
-            <Begriffsliste />
+            <Begriffsliste istAdmin={benutzer.isAdmin} />
           </div>
           {/* Nur montiert, wenn der Bereich überhaupt sichtbar ist — sonst würde
               der Panel-eigene Ladeaufruf für Nicht-Admins unnötig gegen die

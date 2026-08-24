@@ -1,0 +1,109 @@
+# Tests des PTI-Werkzeugs.
+#
+# Warum es diesen Workflow gibt
+# -----------------------------
+# `ci.yml` daneben ist **Presidios eigener** Workflow (Analyzer, Anonymizer,
+# CLI …) und wie die anderen fünf Upstream-Workflows serverseitig deaktiviert.
+# Bis zum 2026-08-24 lief damit *nichts* automatisch: Ein Merge nach `main`
+# loeste einen Produktiv-Deploy aus, ohne dass irgendetwas die Testsuite
+# gefahren haette. Das Golden-Set wurde in README und Doku als „CI-Gate"
+# gefuehrt — tatsaechlich lief es nur lokal, also genau dann, wenn jemand
+# daran dachte.
+#
+# Am selben Tag sind zwei Fehler durchgerutscht, die dieser Workflow gefangen
+# haette: `ruff check` war seit PR #10 rot (nur `backend/` geprueft statt des
+# ganzen Repos), und eine unsaubere Textersetzung hatte kurzzeitig einen
+# Syntaxfehler erzeugt.
+#
+# Bewusst getrennt von `deploy-prod.yml`: Der Deploy soll auch dann laufen
+# koennen, wenn jemand die Tests bewusst uebergeht — aber er soll es sichtbar
+# tun. Ein Workflow, der beides vermengt, verleitet dazu, im Notfall alles
+# abzuschalten.
+name: PTI Tests
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# Ein zweiter Push auf denselben Branch macht den ersten Lauf wertlos.
+concurrency:
+  group: pti-tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Backend, Engine und Golden-Set
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          # Produktion laeuft auf 3.14 (Jelastic „Python Engine"). Hier
+          # dieselbe Reihe, damit ein Syntax- oder Bibliotheksbruch nicht erst
+          # auf dem Knoten auffaellt.
+          python-version: "3.13"
+          cache: pip
+
+      - name: Abhaengigkeiten
+        run: |
+          set -e
+          python -m pip install --upgrade pip
+          # **-dev**, nicht die Produktionsliste: Dort stehen pytest und ruff,
+          # und zwar in genau den Versionen, die am Arbeitsplatz laufen. Eine
+          # eigene Pin-Angabe hier waere die zweite Wahrheit, die irgendwann
+          # von der ersten abweicht — der erste CI-Lauf ist genau darueber
+          # gestolpert (`No module named pytest`).
+          #
+          # Presidio kommt ueber `-r pti-requirements.txt` aus dem Baum
+          # (Editable-Install) — genau wie lokal und in Produktion. Ein
+          # PyPI-Presidio wuerde die eigenen Aenderungen an
+          # presidio-analyzer/ stillschweigend uebergehen.
+          python -m pip install -r pti-requirements-dev.txt
+
+      - name: Ruff
+        # Das ganze Repository, nicht nur backend/. Genau diese Verkuerzung
+        # hat den Lint-Bruch aus PR #10 unbemerkt gelassen.
+        run: ruff check
+
+      - name: Tests inklusive Golden-Set-Gate
+        run: python -m pytest backend/tests -q
+
+      - name: Qualitaetsbericht
+        # Laeuft auch, wenn das Gate gerissen ist: Dann steht im Protokoll,
+        # *was* verfehlt wurde, statt nur dass eine Marke nicht haelt.
+        if: always()
+        run: python scripts/golden_set_report.py
+
+  frontend:
+    name: Frontend
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Abhaengigkeiten
+        working-directory: frontend
+        run: npm ci
+
+      - name: Typpruefung
+        working-directory: frontend
+        run: npm run type-check
+
+      - name: Tests
+        working-directory: frontend
+        run: npm test
+
+      - name: Build
+        # Der Deploy baut dasselbe. Bricht es hier, bricht es dort — nur
+        # merkt man es hier ohne Ausfallfenster.
+        working-directory: frontend
+        run: npm run build

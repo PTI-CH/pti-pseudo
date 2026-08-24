@@ -35,6 +35,10 @@ on:
       - 'scripts/golden_set_report.py'
       - '**.md'
       - '.gitignore'
+      # Workflows selbst laufen auf GitHub, nicht auf dem Knoten. Eine
+      # Aenderung an der Testpipeline hat in Produktion nichts zu bewirken —
+      # und ein Deploy dafuer kostete drei bis sechs Minuten Ausfall.
+      - '.github/**'
   workflow_dispatch:
 
 env:

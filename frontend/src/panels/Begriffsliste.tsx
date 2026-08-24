@@ -10,13 +10,30 @@ import {
 } from '../core/api';
 import { ENTITAETS_TYPEN, labelFuerTyp } from '../core/entities';
 
+interface Props {
+  /**
+   * Ob der angemeldete Mensch die Liste ändern darf.
+   *
+   * Kommt als Eigenschaft und nicht aus einem zweiten `useBenutzer()`: `App`
+   * lädt den Benutzer bereits, ein weiterer Aufruf hier fragte `/api/me` ein
+   * zweites Mal an.
+   */
+  istAdmin: boolean;
+}
+
 /**
- * Bereich 4: eigene Begriffe, die die Engine immer ersetzt.
+ * Bereich 3: eigene Begriffe, die die Engine immer ersetzt.
  *
  * Gedacht für Projektnamen, interne Bezeichnungen und Eigennamen, die kein
  * allgemeiner Erkenner findet — die Liste hat Vorrang vor der Statistik.
+ *
+ * **Lesen darf jeder, ändern nur Administratoren.** Das Backend setzt das
+ * durch (`403` in `routers/terms.py`); hier werden die Bedienelemente
+ * ausgeblendet, statt sie anzubieten und dann scheitern zu lassen. Ein Knopf,
+ * der zuverlässig einen Fehler erzeugt, ist schlimmer als keiner: Er sieht aus
+ * wie eine kaputte Anwendung, nicht wie eine fehlende Berechtigung.
  */
-export default function Begriffsliste() {
+export default function Begriffsliste({ istAdmin }: Props) {
   const [begriffe, setBegriffe] = useState<Begriff[]>([]);
   const [laden, setLaden] = useState(true);
   const [fehler, setFehler] = useState<string | null>(null);
@@ -99,7 +116,16 @@ export default function Begriffsliste() {
 
       {fehler && <Hinweis ton="fehler">{fehler}</Hinweis>}
 
-      {/* Neuen Begriff anlegen */}
+      {!istAdmin && (
+        <Hinweis ton="info">
+          Diese Liste wirkt auf <strong>jeden</strong> Durchlauf, auch auf Ihre. Pflegen
+          darf sie, wer im CRM die Rolle „admin“ hat — melden Sie fehlende oder falsche
+          Einträge dort.
+        </Hinweis>
+      )}
+
+      {/* Neuen Begriff anlegen — nur für Administratoren */}
+      {istAdmin && (
       <section className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-4 py-4">
         <div className="grid gap-4 sm:grid-cols-3">
           <div>
@@ -178,6 +204,7 @@ export default function Begriffsliste() {
           </button>
         </div>
       </section>
+      )}
 
       {/* Bestehende Begriffe */}
       {laden ? (
@@ -224,14 +251,16 @@ export default function Begriffsliste() {
                       {b.ersatz || <span className="font-sans">automatisch</span>}
                     </td>
                     <td className="px-4 py-3 text-right whitespace-nowrap">
-                      <button
-                        type="button"
-                        onClick={() => void entfernen(b.id, b.begriff)}
-                        disabled={loescht === b.id}
-                        className="text-xs text-red-600 dark:text-red-400 hover:underline disabled:opacity-50"
-                      >
-                        {loescht === b.id ? 'Wird gelöscht …' : 'Löschen'}
-                      </button>
+                      {istAdmin && (
+                        <button
+                          type="button"
+                          onClick={() => void entfernen(b.id, b.begriff)}
+                          disabled={loescht === b.id}
+                          className="text-xs text-red-600 dark:text-red-400 hover:underline disabled:opacity-50"
+                        >
+                          {loescht === b.id ? 'Wird gelöscht …' : 'Löschen'}
+                        </button>
+                      )}
                     </td>
                   </tr>
                 ))}

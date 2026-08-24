@@ -179,6 +179,24 @@ def _mount_frontend(app: FastAPI) -> None:
 
         @app.get("/{full_path:path}", include_in_schema=False)
         async def _missing_frontend(full_path: str) -> JSONResponse:
+            """Sagt, dass die Oberflaeche fehlt — aber nur fuer Seitenaufrufe.
+
+            ``/api/`` bleibt ausgenommen, genau wie im Normalfall unten. Sonst
+            aendert eine fehlende Oberflaeche das Verhalten der **API**: Ein
+            Tippfehler in einem Endpunkt bekaeme ein 503 mit einer Meldung
+            ueber das Frontend statt eines auswertbaren 404. Ein Maschinen-
+            Aufrufer haette damit keine Chance, den eigenen Fehler zu erkennen.
+
+            Die Auslassung ist am 2026-08-24 von der neuen Testpipeline
+            gefunden worden: Sie baut fuer die Backend-Tests kein Frontend, und
+            drei Tests, die 404 auf nicht eingehaengten Routen pruefen, sahen
+            plotzlich 503.
+            """
+            if full_path.startswith("api/"):
+                return JSONResponse(
+                    status_code=404,
+                    content={"code": "NOT_FOUND", "message": "Unbekannter Endpunkt."},
+                )
             return JSONResponse(
                 status_code=503,
                 content={

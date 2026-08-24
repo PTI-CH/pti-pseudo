@@ -55,9 +55,14 @@ export ENV DATABASE_URL VAULT_MASTER_KEY RELAY_SECRET
 export CRM_BASE_URL HUB_BASE_URL HUB_APP_KEY PUBLIC_BASE_URL
 export SPACY_MODEL LLM_PROVIDER MAX_UPLOAD_BYTES SYNC_THRESHOLD_BYTES
 export HUB_AUTH DEV_ROLE PSEUDONYM_TEMPLATE
-# Phase 3. Steht schon hier, damit der Schluessel wirkt, sobald er im Panel
-# gesetzt wird — `LLM_PROVIDER` allein nuetzt nichts, wenn der Schluessel dazu
-# den Prozess nie erreicht. `export` fuer eine ungesetzte Variable ist
-# folgenlos (siehe oben), diese Zeile kostet also nichts, solange Phase 3 nicht
-# aktiv ist.
-export INFOMANIAK_AI_KEY
+# Phase 3. Steht schon hier, damit die Werte wirken, sobald sie im Panel
+# gesetzt werden — `LLM_PROVIDER` allein nuetzt nichts, wenn Schluessel und
+# Produkt-Id den Prozess nie erreichen. `export` fuer eine ungesetzte Variable
+# ist folgenlos (siehe oben), diese Zeile kostet also nichts, solange Phase 3
+# nicht aktiv ist.
+#
+# INFOMANIAK_AI_PRODUCT_ID ist kein Beiwerk: Sie steht im *Pfad* der Anfrage
+# ({base}/2/ai/{produkt}/openai/v1/chat/completions). Ohne sie laesst sich der
+# Dienst nicht adressieren, auch mit gueltigem Token nicht.
+export INFOMANIAK_AI_KEY INFOMANIAK_AI_PRODUCT_ID
+export INFOMANIAK_AI_BASE INFOMANIAK_AI_MODELL

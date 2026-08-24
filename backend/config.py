@@ -74,7 +74,23 @@ class Settings(BaseSettings):
     # Muss zum Modell-Wheel in pti-requirements.txt passen.
     spacy_model: str = "de_core_news_md"
     llm_provider: str = "none"
+
+    # ── KI-Schicht (Phase 3, Variante C: Infomaniak AI Tools) ──────────────
+    # Noch wertet kein Code diese Einstellungen aus. Sie stehen hier, damit
+    # der Schluessel einen dokumentierten Platz hat und die Namen zu
+    # `pti-rag` passen — dort laeuft die Anbindung bereits, und zwei
+    # Schreibweisen fuer dieselbe Sache waeren beim Uebertragen die erste
+    # Fehlerquelle.
+    #
+    # WICHTIG: Der Schluessel allein genuegt nicht. Die Produkt-Id steht im
+    # **Pfad** der Anfrage:
+    #     {base}/2/ai/{product_id}/openai/v1/chat/completions
+    # Ohne sie laesst sich der Dienst nicht einmal adressieren; der Bearer-
+    # Token authentisiert nur.
     infomaniak_ai_key: str | None = None
+    infomaniak_ai_product_id: str = ""
+    infomaniak_ai_base: str = "https://api.infomaniak.com"
+    infomaniak_ai_modell: str = "swiss-ai/Apertus-v1.5-70B"
 
     # ── Grenzen ────────────────────────────────────────────────────────────
     # Muss zu client_max_body_size im NGINX des Knotens passen.

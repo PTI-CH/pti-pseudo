@@ -1,0 +1,2942 @@
+{
+  "sicher": [
+    {
+      "term": "Agentur der Europäischen Union für die Zusammenarbeit auf dem Gebiet der Strafverfolgung",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "normalized",
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ]
+    },
+    {
+      "term": "Arbeitsgemeinschaft der Chefs der Verkehrspolizeien der Schweiz und des Fürstentums Liechtenstein",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "normalized",
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ]
+    },
+    {
+      "term": "Arbeitsgruppe ABI",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "normalized",
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ]
+    },
+    {
+      "term": "Aussenpolitische Kommission",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "normalized",
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ]
+    },
+    {
+      "term": "Bundesamt für Ausländerfragen",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "normalized",
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ]
+    },
+    {
+      "term": "Bundesamt für Bauten und Logistik",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "normalized",
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ]
+    },
+    {
+      "term": "Bundesamt für Bevölkerungsschutz",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "normalized",
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ]
+    },
+    {
+      "term": "Bundesamt für Cybersicherheit",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "normalized",
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ]
+    },
+    {
+      "term": "Bundesamt für Flüchtlinge",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "normalized",
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ]
+    },
+    {
+      "term": "Bundesamt für Gesundheit",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "normalized",
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ]
+    },
+    {
+      "term": "Bundesamt für Informatik und Telekommunikation",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "normalized",
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ]
+    },
+    {
+      "term": "Bundesamt für Justiz",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "normalized",
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ]
+    },
+    {
+      "term": "Bundesamt für Kampftruppen",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "normalized",
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ]
+    },
+    {
+      "term": "Bundesamt für Kommunikation",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "normalized",
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ]
+    },
+    {
+      "term": "Bundesamt für Logistiktruppen",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "normalized",
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ]
+    },
+    {
+      "term": "Bundesamt für Migration",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "normalized",
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ]
+    },
+    {
+      "term": "Bundesamt für Polizei",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "normalized",
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ]
+    },
+    {
+      "term": "Bundesamt für Rüstung",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "normalized",
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ]
+    },
+    {
+      "term": "Bundesamt für Statistik",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "normalized",
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ]
+    },
+    {
+      "term": "Bundesamt für Strassen",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "normalized",
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ]
+    },
+    {
+      "term": "Bundesamt für Umwelt, Wald und Landschaft",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "normalized",
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ]
+    },
+    {
+      "term": "Bundesamt für Unterstützungstruppen",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "normalized",
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ]
+    },
+    {
+      "term": "Bundesamt für Verkehr",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "normalized",
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ]
+    },
+    {
+      "term": "Bundesamt für Waffensysteme und Munition",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "normalized",
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ]
+    },
+    {
+      "term": "Bundesamt für Zivilluftfahrt",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "normalized",
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ]
+    },
+    {
+      "term": "Bundesamt für Zoll und Grenzsicherheit",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "normalized",
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ]
+    },
+    {
+      "term": "Bundesamt für Übermittlungstruppen",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "normalized",
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ]
+    },
+    {
+      "term": "Büro der Vereinten Nationen für Drogen- und Verbrechensbekämpfung",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "normalized",
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ]
+    },
+    {
+      "term": "Datenschutzbeauftragte(r) Organisation",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "normalized",
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ]
+    },
+    {
+      "term": "Dienst Überwachung Post- und Fernmeldeverkehr",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "normalized",
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ]
+    },
+    {
+      "term": "Digitale Verwaltung Schweiz",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "normalized",
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ]
+    },
+    {
+      "term": "Direktion für Entwicklung und Zusammenarbeit",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "normalized",
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ]
+    },
+    {
+      "term": "Eidg. Kommunikationskommission",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "normalized",
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ]
+    },
+    {
+      "term": "Eidgenössische Departement für Verteidigung, Bevölkerungsschutz und Sport",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "normalized",
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ]
+    },
+    {
+      "term": "Eidgenössische Finanzkontrolle",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "normalized",
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ]
+    },
+    {
+      "term": "Eidgenössische Finanzverwaltung",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "normalized",
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ]
+    },
+    {
+      "term": "Eidgenössische Kommission für AC-Schutz",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "normalized",
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ]
+    },
+    {
+      "term": "Eidgenössische Zollverwaltung",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "normalized",
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ]
+    },
+    {
+      "term": "Eidgenössisches Amt für das Zivilstandswesen",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "normalized",
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ]
+    },
+    {
+      "term": "Eidgenössisches Departement für auswärtige Angelegenheiten",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "normalized",
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ]
+    },
+    {
+      "term": "Eidgenössisches Departement für Umwelt, Verkehr, Energie und Kommunikation",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "normalized",
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ]
+    },
+    {
+      "term": "Eidgenössisches Finanzdepartement",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "normalized",
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ]
+    },
+    {
+      "term": "elektronische Geschäftsverwaltung",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "normalized",
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ]
+    },
+    {
+      "term": "Europäische Union",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "normalized",
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ]
+    },
+    {
+      "term": "Europäischer Gerichtshof",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "normalized",
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ]
+    },
+    {
+      "term": "Forensisches Institut Zürich",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "normalized",
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ]
+    },
+    {
+      "term": "Gruppe Rüstung",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "normalized",
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ]
+    },
+    {
+      "term": "Informatikdienst des Kantons Neuenburg",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "normalized",
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ]
+    },
+    {
+      "term": "Informatikkonferenz Bund",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "normalized",
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ]
+    },
+    {
+      "term": "Information Catastrophe Alarme Radio Organisation",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "normalized",
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ]
+    },
+    {
+      "term": "Institut für Rechtsmedizin",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "normalized",
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ]
+    },
+    {
+      "term": "Interkantonale Kommission für den Strassenverkehr",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "normalized",
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ]
+    },
+    {
+      "term": "Interkantonale Polizeischule Hitzkirch",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "normalized",
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ]
+    },
+    {
+      "term": "Internationale Organisation für Normung",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "normalized",
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ]
+    },
+    {
+      "term": "Internationale Zivilluftfahrt-Organisation",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "normalized",
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ]
+    },
+    {
+      "term": "Interverband für Rettungswesen",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "normalized",
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ]
+    },
+    {
+      "term": "Kantonaler Nachrichtendienst",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "normalized",
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ]
+    },
+    {
+      "term": "Kantonspolizei Aargau",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "normalized",
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ]
+    },
+    {
+      "term": "Kantonspolizei Appenzell Ausserrhoden",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "normalized",
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ]
+    },
+    {
+      "term": "Kantonspolizei Appenzell Innerrhoden",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "normalized",
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ]
+    },
+    {
+      "term": "Kantonspolizei Basel-Stadt",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "normalized",
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ]
+    },
+    {
+      "term": "Kantonspolizei Bern",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "normalized",
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ]
+    },
+    {
+      "term": "Kantonspolizei Freiburg",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "normalized",
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ]
+    },
+    {
+      "term": "Kantonspolizei Genf",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "normalized",
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ]
+    },
+    {
+      "term": "Kantonspolizei Glarus",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "normalized",
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ]
+    },
+    {
+      "term": "Kantonspolizei Graubünden",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "normalized",
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ]
+    },
+    {
+      "term": "Kantonspolizei Jura",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "normalized",
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ]
+    },
+    {
+      "term": "Kantonspolizei Neuenburg",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "normalized",
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ]
+    },
+    {
+      "term": "Kantonspolizei Nidwalden",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "normalized",
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ]
+    },
+    {
+      "term": "Kantonspolizei Obwalden",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "normalized",
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ]
+    },
+    {
+      "term": "Kantonspolizei Schwyz",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "normalized",
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ]
+    },
+    {
+      "term": "Kantonspolizei St. Gallen",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "normalized",
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ]
+    },
+    {
+      "term": "Kantonspolizei Tessin",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "normalized",
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ]
+    },
+    {
+      "term": "Kantonspolizei Thurgau",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "normalized",
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ]
+    },
+    {
+      "term": "Kantonspolizei Uri",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "normalized",
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ]
+    },
+    {
+      "term": "Kantonspolizei Waadt",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "normalized",
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ]
+    },
+    {
+      "term": "Kantonspolizei Wallis",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "normalized",
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ]
+    },
+    {
+      "term": "Kantonspolizei Zürich",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "normalized",
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ]
+    },
+    {
+      "term": "Kommission für Internationale Angelegenheiten",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "normalized",
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ]
+    },
+    {
+      "term": "Konferenz der kantonalen Direktoren des öffentlichen Verkehrs",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "normalized",
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ]
+    },
+    {
+      "term": "Konferenz der kantonalen Finanzdirektorinnen und Finanzdirektoren",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "normalized",
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ]
+    },
+    {
+      "term": "Konferenz der Kantonalen Justiz- und Polizeidirektorinnen und -direktoren",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "normalized",
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ]
+    },
+    {
+      "term": "Konferenz der Kantonalen Polizeikommandantinnen und -kommandanten der Schweiz",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "normalized",
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ]
+    },
+    {
+      "term": "Konferenz der kantonalen Sozialdirektorinnen und Sozialdirektoren",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "normalized",
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ]
+    },
+    {
+      "term": "Konferenz der kantonalen Verantwortlichen für Militär, Bevölkerungsschutz und Zivilschutz",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "normalized",
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ]
+    },
+    {
+      "term": "Konferenz der Kantonsregierungen",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "normalized",
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ]
+    },
+    {
+      "term": "Konferenz der lateinischen Justiz- und Polizeidirektorinnen und -direktoren",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "normalized",
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ]
+    },
+    {
+      "term": "Konferenz der schweizerischen Datenschutzbeauftragten",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "normalized",
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ]
+    },
+    {
+      "term": "Konferenz der Städtischen Polizeidirektorinnen und Polizeidirektoren",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "normalized",
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ]
+    },
+    {
+      "term": "Konferenz der Städtischen Sicherheitsdirektorinnen und -direktoren",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "normalized",
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ]
+    },
+    {
+      "term": "Konferenz für Kindes- und Erwachsenenschutz",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "normalized",
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ]
+    },
+    {
+      "term": "Konferenz Kantonaler Energiedirektoren",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "normalized",
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ]
+    },
+    {
+      "term": "Konsultative Sicherheitskommission",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "normalized",
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ]
+    },
+    {
+      "term": "Koordinationsstelle Identitäts- und Legitimationsausweise",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "normalized",
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ]
+    },
+    {
+      "term": "Kriminaltechnischer Dienst",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "normalized",
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ]
+    },
+    {
+      "term": "Luzerner Polizei",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "normalized",
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ]
+    },
+    {
+      "term": "Meldestelle für Geldwäscherei",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "normalized",
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ]
+    },
+    {
+      "term": "Nachrichtendienst des Bundes",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "normalized",
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ]
+    },
+    {
+      "term": "Nationale Alarmzentrale",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "normalized",
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ]
+    },
+    {
+      "term": "Nationale Alarmzentrale und Ereignisbewältigung",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "normalized",
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ]
+    },
+    {
+      "term": "Nationale Bildungsplattform Polizei",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "normalized",
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ]
+    },
+    {
+      "term": "nationale Schnittstelle",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "normalized",
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ]
+    },
+    {
+      "term": "Nationales Zentralbüro Interpol",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "normalized",
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ]
+    },
+    {
+      "term": "Organisation der Vereinten Nationen",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "normalized",
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ]
+    },
+    {
+      "term": "Organisation für Sicherheit und Zusammenarbeit in Europa",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "normalized",
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ]
+    },
+    {
+      "term": "Polizei Basel-Landschaft",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "normalized",
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ]
+    },
+    {
+      "term": "Polizei Kanton Solothurn",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "normalized",
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ]
+    },
+    {
+      "term": "Polizei- und Zollkooperationszentren",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "normalized",
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ]
+    },
+    {
+      "term": "Regierungskonferenz Militär, Zivilschutz, Feuerwehr",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "normalized",
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ]
+    },
+    {
+      "term": "Schaffhauser Polizei",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "normalized",
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ]
+    },
+    {
+      "term": "Schweizer Polizei Informatik Kongress",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "normalized",
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ]
+    },
+    {
+      "term": "Schweizerische Akkreditierungsstelle",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "normalized",
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ]
+    },
+    {
+      "term": "Schweizerische Informatikkonferenz",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "normalized",
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ]
+    },
+    {
+      "term": "Schweizerische Konferenz der kantonalen Gesundheitsdirektorinnen und -direktoren",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "normalized",
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ]
+    },
+    {
+      "term": "Schweizerische Staatsanwaltschaftskonferenz",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "normalized",
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ]
+    },
+    {
+      "term": "Schweizerische Vereinigung Städtischer Polizeichefs",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "normalized",
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ]
+    },
+    {
+      "term": "Schweizerischer Feuerwehrverband",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "normalized",
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ]
+    },
+    {
+      "term": "Schweizerischer Verband der Einwohnerkontrollen",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "normalized",
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ]
+    },
+    {
+      "term": "Schweizerisches Polizei-Institut",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "normalized",
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ]
+    },
+    {
+      "term": "Sicherheitspolitische Kommission des Nationalrates",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "normalized",
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ]
+    },
+    {
+      "term": "Staatssekretariat für Migration",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "normalized",
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ]
+    },
+    {
+      "term": "Staatssekretariat für Sicherheitspolitik",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "normalized",
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ]
+    },
+    {
+      "term": "Stadtpolizei Zürich",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "normalized",
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ]
+    },
+    {
+      "term": "Strategischer Nachrichtendienst",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "normalized",
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ]
+    },
+    {
+      "term": "Untergruppe Führungsunterstützung",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "normalized",
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ]
+    },
+    {
+      "term": "Untergruppe Nachrichtendienst",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "normalized",
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ]
+    },
+    {
+      "term": "Verband Schweizerischer Polizei-Beamter",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "normalized",
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ]
+    },
+    {
+      "term": "Vereinigung der Schweizerischen Kriminalpolizeichefs",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "normalized",
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ]
+    },
+    {
+      "term": "Vereinigung der Strassenverkehrsämter",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "normalized",
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ]
+    },
+    {
+      "term": "Zentrale Ausgleichsstelle",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "normalized",
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ]
+    },
+    {
+      "term": "Zentralschweizer Regierungskonferenz",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "normalized",
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ]
+    },
+    {
+      "term": "Zuger Polizei",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "normalized",
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ]
+    }
+  ],
+  "zu_pruefen": [
+    {
+      "term": "Arbeitsgemeinschaft",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "normalized",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Gattungsbezeichnung ohne Qualifikator — kommt auch als gewoehnliches Substantiv vor."
+    },
+    {
+      "term": "Bundesanwaltschaft",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "normalized",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Gattungsbezeichnung ohne Qualifikator — kommt auch als gewoehnliches Substantiv vor."
+    },
+    {
+      "term": "Bundeskanzlei",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "normalized",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Gattungsbezeichnung ohne Qualifikator — kommt auch als gewoehnliches Substantiv vor."
+    },
+    {
+      "term": "Bundeskriminalamt",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "normalized",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Gattungsbezeichnung ohne Qualifikator — kommt auch als gewoehnliches Substantiv vor."
+    },
+    {
+      "term": "Bundeskriminalpolizei",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "normalized",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Gattungsbezeichnung ohne Qualifikator — kommt auch als gewoehnliches Substantiv vor."
+    },
+    {
+      "term": "Bundeslagezentrum",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "normalized",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Gattungsbezeichnung ohne Qualifikator — kommt auch als gewoehnliches Substantiv vor."
+    },
+    {
+      "term": "Bundessicherheitsdienst",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "normalized",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Gattungsbezeichnung ohne Qualifikator — kommt auch als gewoehnliches Substantiv vor."
+    },
+    {
+      "term": "Bundesverwaltung",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "normalized",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Gattungsbezeichnung ohne Qualifikator — kommt auch als gewoehnliches Substantiv vor."
+    },
+    {
+      "term": "Einsatzzentrale",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "normalized",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Gattungsbezeichnung ohne Qualifikator — kommt auch als gewoehnliches Substantiv vor."
+    },
+    {
+      "term": "Erkennungsdienst",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "normalized",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Gattungsbezeichnung ohne Qualifikator — kommt auch als gewoehnliches Substantiv vor."
+    },
+    {
+      "term": "Fachgruppe",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "normalized",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Gattungsbezeichnung ohne Qualifikator — kommt auch als gewoehnliches Substantiv vor."
+    },
+    {
+      "term": "Generalsekretariat",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "normalized",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Gattungsbezeichnung ohne Qualifikator — kommt auch als gewoehnliches Substantiv vor."
+    },
+    {
+      "term": "Geschäftsprüfungskommission",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "normalized",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Gattungsbezeichnung ohne Qualifikator — kommt auch als gewoehnliches Substantiv vor."
+    },
+    {
+      "term": "Geschäftsstelle",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "normalized",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Gattungsbezeichnung ohne Qualifikator — kommt auch als gewoehnliches Substantiv vor."
+    },
+    {
+      "term": "Informationszentrale",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "normalized",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Gattungsbezeichnung ohne Qualifikator — kommt auch als gewoehnliches Substantiv vor."
+    },
+    {
+      "term": "Kantonspolizei",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "normalized",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Gattungsbezeichnung ohne Qualifikator — kommt auch als gewoehnliches Substantiv vor."
+    },
+    {
+      "term": "Kommunalpolizei",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "normalized",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Gattungsbezeichnung ohne Qualifikator — kommt auch als gewoehnliches Substantiv vor."
+    },
+    {
+      "term": "Nutzergruppe",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "normalized",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Gattungsbezeichnung ohne Qualifikator — kommt auch als gewoehnliches Substantiv vor."
+    },
+    {
+      "term": "Ordnungsdienst",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "normalized",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Gattungsbezeichnung ohne Qualifikator — kommt auch als gewoehnliches Substantiv vor."
+    },
+    {
+      "term": "Projektorganisation",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "normalized",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Gattungsbezeichnung ohne Qualifikator — kommt auch als gewoehnliches Substantiv vor."
+    },
+    {
+      "term": "Regierungskonferenz",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "normalized",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Gattungsbezeichnung ohne Qualifikator — kommt auch als gewoehnliches Substantiv vor."
+    },
+    {
+      "term": "Regierungsrat",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "normalized",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Gattungsbezeichnung ohne Qualifikator — kommt auch als gewoehnliches Substantiv vor."
+    },
+    {
+      "term": "Selbstregulierungsorganisation",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "normalized",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Gattungsbezeichnung ohne Qualifikator — kommt auch als gewoehnliches Substantiv vor."
+    },
+    {
+      "term": "Stadtpolizei",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "normalized",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Gattungsbezeichnung ohne Qualifikator — kommt auch als gewoehnliches Substantiv vor."
+    },
+    {
+      "term": "Telefonkontrolle",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "normalized",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Gattungsbezeichnung ohne Qualifikator — kommt auch als gewoehnliches Substantiv vor."
+    },
+    {
+      "term": "Verkehrsmanagementzentrale",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "normalized",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Gattungsbezeichnung ohne Qualifikator — kommt auch als gewoehnliches Substantiv vor."
+    },
+    {
+      "term": "Welthandelsorganisation",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "normalized",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Gattungsbezeichnung ohne Qualifikator — kommt auch als gewoehnliches Substantiv vor."
+    },
+    {
+      "term": "Zwangsmassnahmengericht",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "normalized",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Gattungsbezeichnung ohne Qualifikator — kommt auch als gewoehnliches Substantiv vor."
+    },
+    {
+      "term": "ACVS",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "exact",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Abkuerzung von 'Arbeitsgemeinschaft der Chefs der Verkehrspolizeien der Schweiz und des Fürstentums Liechtenstein'"
+    },
+    {
+      "term": "APK",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "exact",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Abkuerzung von 'Aussenpolitische Kommission'"
+    },
+    {
+      "term": "ARGE",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "exact",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Abkuerzung von 'Arbeitsgemeinschaft'"
+    },
+    {
+      "term": "ARGE ABI",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "exact",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Abkuerzung von 'Arbeitsgruppe ABI'"
+    },
+    {
+      "term": "armasuisse",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "exact",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Abkuerzung von 'Bundesamt für Rüstung'"
+    },
+    {
+      "term": "asa",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "exact",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Abkuerzung von 'Vereinigung der Strassenverkehrsämter'"
+    },
+    {
+      "term": "ASTRA",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "exact",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Abkuerzung von 'Bundesamt für Strassen'"
+    },
+    {
+      "term": "BA",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "exact",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Abkuerzung von 'Bundesanwaltschaft'"
+    },
+    {
+      "term": "BABS",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "exact",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Abkuerzung von 'Bundesamt für Bevölkerungsschutz'"
+    },
+    {
+      "term": "BACS",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "exact",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Abkuerzung von 'Bundesamt für Cybersicherheit'"
+    },
+    {
+      "term": "BAG",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "exact",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Abkuerzung von 'Bundesamt für Gesundheit'"
+    },
+    {
+      "term": "BAKOM",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "exact",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Abkuerzung von 'Bundesamt für Kommunikation'"
+    },
+    {
+      "term": "BAKT",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "exact",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Abkuerzung von 'Bundesamt für Kampftruppen'"
+    },
+    {
+      "term": "BALOG",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "exact",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Abkuerzung von 'Bundesamt für Logistiktruppen'"
+    },
+    {
+      "term": "BAUEM",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "exact",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Abkuerzung von 'Bundesamt für Übermittlungstruppen'"
+    },
+    {
+      "term": "BAUT",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "exact",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Abkuerzung von 'Bundesamt für Unterstützungstruppen'"
+    },
+    {
+      "term": "BAV",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "exact",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Abkuerzung von 'Bundesamt für Verkehr'"
+    },
+    {
+      "term": "BAZG",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "exact",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Abkuerzung von 'Bundesamt für Zoll und Grenzsicherheit'"
+    },
+    {
+      "term": "BAZL",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "exact",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Abkuerzung von 'Bundesamt für Zivilluftfahrt'"
+    },
+    {
+      "term": "BBL",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "exact",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Abkuerzung von 'Bundesamt für Bauten und Logistik'"
+    },
+    {
+      "term": "BFA",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "exact",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Abkuerzung von 'Bundesamt für Ausländerfragen'"
+    },
+    {
+      "term": "BFF",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "exact",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Abkuerzung von 'Bundesamt für Flüchtlinge'"
+    },
+    {
+      "term": "BFM",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "exact",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Abkuerzung von 'Bundesamt für Migration'"
+    },
+    {
+      "term": "BFS",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "exact",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Abkuerzung von 'Bundesamt für Statistik'"
+    },
+    {
+      "term": "BIT",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "exact",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Abkuerzung von 'Bundesamt für Informatik und Telekommunikation'"
+    },
+    {
+      "term": "BJ",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "exact",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Abkuerzung von 'Bundesamt für Justiz'"
+    },
+    {
+      "term": "BK",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "exact",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Abkuerzung von 'Bundeskanzlei'"
+    },
+    {
+      "term": "BKA",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "exact",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Abkuerzung von 'Bundeskriminalamt'"
+    },
+    {
+      "term": "BKP",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "exact",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Abkuerzung von 'Bundeskriminalpolizei'"
+    },
+    {
+      "term": "BLZ",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "exact",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Abkuerzung von 'Bundeslagezentrum'"
+    },
+    {
+      "term": "BSD",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "exact",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Abkuerzung von 'Bundessicherheitsdienst'"
+    },
+    {
+      "term": "BUWAL",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "exact",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Abkuerzung von 'Bundesamt für Umwelt, Wald und Landschaft'"
+    },
+    {
+      "term": "BVerw",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "exact",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Abkuerzung von 'Bundesverwaltung'"
+    },
+    {
+      "term": "BWM",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "exact",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Abkuerzung von 'Bundesamt für Waffensysteme und Munition'"
+    },
+    {
+      "term": "CCPD",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "exact",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Abkuerzung von 'Polizei- und Zollkooperationszentren'"
+    },
+    {
+      "term": "CLDJP",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "exact",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Abkuerzung von 'Konferenz der lateinischen Justiz- und Polizeidirektorinnen und -direktoren'"
+    },
+    {
+      "term": "ComCom",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "exact",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Abkuerzung von 'Eidg. Kommunikationskommission'"
+    },
+    {
+      "term": "DEZA",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "exact",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Abkuerzung von 'Direktion für Entwicklung und Zusammenarbeit'"
+    },
+    {
+      "term": "Dienst ÜPF",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "exact",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Abkuerzung von 'Dienst Überwachung Post- und Fernmeldeverkehr'"
+    },
+    {
+      "term": "DSBO",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "exact",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Abkuerzung von 'Datenschutzbeauftragte(r) Organisation'"
+    },
+    {
+      "term": "DVS",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "exact",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Abkuerzung von 'Digitale Verwaltung Schweiz'"
+    },
+    {
+      "term": "EAZW",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "exact",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Abkuerzung von 'Eidgenössisches Amt für das Zivilstandswesen'"
+    },
+    {
+      "term": "ED",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "exact",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Abkuerzung von 'Erkennungsdienst'"
+    },
+    {
+      "term": "EDA",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "exact",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Abkuerzung von 'Eidgenössisches Departement für auswärtige Angelegenheiten'"
+    },
+    {
+      "term": "EFD",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "exact",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Abkuerzung von 'Eidgenössisches Finanzdepartement'"
+    },
+    {
+      "term": "EFK",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "exact",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Abkuerzung von 'Eidgenössische Finanzkontrolle'"
+    },
+    {
+      "term": "EFV",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "exact",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Abkuerzung von 'Eidgenössische Finanzverwaltung'"
+    },
+    {
+      "term": "EnDK",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "exact",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Abkuerzung von 'Konferenz Kantonaler Energiedirektoren'"
+    },
+    {
+      "term": "EU",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "exact",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Abkuerzung von 'Europäische Union'"
+    },
+    {
+      "term": "EuGH",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "exact",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Abkuerzung von 'Europäischer Gerichtshof'"
+    },
+    {
+      "term": "Europol",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "exact",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Abkuerzung von 'Agentur der Europäischen Union für die Zusammenarbeit auf dem Gebiet der Strafverfolgung'"
+    },
+    {
+      "term": "EZ",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "exact",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Abkuerzung von 'Einsatzzentrale'"
+    },
+    {
+      "term": "EZV",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "exact",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Abkuerzung von 'Eidgenössische Zollverwaltung'"
+    },
+    {
+      "term": "FDK",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "exact",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Abkuerzung von 'Konferenz der kantonalen Finanzdirektorinnen und Finanzdirektoren'"
+    },
+    {
+      "term": "fedpol",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "exact",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Abkuerzung von 'Bundesamt für Polizei'"
+    },
+    {
+      "term": "FG",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "exact",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Abkuerzung von 'Fachgruppe'"
+    },
+    {
+      "term": "FOR",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "exact",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Abkuerzung von 'Forensisches Institut Zürich'"
+    },
+    {
+      "term": "GDK",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "exact",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Abkuerzung von 'Schweizerische Konferenz der kantonalen Gesundheitsdirektorinnen und -direktoren'"
+    },
+    {
+      "term": "GEVER",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "exact",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Abkuerzung von 'elektronische Geschäftsverwaltung'"
+    },
+    {
+      "term": "GPK",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "exact",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Abkuerzung von 'Geschäftsprüfungskommission'"
+    },
+    {
+      "term": "GR",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "exact",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Abkuerzung von 'Gruppe Rüstung'"
+    },
+    {
+      "term": "GS",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "exact",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Abkuerzung von 'Generalsekretariat'"
+    },
+    {
+      "term": "Gst",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "exact",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Abkuerzung von 'Geschäftsstelle'"
+    },
+    {
+      "term": "ICAO",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "exact",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Abkuerzung von 'Internationale Zivilluftfahrt-Organisation'"
+    },
+    {
+      "term": "ICARO",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "exact",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Abkuerzung von 'Information Catastrophe Alarme Radio Organisation'"
+    },
+    {
+      "term": "IKB",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "exact",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Abkuerzung von 'Informatikkonferenz Bund'"
+    },
+    {
+      "term": "IKST",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "exact",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Abkuerzung von 'Interkantonale Kommission für den Strassenverkehr'"
+    },
+    {
+      "term": "IPH",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "exact",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Abkuerzung von 'Interkantonale Polizeischule Hitzkirch'"
+    },
+    {
+      "term": "IRM",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "exact",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Abkuerzung von 'Institut für Rechtsmedizin'"
+    },
+    {
+      "term": "ISO",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "exact",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Abkuerzung von 'Internationale Organisation für Normung'"
+    },
+    {
+      "term": "IVR",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "exact",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Abkuerzung von 'Interverband für Rettungswesen'"
+    },
+    {
+      "term": "IZ",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "exact",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Abkuerzung von 'Informationszentrale'"
+    },
+    {
+      "term": "Kapo",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "exact",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Abkuerzung von 'Kantonspolizei'"
+    },
+    {
+      "term": "Kapo AG",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "exact",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Abkuerzung von 'Kantonspolizei Aargau'"
+    },
+    {
+      "term": "Kapo AI",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "exact",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Abkuerzung von 'Kantonspolizei Appenzell Innerrhoden'"
+    },
+    {
+      "term": "Kapo AR",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "exact",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Abkuerzung von 'Kantonspolizei Appenzell Ausserrhoden'"
+    },
+    {
+      "term": "Kapo BE",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "exact",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Abkuerzung von 'Kantonspolizei Bern'"
+    },
+    {
+      "term": "Kapo BL",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "exact",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Abkuerzung von 'Polizei Basel-Landschaft'"
+    },
+    {
+      "term": "Kapo BS",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "exact",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Abkuerzung von 'Kantonspolizei Basel-Stadt'"
+    },
+    {
+      "term": "Kapo FR",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "exact",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Abkuerzung von 'Kantonspolizei Freiburg'"
+    },
+    {
+      "term": "Kapo GE",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "exact",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Abkuerzung von 'Kantonspolizei Genf'"
+    },
+    {
+      "term": "Kapo GL",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "exact",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Abkuerzung von 'Kantonspolizei Glarus'"
+    },
+    {
+      "term": "Kapo GR",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "exact",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Abkuerzung von 'Kantonspolizei Graubünden'"
+    },
+    {
+      "term": "Kapo JU",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "exact",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Abkuerzung von 'Kantonspolizei Jura'"
+    },
+    {
+      "term": "Kapo NE",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "exact",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Abkuerzung von 'Kantonspolizei Neuenburg'"
+    },
+    {
+      "term": "Kapo NW",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "exact",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Abkuerzung von 'Kantonspolizei Nidwalden'"
+    },
+    {
+      "term": "Kapo OW",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "exact",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Abkuerzung von 'Kantonspolizei Obwalden'"
+    },
+    {
+      "term": "Kapo SG",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "exact",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Abkuerzung von 'Kantonspolizei St. Gallen'"
+    },
+    {
+      "term": "Kapo SO",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "exact",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Abkuerzung von 'Polizei Kanton Solothurn'"
+    },
+    {
+      "term": "Kapo SZ",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "exact",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Abkuerzung von 'Kantonspolizei Schwyz'"
+    },
+    {
+      "term": "Kapo TG",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "exact",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Abkuerzung von 'Kantonspolizei Thurgau'"
+    },
+    {
+      "term": "Kapo TI",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "exact",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Abkuerzung von 'Kantonspolizei Tessin'"
+    },
+    {
+      "term": "Kapo UR",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "exact",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Abkuerzung von 'Kantonspolizei Uri'"
+    },
+    {
+      "term": "Kapo VD",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "exact",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Abkuerzung von 'Kantonspolizei Waadt'"
+    },
+    {
+      "term": "Kapo VS",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "exact",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Abkuerzung von 'Kantonspolizei Wallis'"
+    },
+    {
+      "term": "Kapo ZH",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "exact",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Abkuerzung von 'Kantonspolizei Zürich'"
+    },
+    {
+      "term": "KdK",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "exact",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Abkuerzung von 'Konferenz der Kantonsregierungen'"
+    },
+    {
+      "term": "KIA",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "exact",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Abkuerzung von 'Kommission für Internationale Angelegenheiten'"
+    },
+    {
+      "term": "KILA",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "exact",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Abkuerzung von 'Koordinationsstelle Identitäts- und Legitimationsausweise'"
+    },
+    {
+      "term": "KKJPD",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "exact",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Abkuerzung von 'Konferenz der Kantonalen Justiz- und Polizeidirektorinnen und -direktoren'"
+    },
+    {
+      "term": "KKPKS",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "exact",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Abkuerzung von 'Konferenz der Kantonalen Polizeikommandantinnen und -kommandanten der Schweiz'"
+    },
+    {
+      "term": "KND",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "exact",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Abkuerzung von 'Kantonaler Nachrichtendienst'"
+    },
+    {
+      "term": "KOKES",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "exact",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Abkuerzung von 'Konferenz für Kindes- und Erwachsenenschutz'"
+    },
+    {
+      "term": "KOMAC",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "exact",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Abkuerzung von 'Eidgenössische Kommission für AC-Schutz'"
+    },
+    {
+      "term": "Kompol",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "exact",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Abkuerzung von 'Kommunalpolizei'"
+    },
+    {
+      "term": "KSK",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "exact",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Abkuerzung von 'Konsultative Sicherheitskommission'"
+    },
+    {
+      "term": "KSPD",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "exact",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Abkuerzung von 'Konferenz der Städtischen Polizeidirektorinnen und Polizeidirektoren'"
+    },
+    {
+      "term": "KSSD",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "exact",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Abkuerzung von 'Konferenz der Städtischen Sicherheitsdirektorinnen und -direktoren'"
+    },
+    {
+      "term": "KTD",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "exact",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Abkuerzung von 'Kriminaltechnischer Dienst'"
+    },
+    {
+      "term": "KVMBZ",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "exact",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Abkuerzung von 'Konferenz der kantonalen Verantwortlichen für Militär, Bevölkerungsschutz und Zivilschutz'"
+    },
+    {
+      "term": "KöV",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "exact",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Abkuerzung von 'Konferenz der kantonalen Direktoren des öffentlichen Verkehrs'"
+    },
+    {
+      "term": "LUPOL",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "exact",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Abkuerzung von 'Luzerner Polizei'"
+    },
+    {
+      "term": "MROS",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "exact",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Abkuerzung von 'Meldestelle für Geldwäscherei'"
+    },
+    {
+      "term": "N-VIS",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "exact",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Abkuerzung von 'nationale Schnittstelle'"
+    },
+    {
+      "term": "NAZ",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "exact",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Abkuerzung von 'Nationale Alarmzentrale'"
+    },
+    {
+      "term": "NBPP",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "exact",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Abkuerzung von 'Nationale Bildungsplattform Polizei'"
+    },
+    {
+      "term": "NDB",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "exact",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Abkuerzung von 'Nachrichtendienst des Bundes'"
+    },
+    {
+      "term": "NEOC",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "exact",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Abkuerzung von 'Nationale Alarmzentrale und Ereignisbewältigung'"
+    },
+    {
+      "term": "NG",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "exact",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Abkuerzung von 'Nutzergruppe'"
+    },
+    {
+      "term": "NZB",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "exact",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Abkuerzung von 'Nationales Zentralbüro Interpol'"
+    },
+    {
+      "term": "OD",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "exact",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Abkuerzung von 'Ordnungsdienst'"
+    },
+    {
+      "term": "OSZE",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "exact",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Abkuerzung von 'Organisation für Sicherheit und Zusammenarbeit in Europa'"
+    },
+    {
+      "term": "PO",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "exact",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Abkuerzung von 'Projektorganisation'"
+    },
+    {
+      "term": "privatim",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "exact",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Abkuerzung von 'Konferenz der schweizerischen Datenschutzbeauftragten'"
+    },
+    {
+      "term": "RK",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "exact",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Abkuerzung von 'Regierungskonferenz'"
+    },
+    {
+      "term": "RK MZF",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "exact",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Abkuerzung von 'Regierungskonferenz Militär, Zivilschutz, Feuerwehr'"
+    },
+    {
+      "term": "RR",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "exact",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Abkuerzung von 'Regierungsrat'"
+    },
+    {
+      "term": "SAS",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "exact",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Abkuerzung von 'Schweizerische Akkreditierungsstelle'"
+    },
+    {
+      "term": "SEM",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "exact",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Abkuerzung von 'Staatssekretariat für Migration'"
+    },
+    {
+      "term": "SEPOS",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "exact",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Abkuerzung von 'Staatssekretariat für Sicherheitspolitik'"
+    },
+    {
+      "term": "SFV",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "exact",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Abkuerzung von 'Schweizerischer Feuerwehrverband'"
+    },
+    {
+      "term": "SHPOL",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "exact",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Abkuerzung von 'Schaffhauser Polizei'"
+    },
+    {
+      "term": "SIEN",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "exact",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Abkuerzung von 'Informatikdienst des Kantons Neuenburg'"
+    },
+    {
+      "term": "SIK",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "exact",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Abkuerzung von 'Schweizerische Informatikkonferenz'"
+    },
+    {
+      "term": "SiK-N",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "exact",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Abkuerzung von 'Sicherheitspolitische Kommission des Nationalrates'"
+    },
+    {
+      "term": "SND",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "exact",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Abkuerzung von 'Strategischer Nachrichtendienst'"
+    },
+    {
+      "term": "SODK",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "exact",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Abkuerzung von 'Konferenz der kantonalen Sozialdirektorinnen und Sozialdirektoren'"
+    },
+    {
+      "term": "SPI",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "exact",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Abkuerzung von 'Schweizerisches Polizei-Institut'"
+    },
+    {
+      "term": "SPIK",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "exact",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Abkuerzung von 'Schweizer Polizei Informatik Kongress'"
+    },
+    {
+      "term": "SRO",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "exact",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Abkuerzung von 'Selbstregulierungsorganisation'"
+    },
+    {
+      "term": "SSK",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "exact",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Abkuerzung von 'Schweizerische Staatsanwaltschaftskonferenz'"
+    },
+    {
+      "term": "Stapo",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "exact",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Abkuerzung von 'Stadtpolizei'"
+    },
+    {
+      "term": "Stapo ZH",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "exact",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Abkuerzung von 'Stadtpolizei Zürich'"
+    },
+    {
+      "term": "SVEK",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "exact",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Abkuerzung von 'Schweizerischer Verband der Einwohnerkontrollen'"
+    },
+    {
+      "term": "SVSP",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "exact",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Abkuerzung von 'Schweizerische Vereinigung Städtischer Polizeichefs'"
+    },
+    {
+      "term": "TK",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "exact",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Abkuerzung von 'Telefonkontrolle'"
+    },
+    {
+      "term": "UG FU",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "exact",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Abkuerzung von 'Untergruppe Führungsunterstützung'"
+    },
+    {
+      "term": "UG ND",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "exact",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Abkuerzung von 'Untergruppe Nachrichtendienst'"
+    },
+    {
+      "term": "UNO",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "exact",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Abkuerzung von 'Organisation der Vereinten Nationen'"
+    },
+    {
+      "term": "UNODC",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "exact",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Abkuerzung von 'Büro der Vereinten Nationen für Drogen- und Verbrechensbekämpfung'"
+    },
+    {
+      "term": "UVEK",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "exact",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Abkuerzung von 'Eidgenössisches Departement für Umwelt, Verkehr, Energie und Kommunikation'"
+    },
+    {
+      "term": "VBS",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "exact",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Abkuerzung von 'Eidgenössische Departement für Verteidigung, Bevölkerungsschutz und Sport'"
+    },
+    {
+      "term": "VMZ",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "exact",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Abkuerzung von 'Verkehrsmanagementzentrale'"
+    },
+    {
+      "term": "VSKC",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "exact",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Abkuerzung von 'Vereinigung der Schweizerischen Kriminalpolizeichefs'"
+    },
+    {
+      "term": "VSPB",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "exact",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Abkuerzung von 'Verband Schweizerischer Polizei-Beamter'"
+    },
+    {
+      "term": "WTO",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "exact",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Abkuerzung von 'Welthandelsorganisation'"
+    },
+    {
+      "term": "ZAS",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "exact",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Abkuerzung von 'Zentrale Ausgleichsstelle'"
+    },
+    {
+      "term": "ZMG",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "exact",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Abkuerzung von 'Zwangsmassnahmengericht'"
+    },
+    {
+      "term": "ZRK",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "exact",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Abkuerzung von 'Zentralschweizer Regierungskonferenz'"
+    },
+    {
+      "term": "ZUPO",
+      "entity_type": "ORGANIZATION",
+      "match_mode": "exact",
+      "zu_pruefen": true,
+      "quellen": [
+        "pti-translator/PTI Glossar"
+      ],
+      "hinweis": "Abkuerzung von 'Zuger Polizei'"
+    }
+  ]
+}

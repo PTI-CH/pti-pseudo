@@ -23,7 +23,7 @@ from backend.core.api_key_auth import has_api_key
 from backend.core.deps import get_session, get_tenant
 from backend.core.hub_access_auth import is_admin
 from backend.engine import entities as ents
-from backend.vault.models import CustomTerm
+from backend.vault.models import CustomTerm, iso_utc
 
 router = APIRouter(tags=["terms"])
 
@@ -88,7 +88,7 @@ async def list_terms(
                 "label": ents.get_label(r.entity_type),
                 "match_mode": r.match_mode,
                 "replacement": r.replacement,
-                "created_at": r.created_at.isoformat(),
+                "created_at": iso_utc(r.created_at),
             }
             for r in rows
         ],

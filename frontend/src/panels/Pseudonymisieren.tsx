@@ -60,6 +60,16 @@ export default function Pseudonymisieren() {
    * „Anwenden“ drückt, schickte sonst eine Auswahl an die falsche Quelle.
    */
   const [laufQuelle, setLaufQuelle] = useState<Quelle>('text');
+  /**
+   * Der Modus, mit dem der aktuelle Befund entstand.
+   *
+   * Dieselbe Begründung wie bei `laufKategorien` und `laufQuelle`, und hier
+   * wiegt sie am schwersten: Wer nach dem Lauf von „umkehrbar“ auf „anonym“
+   * umschaltet und dann „Anwenden“ drückt, bekäme eine Ersetzung ohne Tresor —
+   * die geprüfte Fundliste sähe unverändert aus, aber die Rückführung wäre
+   * unmöglich geworden, ohne dass es jemand angeordnet hätte.
+   */
+  const [laufModus, setLaufModus] = useState<Modus>('umkehrbar');
   const [ausgewaehlt, setAusgewaehlt] = useState<Set<string>>(new Set());
 
   // Katalog beim Mount laden. Ohne Katalog gibt es keine sinnvolle Auswahl —
@@ -98,6 +108,7 @@ export default function Pseudonymisieren() {
     ursprung: string,
     kategorien: string[],
     quelleDesLaufs: Quelle,
+    modusDesLaufs: Modus,
   ): void {
     // Eine alte Blob-URL (Dateiergebnis) lebt nur im Browser-Speicher — wird
     // sie durch ein neues Ergebnis ersetzt, ohne dass sie je heruntergeladen
@@ -107,6 +118,7 @@ export default function Pseudonymisieren() {
     setQuellText(ursprung);
     setLaufKategorien(kategorien);
     setLaufQuelle(quelleDesLaufs);
+    setLaufModus(modusDesLaufs);
     setAusgewaehlt(new Set(e.befunde.map((b: Befund) => b.id)));
   }
 
@@ -117,10 +129,10 @@ export default function Pseudonymisieren() {
       const kategorienListe = Array.from(gewaehlteKategorien);
       if (quelle === 'datei' && datei) {
         const e = await anonymisiereDatei(datei, modus, kategorienListe);
-        uebernimmErgebnis(e, '', kategorienListe, 'datei');
+        uebernimmErgebnis(e, '', kategorienListe, 'datei', modus);
       } else {
         const e = await anonymisiereText(text, modus, kategorienListe);
-        uebernimmErgebnis(e, text, kategorienListe, 'text');
+        uebernimmErgebnis(e, text, kategorienListe, 'text', modus);
       }
     } catch (e) {
       // Ein fehlgeschlagener Lauf verwirft ein evtl. noch vorhandenes altes
@@ -159,12 +171,13 @@ export default function Pseudonymisieren() {
     setWendetAn(true);
     try {
       const auswahl = ergebnis.befunde.filter((b) => ausgewaehlt.has(b.id));
-      // Bewusst `laufKategorien` und nicht die aktuellen Checkboxen: der Befund
-      // stammt aus dem Lauf, die Ersetzung muss zu ihm passen.
+      // Bewusst `laufKategorien` und `laufModus` statt der aktuellen
+      // Bedienelemente: der Befund stammt aus dem Lauf, die Ersetzung muss zu
+      // ihm passen. Beide bleiben nach dem Lauf bedienbar.
       const neu =
         laufQuelle === 'datei' && datei
-          ? await anonymisiereDatei(datei, modus, laufKategorien, auswahl)
-          : await anonymisiereText(quellText, modus, laufKategorien, auswahl);
+          ? await anonymisiereDatei(datei, laufModus, laufKategorien, auswahl)
+          : await anonymisiereText(quellText, laufModus, laufKategorien, auswahl);
       // Die alte Blob-URL wird durch die neue ersetzt und muss vorher weg.
       gibErgebnisFrei(ergebnis);
       // Die Auswahl des Menschen bleibt bestehen; nur Ergebnis und Vault erneuern sich.
@@ -184,6 +197,7 @@ export default function Pseudonymisieren() {
     setQuellText('');
     setLaufKategorien([]);
     setLaufQuelle('text');
+    setLaufModus('umkehrbar');
     setAusgewaehlt(new Set());
     setFehler(null);
   }
@@ -355,7 +369,11 @@ export default function Pseudonymisieren() {
             downloadUrl={ergebnis.downloadUrl}
             dateiname={ergebnis.dateiname}
             fussnote={
-              modus === 'anonym'
+              // `laufModus`, nicht `modus`: die Fussnote beschreibt das Ergebnis,
+              // das hier steht. Sonst behauptet sie nach einem Umschalten der
+              // Radiobuttons „keine Zuordnung gespeichert“, während direkt
+              // darüber die Tresor-Kennung des Laufs angezeigt wird.
+              laufModus === 'anonym'
                 ? 'Modus „anonym“: Es wurde keine Zuordnung gespeichert. Dieses Ergebnis lässt sich nicht zurückführen.'
                 : undefined
             }

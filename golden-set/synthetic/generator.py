@@ -919,8 +919,110 @@ def _baue_begriffsliste() -> Testdokument:
     )
 
 
+#: Die ausgelieferte Behoerdenliste. Erzeugt von
+#: ``scripts/behoerden_aus_glossar.py`` aus dem Translator-Glossar.
+_BEHOERDEN_DATEI = _REPO_ROOT / "scripts" / "data" / "behoerden.json"
+
+
+def _behoerden_aus_datei() -> tuple[dict, ...]:
+    """Laedt die ``sicher``-Eintraege der ausgelieferten Behoerdenliste.
+
+    Bewusst aus der **echten Datei** und nicht aus einer Kopie im Testcode:
+    Geprueft werden soll, ob die Liste, die in Produktion importiert wird,
+    die Namen tatsaechlich abdeckt. Eine Kopie hier wuerde nur sich selbst
+    bestaetigen und stillschweigend gruen bleiben, wenn die Aufbereitung
+    einen Namen verliert.
+    """
+    if not _BEHOERDEN_DATEI.is_file():
+        raise FileNotFoundError(
+            f"{_BEHOERDEN_DATEI} fehlt. Erzeugen mit: "
+            "python scripts/behoerden_aus_glossar.py"
+        )
+    daten = json.loads(_BEHOERDEN_DATEI.read_text(encoding="utf-8"))
+    return tuple(daten["sicher"])
+
+
+def _baue_behoerdenliste() -> Testdokument:
+    """Prüft, ob die ausgelieferte Behördenliste im Fliesstext greift.
+
+    Das Schwesterdokument ``begriffsliste`` prüft, dass Ebene 0 überhaupt
+    wirkt — mit vier von Hand gesetzten Einträgen. Dieses hier prüft die
+    andere Hälfte: ob die **konkrete Liste**, die nach Produktion geht, die
+    Behördennamen enthält, an denen das Sprachmodell scheitert.
+
+    Deshalb kommen die Begriffe aus ``scripts/data/behoerden.json`` selbst.
+    Verliert die Aufbereitung einen Namen — etwa weil jemand die
+    Kopfnomen-Regel in ``scripts/behoerden_aus_glossar.py`` verschärft —,
+    wird dieses Dokument rot, statt dass es im Betrieb auffällt.
+
+    Die drei ``verboten``-Einträge sind die Gegenprobe zur Regel und wiegen
+    schwerer als die Treffer: ``Polizeigesetz``, ``Service Level Agreement``
+    und ``Polizei-Abfrageplattform`` tragen alle ein Behördenwort im Namen
+    und wurden trotzdem verworfen, weil ihr Kopfnomen ein Gesetz, einen
+    Fachbegriff und eine Plattform benennt. Stünde eines davon in der Liste,
+    erschiene es fortan in jedem Dokument als ``[[ORGANIZATION_n]]`` — das
+    Dokument wäre verfälscht, nicht geschützt. Genau dieser Fehler war in
+    einer früheren Fassung der Aufbereitung enthalten.
+    """
+    behoerde_bund = "Bundesamt für Polizei"
+    behoerde_kanton = "Kantonspolizei Freiburg"
+    behoerde_meldestelle = "Meldestelle für Geldwäscherei"
+
+    text = (
+        "Aktennotiz Rechtshilfe\n\n"
+        f"Das {behoerde_bund} hat die Anfrage an die {behoerde_kanton} "
+        "weitergeleitet. Eine Kopie ging an die "
+        f"{behoerde_meldestelle}.\n\n"
+        "Rechtsgrundlage ist das Polizeigesetz; die Fristen richten sich "
+        "nach dem dort geregelten Verfahren.\n\n"
+        "Der Zugriff erfolgt über die Polizei-Abfrageplattform. Für den "
+        "Betrieb gilt das vereinbarte Service Level Agreement.\n\n"
+        "Sachbearbeitung: Frau Beatrice Loosli."
+    )
+
+    erwartet = (
+        Erwartung(behoerde_bund, "ORGANIZATION"),
+        Erwartung(behoerde_kanton, "ORGANIZATION"),
+        Erwartung(behoerde_meldestelle, "ORGANIZATION"),
+        Erwartung("Beatrice Loosli", "PERSON"),
+    )
+
+    verboten = (
+        Erwartung(
+            "Polizeigesetz",
+            "ORGANIZATION",
+            "Kopfnomen ist ein Gesetz, keine Stelle — darf nicht in der Liste stehen",
+        ),
+        Erwartung(
+            "Service Level Agreement",
+            "ORGANIZATION",
+            "Fachbegriff aus dem Glossar, keine Organisation",
+        ),
+        Erwartung(
+            "Polizei-Abfrageplattform",
+            "ORGANIZATION",
+            "Kompositum mit Kopf 'Plattform' — ein System, keine Behoerde",
+        ),
+    )
+
+    return Testdokument(
+        name="behoerdenliste",
+        dateiname="behoerdenliste.txt",
+        beschreibung=(
+            "Ebene 0 mit der ausgelieferten Behoerdenliste: greifen die "
+            "Namen im Fliesstext, und bleiben Gesetz, Fachbegriff und "
+            "System aussen vor?"
+        ),
+        inhalt=text.encode("utf-8"),
+        erwartet=erwartet,
+        verboten=verboten,
+        begriffe=_behoerden_aus_datei(),
+    )
+
+
 DOKUMENTE: List[Testdokument] = [
     _baue_begriffsliste(),
+    _baue_behoerdenliste(),
     _baue_mehrere_runs(),
     _baue_struktur_pii(),
     _baue_fehlalarm_fallen(),

@@ -168,14 +168,25 @@ interface RohAntwort {
  * Wichtig: die entstehende URL lebt nur im Browser-Speicher. Wer sie ersetzt
  * oder das Panel zurücksetzt, muss sie per `URL.revokeObjectURL` freigeben —
  * das übernehmen die Panels, nicht dieser Client.
+ *
+ * Liefert `null`, wenn sich die Bytes nicht decodieren lassen. Das ist kein
+ * Übereifer: `atob` wirft bei abgeschnittenem oder verfälschtem Base64 einen
+ * `InvalidCharacterError`, und ungefangen risse der die ganze
+ * Antwort-Normalisierung mit. Verloren wäre dann auch der pseudonymisierte
+ * Text, der in derselben Antwort steht und völlig in Ordnung ist — der
+ * Download ist der kleinere Verlust.
  */
-function base64ZuBlobUrl(base64: string): string {
-  const binaer = atob(base64);
-  const bytes = new Uint8Array(binaer.length);
-  for (let i = 0; i < binaer.length; i += 1) {
-    bytes[i] = binaer.charCodeAt(i);
+function base64ZuBlobUrl(base64: string): string | null {
+  try {
+    const binaer = atob(base64);
+    const bytes = new Uint8Array(binaer.length);
+    for (let i = 0; i < binaer.length; i += 1) {
+      bytes[i] = binaer.charCodeAt(i);
+    }
+    return URL.createObjectURL(new Blob([bytes]));
+  } catch {
+    return null;
   }
-  return URL.createObjectURL(new Blob([bytes]));
 }
 
 function normalisiereBefunde(roh: unknown[]): Befund[] {
@@ -204,7 +215,11 @@ function normalisiereAntwort(roh: RohAntwort): Ergebnis {
     befunde: normalisiereBefunde(Array.isArray(befundeRoh) ? befundeRoh : []),
     angewendet: typeof roh.applied === 'number' ? roh.applied : null,
     vaultId: roh.vault_id ?? roh.mapping_id ?? null,
-    downloadUrl: roh.content_base64 ? base64ZuBlobUrl(roh.content_base64) : (roh.download_url ?? null),
+    // Scheitert das Decodieren, bleibt der Weg über eine `download_url` offen;
+    // gibt es auch die nicht, entfällt nur der Download-Knopf.
+    downloadUrl:
+      (roh.content_base64 ? base64ZuBlobUrl(roh.content_base64) : null) ??
+      (roh.download_url ?? null),
     dateiname: roh.filename ?? null,
   };
 }

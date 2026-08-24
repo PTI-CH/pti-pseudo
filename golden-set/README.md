@@ -55,6 +55,53 @@ stille Verschlechterung an einem anderen erkaufen.
 
 ---
 
+## Messstand vom 2026-08-24
+
+Nach dem neuen Dokument `behoerdenliste`, das die ausgelieferte Behoerdenliste
+(`scripts/data/behoerden.json`, 132 Eintraege) im Fliesstext prueft.
+9 → 10 Dokumente, 50 → 54 erwartete Funde:
+
+| | vorher | nachher |
+|---|---|---|
+| Gesamt-Precision | 94.1 % | **92.9 %** |
+| Gesamt-Recall | 96.0 % | **96.3 %** |
+| ORGANIZATION | 93.3 % Recall | 94.4 % / 94.4 % |
+| Struktur-PII | 100 % | 100 % |
+
+**Die Precision ist gesunken, und das ist richtig so.** Das neue Dokument
+enthaelt den Satz „Der Zugriff erfolgt ueber die Polizei-Abfrageplattform" —
+das Modell haelt `Polizei-Abfrageplattform` fuer einen **Ort**. Das ist ein
+dritter Fall der laengst bekannten Schwaeche 3 (Sachbegriffe als Entitaeten,
+neben `Kontrollschild` und `Fallnummer`), kein neuer Fehler und keine Folge der
+Behoerdenliste. Nach der Hausregel wird die Marke nicht nachgezogen: 92.9 %
+liegt weiter ueber der Zielmarke von 90 %, und ein schwieriger Fall, der eine
+echte Schwaeche zeigt, gehoert in den Satz.
+
+### Was dieses Dokument bewacht
+
+Die Begriffe kommen **aus der ausgelieferten Datei selbst**, nicht aus einer
+Kopie im Testcode. Verliert `scripts/behoerden_aus_glossar.py` einen Namen,
+wird das Dokument rot — statt dass es im Betrieb auffaellt.
+
+Schwerer als die drei Treffer wiegen die drei `verboten`-Eintraege:
+`Polizeigesetz`, `Service Level Agreement` und `Polizei-Abfrageplattform`
+tragen alle ein Behoerdenwort im Namen und duerfen trotzdem **nicht** in der
+Liste stehen. Ein Begriffslisten-Eintrag wird mit voller Konfidenz ersetzt und
+schlaegt jede Heuristik: stuende `Polizeigesetz` darin, erschiene es fortan in
+jedem Dokument als `[[ORGANIZATION_n]]` — das Dokument waere verfaelscht, nicht
+geschuetzt. Eine fruehere Fassung der Aufbereitung hatte genau diesen Fehler.
+
+### Was der Satz weiterhin NICHT misst
+
+Die meisten Dokumente bekommen **keine** Begriffsliste mit. `pti_protokoll`
+verfehlt deshalb `Meldestelle fuer Geldwaescherei` unveraendert — dort ist nur
+das Modell am Werk. In Produktion ist die Liste dagegen bei *jedem* Lauf
+geladen. Der Satz misst also die Erkennung **ohne** Ebene 0 und untertreibt
+damit die Qualitaet im Betrieb. Das ist eine bewusste Eigenschaft, aber eine,
+die man kennen muss, bevor man die Zahlen nach aussen zitiert.
+
+---
+
 ## Messstand vom 2026-08-19
 
 Nach Einfuehrung der Fund-Uebertragung (`pipeline.propagate_findings`) und dem

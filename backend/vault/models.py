@@ -80,6 +80,23 @@ def as_utc(value: datetime | None) -> datetime | None:
 _as_utc = as_utc
 
 
+def iso_utc(value: datetime | None) -> str | None:
+    """Gelesener Zeitstempel als ISO-8601 **mit** Zonenangabe, oder ``None``.
+
+    Die Ergaenzung zu :func:`as_utc` fuer den Weg nach draussen. Ein blosses
+    ``value.isoformat()`` auf einem aus SQLite gelesenen Wert schreibt den
+    Zeitstempel ohne ``+00:00``; ein Browser liest einen ISO-String ohne Zone
+    als **Lokalzeit** und zeigt ihn im Sommer zwei Stunden daneben.
+
+    Steht hier und nicht in einem Router, weil ihn inzwischen mehrere brauchen
+    (Vaults, Begriffsliste, API-Schluessel). Jede Serialisierung eines
+    gelesenen Zeitstempels geht durch diese Funktion — sonst haengt die
+    Korrektheit daran, dass die naechste Antwortform daran denkt.
+    """
+    value = as_utc(value)
+    return value.isoformat() if value is not None else None
+
+
 def _new_uuid() -> uuid.UUID:
     """Primaerschluessel als UUID4.
 
@@ -398,6 +415,7 @@ __all__ = [
     "Base",
     "as_utc",
     "CustomTerm",
+    "iso_utc",
     "Job",
     "MappingEntry",
     "Tenant",

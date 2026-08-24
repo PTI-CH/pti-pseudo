@@ -26,7 +26,7 @@ from sqlalchemy.orm import Session
 from backend.core.api_key_auth import generate_token, hash_token, key_prefix_of
 from backend.core.deps import current_username, get_session, get_tenant
 from backend.core.hub_access_auth import is_admin
-from backend.vault.models import ApiKey, UsageEvent, as_utc
+from backend.vault.models import ApiKey, UsageEvent, as_utc, iso_utc
 
 router = APIRouter(tags=["api-keys"])
 
@@ -80,17 +80,11 @@ def _as_uuid(value: str) -> uuid.UUID:
         raise HTTPException(400, detail="Ungueltige Kennung.") from None
 
 
-def _iso(value: Optional[datetime]) -> Optional[str]:
-    """Zeitstempel als ISO-8601 **mit** Zonenangabe, oder ``None``.
-
-    Der Umweg ueber ``as_utc`` ist keine Kosmetik: unter SQLite kommen die
-    Werte naiv aus der Datenbank zurueck, ``isoformat()`` schriebe sie dann
-    ohne ``+00:00`` — und das Frontend liest einen ISO-String ohne Zone als
-    **Lokalzeit**. Ein Schluessel saehe damit im Sommer zwei Stunden zu frueh
-    erzeugt aus.
-    """
-    value = as_utc(value)
-    return value.isoformat() if value is not None else None
+#: Zeitstempel als ISO-8601 **mit** Zonenangabe. Die Begruendung steht bei
+#: ``models.iso_utc``; der Name bleibt kurz, weil er hier in jeder Antwortform
+#: vorkommt. Frueher eine eigene Fassung in diesem Modul — seit Vaults und
+#: Begriffsliste dieselbe Korrektur brauchen, liegt sie bei den Modellen.
+_iso = iso_utc
 
 
 def _to_dict(key: ApiKey) -> dict:

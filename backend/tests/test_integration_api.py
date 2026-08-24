@@ -246,6 +246,39 @@ def test_vault_liste_zeigt_keine_originale(client: TestClient) -> None:
     assert detail.json()["entries"], "es sollte Eintraege geben"
 
 
+def test_zeitstempel_tragen_eine_zonenangabe(client: TestClient) -> None:
+    """Jeder ausgelieferte Zeitstempel muss zonenbewusst sein.
+
+    Unter SQLite kommen die Werte naiv aus der Datenbank zurueck. Ein blosses
+    ``isoformat()`` schriebe sie ohne ``+00:00``, und ein Browser liest einen
+    ISO-String ohne Zone als **Lokalzeit** — im Sommer zwei Stunden daneben.
+    Geprueft werden Vault-Liste, Vault-Detail und Begriffsliste zusammen, weil
+    genau diese drei Antwortformen die Korrektur zuletzt vermissen liessen.
+    """
+    angelegt = client.post(
+        "/api/v1/documents:anonymize",
+        json={"text": "Andreas Meier schrieb.", "vault_label": "Zeitzone"},
+    ).json()
+    client.post("/api/v1/terms", json={"term": "Musterbehoerde", "entity_type": "ORGANIZATION"})
+
+    liste = client.get("/api/v1/mappings").json()["mappings"]
+    assert liste, "es sollte einen Vault geben"
+    detail = client.get(f"/api/v1/mappings/{angelegt['vault_id']}").json()
+    begriffe = client.get("/api/v1/terms").json()["terms"]
+    assert begriffe, "es sollte einen Begriff geben"
+
+    zeitstempel = [v["created_at"] for v in liste]
+    zeitstempel.append(detail["created_at"])
+    zeitstempel += [e["created_at"] for e in detail["entries"]]
+    zeitstempel += [b["created_at"] for b in begriffe]
+
+    for wert in zeitstempel:
+        assert wert.endswith("+00:00") or wert.endswith("Z"), (
+            f"Zeitstempel ohne Zonenangabe: {wert!r} — "
+            "gehoert durch backend.vault.models.iso_utc"
+        )
+
+
 def test_unbekannter_vault_liefert_404(client: TestClient) -> None:
     r = client.get("/api/v1/mappings/00000000-0000-0000-0000-000000000000")
     assert r.status_code == 404

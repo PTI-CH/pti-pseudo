@@ -24,7 +24,7 @@ from backend.core.api_key_auth import has_api_key
 from backend.core.deps import get_session, get_tenant
 from backend.core.hub_access_auth import is_admin
 from backend.engine import entities as ents
-from backend.vault.models import MappingEntry, Vault
+from backend.vault.models import MappingEntry, Vault, iso_utc
 from backend.vault.service import delete_vault, list_entries
 
 router = APIRouter(tags=["mappings"])
@@ -69,8 +69,8 @@ async def list_vaults(
             {
                 "id": str(v.id),
                 "label": v.label,
-                "created_at": v.created_at.isoformat(),
-                "expires_at": v.expires_at.isoformat() if v.expires_at else None,
+                "created_at": iso_utc(v.created_at),
+                "expires_at": iso_utc(v.expires_at),
                 "entry_count": int(count),
             }
             for v, count in rows
@@ -107,14 +107,14 @@ async def get_vault(
     return {
         "id": str(vault.id),
         "label": vault.label,
-        "created_at": vault.created_at.isoformat(),
+        "created_at": iso_utc(vault.created_at),
         "entries": [
             {
                 "id": str(e.id),
                 "entity_type": e.entity_type,
                 "label": ents.get_label(e.entity_type),
                 "pseudonym": e.pseudonym,
-                "created_at": e.created_at.isoformat(),
+                "created_at": iso_utc(e.created_at),
             }
             for e in entries
         ],

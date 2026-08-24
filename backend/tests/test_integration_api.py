@@ -399,6 +399,40 @@ def test_pptx_durchlauf_erfasst_die_notizen(client: TestClient) -> None:
     assert "Beat Kunz" not in notizen, f"Name in den Notizen blieb stehen: {notizen!r}"
 
 
+def test_ki_pruefung_ist_standardmaessig_aus(client: TestClient) -> None:
+    """Vorgabe `false` auf API-Ebene.
+
+    Der Maschinenpfad /api/ext/v1 haengt dieselben Router ein. Waere die
+    Vorgabe `true`, begaennen Translator, PPM und HIKA ab dem Deploy
+    stillschweigend, Dokumentinhalte hinauszuschicken — ohne dass in diesen
+    Projekten jemand davon wuesste.
+    """
+    r = client.post("/api/v1/documents:detect", json={"text": TEXT})
+    assert r.status_code == 200
+    assert r.json()["ki_geprueft"] is False
+
+
+def test_ki_pruefung_ohne_schluessel_meldet_sich_ab(client: TestClient) -> None:
+    """Angefordert, aber nicht konfiguriert: kein Fehler, nur `false`.
+
+    Ein fehlender Schluessel ist ein Zustand, kein Ausfall. Die lokale
+    Erkennung muss weiterlaufen.
+    """
+    r = client.post(
+        "/api/v1/documents:detect", json={"text": TEXT, "ki_pruefung": True}
+    )
+    assert r.status_code == 200
+    assert r.json()["ki_geprueft"] is False
+    assert r.json()["entities"], "die lokale Erkennung muss weiterlaufen"
+
+
+def test_anonymize_meldet_den_pruefstand(client: TestClient) -> None:
+    """Auch der Ersetzungspfad sagt, was er in der Hand hatte."""
+    r = client.post("/api/v1/documents:anonymize", json={"text": TEXT})
+    assert r.status_code == 200
+    assert r.json()["ki_geprueft"] is False
+
+
 def test_unbekanntes_format_liefert_415(client: TestClient) -> None:
     r = client.post(
         "/api/v1/documents:anonymize-file",

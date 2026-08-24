@@ -90,6 +90,23 @@ class Settings(BaseSettings):
     infomaniak_ai_key: str | None = None
     infomaniak_ai_product_id: str = ""
     infomaniak_ai_base: str = "https://api.infomaniak.com"
+    # Apertus, und das ist eine MESSUNG, keine Uebernahme.
+    #
+    # Zwischenzeitlich stand hier `Ministral-3`, weil es fuer
+    # Massenklassifikation empfohlen ist. An unserer Aufgabe gemessen
+    # (2026-08-24, Golden-Set) faellt es aber aus: Bei drei von neun
+    # Dokumenten gibt es eine oeffnende Klammer aus und danach 2000 Token
+    # Leerzeichen (`finish_reason: length`) — die Antwort ist damit kein
+    # gueltiges JSON. Reproduzierbar, und weder von `temperature: 0.2` noch
+    # von `additionalProperties: false` behoben:
+    #
+    #     Ministral-3  temp 0.0   0/3 brauchbar
+    #     Ministral-3  temp 0.2   0/3 brauchbar
+    #     Apertus      temp 0.0   3/3 brauchbar
+    #     gemma-4      temp 0.0   3/3 brauchbar
+    #
+    # Ueber das ganze Golden-Set: Apertus 9/9 Anfragen gelungen, 0.7 bis
+    # 2.2 s je Anfrage. `google/gemma-4-31B-it` waere die Ausweichwahl.
     infomaniak_ai_modell: str = "swiss-ai/Apertus-v1.5-70B"
 
     # ── Grenzen ────────────────────────────────────────────────────────────

@@ -69,6 +69,17 @@ class TextRequest(BaseModel):
             "gilt die volle Erkennung bzw. die Default-Policy."
         ),
     )
+    ki_pruefung: bool = Field(
+        False,
+        description=(
+            "KI-gestuetzte Pruefung der Namensgrenzen ueber einen Schweizer "
+            "Dienst (Infomaniak AI, Variante C). Dabei verlassen kurze "
+            "Textausschnitte um die gefundenen Stellen den Server. "
+            "Vorgabe AUS: Ein Maschinen-Aufrufer muss den Datenversand "
+            "ausdruecklich anfordern, sonst begaennen andere PTI-Anwendungen "
+            "ab einem Deploy stillschweigend damit."
+        ),
+    )
 
 
 class ReverseTextRequest(BaseModel):
@@ -259,12 +270,14 @@ async def detect(
         ],
         entities=entities,
         custom_terms=terms,
+        ki_pruefung=payload.ki_pruefung,
     )
     _record_usage(session, tenant, current_username(request), "detect", result)
     session.commit()
     return {
         "entities": [f.as_dict() for f in result.findings],
         "char_count": result.char_count,
+        "ki_geprueft": result.ki_geprueft,
     }
 
 
@@ -290,6 +303,7 @@ async def anonymize(
         entities=entities,
         custom_terms=terms,
         selected=payload.selected_entities,
+        ki_pruefung=payload.ki_pruefung,
     )
     _record_usage(session, tenant, current_username(request), "anonymize", detection)
     session.commit()
@@ -301,6 +315,7 @@ async def anonymize(
         "vault_id": str(vault.id) if vault else None,
         "mode": payload.mode,
         "char_count": detection.char_count,
+        "ki_geprueft": detection.ki_geprueft,
     }
 
 
@@ -314,6 +329,7 @@ async def anonymize_file(
     vault_label: Annotated[Optional[str], Form()] = None,
     entities: Annotated[Optional[str], Form()] = None,
     selected_entities: Annotated[Optional[str], Form()] = None,
+    ki_pruefung: Annotated[bool, Form()] = False,
 ) -> dict:
     """Pseudonymisiert ein Dokument formaterhaltend.
 
@@ -346,6 +362,7 @@ async def anonymize_file(
             entities=parsed_entities,
             custom_terms=terms,
             selected=parsed_selected,
+            ki_pruefung=ki_pruefung,
         )
     except UnsupportedFormatError as exc:
         raise HTTPException(
@@ -366,6 +383,7 @@ async def anonymize_file(
         "vault_id": str(vault.id) if vault else None,
         "mode": mode,
         "char_count": detection.char_count,
+        "ki_geprueft": detection.ki_geprueft,
     }
 
 

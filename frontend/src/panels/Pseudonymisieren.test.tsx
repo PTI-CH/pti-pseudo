@@ -49,9 +49,13 @@ const ERGEBNIS = {
   vaultId: '11111111-2222-3333-4444-555555555555',
   downloadUrl: null,
   dateiname: null,
+  kiGeprueft: true,
 };
 
 beforeEach(() => {
+  // Ohne das summieren sich die Aufrufe ueber Tests hinweg, und `calls[0]`
+  // stammt dann aus einem frueheren Test statt aus diesem.
+  vi.clearAllMocks();
   vi.mocked(ladeKategorien).mockResolvedValue([
     { entity_type: 'PERSON', label: 'Person', default_policy: 'redact', description: '' },
   ] as never);
@@ -96,5 +100,67 @@ describe('Anwenden nach einem Lauf', () => {
     // Tresor-Kennung steht direkt darueber.
     expect(screen.queryByText(/keine Zuordnung gespeichert/)).not.toBeInTheDocument();
     expect(screen.getByText(/11111111-2222-3333-4444-555555555555/)).toBeInTheDocument();
+  });
+});
+
+
+describe('KI-Pruefung', () => {
+  it('ist vorangehakt und wird mitgeschickt', async () => {
+    const nutzer = userEvent.setup();
+    render(<Pseudonymisieren />);
+    await screen.findByText('Person');
+
+    const feld = screen.getByRole('checkbox', { name: /KI-Prüfung/ });
+    expect(feld).toBeChecked();
+
+    await nutzer.type(screen.getByRole('textbox'), 'Es schrieb Andrea Beispiel.');
+    await nutzer.click(screen.getByRole('button', { name: 'Pseudonymisieren' }));
+
+    await waitFor(() => expect(vi.mocked(anonymisiereText)).toHaveBeenCalled());
+    expect(vi.mocked(anonymisiereText).mock.calls[0][3]).toBe(true);
+  });
+
+  it('schickt false, wenn das Haekchen weg ist', async () => {
+    const nutzer = userEvent.setup();
+    render(<Pseudonymisieren />);
+    await screen.findByText('Person');
+
+    await nutzer.click(screen.getByRole('checkbox', { name: /KI-Prüfung/ }));
+    await nutzer.type(screen.getByRole('textbox'), 'Text');
+    await nutzer.click(screen.getByRole('button', { name: 'Pseudonymisieren' }));
+
+    await waitFor(() => expect(vi.mocked(anonymisiereText)).toHaveBeenCalled());
+    expect(vi.mocked(anonymisiereText).mock.calls[0][3]).toBe(false);
+  });
+
+  it('warnt, wenn die Pruefung angefordert war, aber nicht lief', async () => {
+    vi.mocked(anonymisiereText).mockResolvedValue({
+      ...ERGEBNIS,
+      kiGeprueft: false,
+    } as never);
+    const nutzer = userEvent.setup();
+    render(<Pseudonymisieren />);
+    await screen.findByText('Person');
+    await nutzer.type(screen.getByRole('textbox'), 'Text');
+    await nutzer.click(screen.getByRole('button', { name: 'Pseudonymisieren' }));
+
+    expect(await screen.findByText(/nur lokal geprüft/)).toBeInTheDocument();
+  });
+
+  it('warnt NICHT, wenn die Pruefung gar nicht angefordert war', async () => {
+    vi.mocked(anonymisiereText).mockResolvedValue({
+      ...ERGEBNIS,
+      kiGeprueft: false,
+    } as never);
+    const nutzer = userEvent.setup();
+    render(<Pseudonymisieren />);
+    await screen.findByText('Person');
+
+    await nutzer.click(screen.getByRole('checkbox', { name: /KI-Prüfung/ }));
+    await nutzer.type(screen.getByRole('textbox'), 'Text');
+    await nutzer.click(screen.getByRole('button', { name: 'Pseudonymisieren' }));
+
+    await screen.findByRole('button', { name: 'Anwenden' });
+    expect(screen.queryByText(/nur lokal geprüft/)).not.toBeInTheDocument();
   });
 });

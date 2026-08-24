@@ -102,8 +102,16 @@ export default function App() {
 
       <footer className="px-4 sm:px-6 py-4 border-t border-gray-200 dark:border-gray-700 text-xs text-gray-400 dark:text-gray-500">
         <div className="max-w-5xl mx-auto">
-          PTI Pseudonymisierer · Phase 1. Die Verarbeitung läuft lokal auf dem PTI-Server; es
-          werden keine Inhalte an Dritte übermittelt.
+          {/* „lokal auf dem PTI-Server" stand hier bis zur KI-Schicht. Mit
+              gesetzter KI-Prüfung läuft ein Teil der Verarbeitung nicht mehr auf
+              dem gemieteten Knoten, sondern als Netzaufruf an die AI Tools —
+              ein anderes Produkt **desselben** Anbieters. „Keine Dritten"
+              bleibt damit richtig, „lokal auf dem Server" nicht mehr.
+
+              Die Phasennummer ist ebenfalls entfallen: Sie veraltet mit jeder
+              Etappe, und was das Werkzeug kann, steht im Dossier. */}
+          PTI Pseudonymisierer. Die Verarbeitung läuft auf der PTI-Infrastruktur bei
+          Infomaniak (Genf); es werden keine Inhalte an Dritte übermittelt.
         </div>
       </footer>
     </div>

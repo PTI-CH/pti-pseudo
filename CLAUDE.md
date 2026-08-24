@@ -187,6 +187,39 @@ Die 140-Zeichen-Grenze für `label` ist seither nur noch historisch begründet.
 unumkehrbar und bleibt Administratoren in der Oberfläche vorbehalten.
 Details: [API.md](API.md).
 
+## KI-Schicht für Personennamen (Phase 3, Variante C)
+
+`backend/ki/` prüft über Infomaniak AI die **Grenzen** gefundener
+Personennamen. Sie behebt den Namenssplit: `Sandra Zbinden` wird von spaCy nur
+als `Sandra` erkannt, der Nachname bleibt stehen — und das Dokument sieht
+trotzdem pseudonymisiert aus. Dagegen hilft weder Muster noch Prüfziffer noch
+die Wortart-Regel, nur ein Modell, das den Satz liest.
+
+Vier Entscheidungen, die man kennen muss, bevor man daran schraubt. Die
+Begründungen samt Ausbaustufen stehen in
+`docs/superpowers/specs/2026-08-24-ki-schicht-namen-design.md`.
+
+1. **Nur Fenster verlassen das Haus** — rund 20 Wörter um jeden Fundkandidaten,
+   nie ein ganzes Segment. Preis: Ein vollständig übersehener Name bleibt
+   übersehen. Trägt trotzdem, weil `propagate_findings` **nach** der KI läuft
+   und den korrigierten vollständigen Namen durchs Dokument trägt — deshalb ist
+   die Reihenfolge in `detect_in_segments` nicht beliebig.
+2. **Bei Ausfall weiterlaufen**, nicht scheitern. Die lokale Erkennung ist mit
+   95 % Namen-Recall der Normalbetrieb.
+3. **Nur erweitern, nie verwerfen** — dieselbe Regel wie bei
+   `propagate_findings`. Ein zu Unrecht verworfener Fund kostet einen
+   Klarnamen, und zwar unsichtbar.
+4. **Vorgabe aus auf API-Ebene**, vorangehakt in der Oberfläche. Sonst begänne
+   `/api/ext/v1` ab einem Deploy stillschweigend, Inhalte hinauszuschicken.
+
+Drei am echten Dienst gemessene Eigenheiten stecken in
+`backend/ki/infomaniak.py`: `response_format: json_object` ergibt **HTTP 400**
+(nur `json_schema` geht), **HTTP 200 mit leerem `content` ist ein Fehler** (vier
+Modelle antworten so bei knappem Token-Budget), und die **Produkt-Id steht im
+Pfad**, nicht im Kopf.
+
+Das Modell ist `Ministral-3`, nicht Apertus: Massenklassifikation, nicht Chat.
+
 ## Schemaänderungen
 
 `init_db()` im Lifespan ruft `create_all` — das legt **fehlende Tabellen** an,

@@ -70,6 +70,16 @@ export default function Pseudonymisieren() {
    * unmöglich geworden, ohne dass es jemand angeordnet hätte.
    */
   const [laufModus, setLaufModus] = useState<Modus>('umkehrbar');
+  /**
+   * Ob die KI-Prüfung der Namensgrenzen zugeschaltet ist.
+   *
+   * Vorangehakt: Die bessere Erkennung soll der Normalfall sein. Wer ein
+   * besonders heikles Dokument hat, nimmt das Häkchen weg und behält trotzdem
+   * die volle lokale Erkennung.
+   */
+  const [kiPruefung, setKiPruefung] = useState(true);
+  /** Der Stand der KI-Prüfung beim Lauf — wie `laufModus`. */
+  const [laufKiPruefung, setLaufKiPruefung] = useState(true);
   const [ausgewaehlt, setAusgewaehlt] = useState<Set<string>>(new Set());
 
   // Katalog beim Mount laden. Ohne Katalog gibt es keine sinnvolle Auswahl —
@@ -109,6 +119,7 @@ export default function Pseudonymisieren() {
     kategorien: string[],
     quelleDesLaufs: Quelle,
     modusDesLaufs: Modus,
+    kiDesLaufs: boolean,
   ): void {
     // Eine alte Blob-URL (Dateiergebnis) lebt nur im Browser-Speicher — wird
     // sie durch ein neues Ergebnis ersetzt, ohne dass sie je heruntergeladen
@@ -119,6 +130,7 @@ export default function Pseudonymisieren() {
     setLaufKategorien(kategorien);
     setLaufQuelle(quelleDesLaufs);
     setLaufModus(modusDesLaufs);
+    setLaufKiPruefung(kiDesLaufs);
     setAusgewaehlt(new Set(e.befunde.map((b: Befund) => b.id)));
   }
 
@@ -128,11 +140,11 @@ export default function Pseudonymisieren() {
     try {
       const kategorienListe = Array.from(gewaehlteKategorien);
       if (quelle === 'datei' && datei) {
-        const e = await anonymisiereDatei(datei, modus, kategorienListe);
-        uebernimmErgebnis(e, '', kategorienListe, 'datei', modus);
+        const e = await anonymisiereDatei(datei, modus, kategorienListe, kiPruefung);
+        uebernimmErgebnis(e, '', kategorienListe, 'datei', modus, kiPruefung);
       } else {
-        const e = await anonymisiereText(text, modus, kategorienListe);
-        uebernimmErgebnis(e, text, kategorienListe, 'text', modus);
+        const e = await anonymisiereText(text, modus, kategorienListe, kiPruefung);
+        uebernimmErgebnis(e, text, kategorienListe, 'text', modus, kiPruefung);
       }
     } catch (e) {
       // Ein fehlgeschlagener Lauf verwirft ein evtl. noch vorhandenes altes
@@ -176,8 +188,10 @@ export default function Pseudonymisieren() {
       // ihm passen. Beide bleiben nach dem Lauf bedienbar.
       const neu =
         laufQuelle === 'datei' && datei
-          ? await anonymisiereDatei(datei, laufModus, laufKategorien, auswahl)
-          : await anonymisiereText(quellText, laufModus, laufKategorien, auswahl);
+          ? await anonymisiereDatei(
+              datei, laufModus, laufKategorien, laufKiPruefung, auswahl)
+          : await anonymisiereText(
+              quellText, laufModus, laufKategorien, laufKiPruefung, auswahl);
       // Die alte Blob-URL wird durch die neue ersetzt und muss vorher weg.
       gibErgebnisFrei(ergebnis);
       // Die Auswahl des Menschen bleibt bestehen; nur Ergebnis und Vault erneuern sich.
@@ -198,6 +212,7 @@ export default function Pseudonymisieren() {
     setLaufKategorien([]);
     setLaufQuelle('text');
     setLaufModus('umkehrbar');
+    setLaufKiPruefung(true);
     setAusgewaehlt(new Set());
     setFehler(null);
   }
@@ -279,6 +294,27 @@ export default function Pseudonymisieren() {
             deaktiviert={laeuft}
           />
         )}
+
+        {/* KI-Pruefung. Steht bei den Kategorien, weil sie zur Wahl VOR dem
+            Lauf gehoert — nicht zum Ergebnis. */}
+        <label className="mt-4 flex items-start gap-2 text-sm cursor-pointer">
+          <input
+            type="checkbox"
+            checked={kiPruefung}
+            onChange={(e) => setKiPruefung(e.target.checked)}
+            disabled={laeuft}
+            className="mt-0.5 rounded border-gray-300 dark:border-gray-600"
+          />
+          <span className="text-gray-700 dark:text-gray-300">
+            KI-Prüfung der Namensgrenzen
+            <span className="block text-xs text-gray-500 dark:text-gray-400">
+              Findet unvollständig erkannte Namen (z.&nbsp;B. „Sandra“ statt
+              „Sandra Zbinden“). Dabei verlassen <strong>kurze Textausschnitte</strong>
+              {' '}um die gefundenen Stellen den Server und gehen an einen Schweizer
+              KI-Dienst. Ohne Häkchen läuft die Erkennung vollständig lokal.
+            </span>
+          </span>
+        </label>
       </section>
 
       {/* ── Modus ─────────────────────────────────────────────────────────── */}
@@ -343,6 +379,18 @@ export default function Pseudonymisieren() {
       {/* ── Befund-Ansicht + Ergebnis ─────────────────────────────────────── */}
       {ergebnis && (
         <div className="space-y-6 border-t border-gray-200 dark:border-gray-700 pt-6">
+          {/* Angefordert, aber nicht gelaufen. Der Hinweis steht bei der
+              Fundliste und nicht in der Fusszeile: Wer taeglich damit
+              arbeitet, ueberliest eine Fusszeile. */}
+          {laufKiPruefung && !ergebnis.kiGeprueft && (
+            <Hinweis ton="warnung">
+              Die KI-Prüfung war nicht erreichbar — dieses Ergebnis wurde{' '}
+              <strong>nur lokal geprüft</strong>. Sehen Sie die Fundliste besonders
+              sorgfältig auf unvollständig erkannte Namen durch: Ein halb erkannter
+              Name bleibt im Dokument stehen, ohne dass man es dem Ergebnis ansieht.
+            </Hinweis>
+          )}
+
           <section className="space-y-3">
             <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Befunde</h2>
             <BefundListe

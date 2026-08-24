@@ -27,6 +27,7 @@ Drei Regeln, die hier zentral durchgesetzt werden und nirgends sonst:
 
 from __future__ import annotations
 
+import logging
 import re
 from dataclasses import dataclass, field
 from typing import Iterable, Optional, Sequence
@@ -42,6 +43,10 @@ from backend.engine.merge import merge_overlaps
 from backend.engine.recognizers.custom_terms import build_term_regex, coerce_term
 from backend.vault import service as vault_service
 from backend.vault.models import Vault
+
+#: Protokolliert wird ausschliesslich Zaehlbares — nie Inhalte. Ein Klartext
+#: im Log waere genau die Personendatenspur, die dieses Werkzeug beseitigt.
+logger = logging.getLogger("pti.pipeline")
 
 # Ein reiner Textabschnitt bekommt diese Segment-ID, damit Text- und
 # Dokumentpfad dieselbe Datenstruktur benutzen koennen.
@@ -104,6 +109,13 @@ class DetectionResult:
 
     segments: list[Segment]
     findings: list[Finding] = field(default_factory=list)
+    #: ``True``, wenn die KI-Schicht tatsaechlich gelaufen ist.
+    #:
+    #: ``False`` heisst: nicht angefordert, nicht konfiguriert, nichts zu
+    #: pruefen — **oder** der Dienst hat nicht geantwortet. Der Aufrufer muss
+    #: wissen, was er in der Hand haelt; ein still schlechter geprueftes
+    #: Ergebnis waere das gefaehrlichere Verhalten.
+    ki_geprueft: bool = False
 
     @property
     def char_count(self) -> int:
@@ -124,6 +136,8 @@ def detect_in_segments(
     entities: Optional[Iterable[str]] = None,
     custom_terms: Optional[Sequence] = None,
     propagate: bool = True,
+    ki_pruefung: bool = False,
+    ki=None,
 ) -> DetectionResult:
     """Laesst die Engine ueber alle Segmente laufen.
 
@@ -151,6 +165,11 @@ def detect_in_segments(
     ``propagate`` steuert den Nachtrag gleichlautender Stellen
     (:func:`propagate_findings`). Nur zum Abschalten in Tests und in der
     Diagnose gedacht — im Betrieb immer an.
+
+    ``ki_pruefung`` schaltet die KI-Schicht zu (Phase 3, Variante C). Vorgabe
+    **aus**: Wer nicht ausdruecklich fragt, schickt keinen Text hinaus.
+    ``ki`` ist der Einstiegspunkt fuer Tests; ohne ihn entsteht bei Bedarf ein
+    :class:`~backend.ki.infomaniak.InfomaniakKi`.
     """
     result = DetectionResult(segments=list(segments))
 
@@ -178,9 +197,130 @@ def detect_in_segments(
                 )
             )
 
+    # ── KI-Schicht (Phase 3, Variante C) ──────────────────────────────────
+    # Sitzt bewusst VOR propagate_findings: Korrigiert die KI `Sandra` zu
+    # `Sandra Zbinden`, traegt die Uebertragung anschliessend den
+    # VOLLSTAENDIGEN Namen durchs Dokument — auch an Stellen, die spaCy
+    # uebersehen hat. In umgekehrter Reihenfolge bliebe die Korrektur auf die
+    # eine Fundstelle beschraenkt, und die halbe Fassung stuende weiter da.
+    if ki_pruefung:
+        result.findings, result.ki_geprueft = _ki_pruefen(
+            result.segments, result.findings, ki
+        )
+
     if propagate:
         result.findings = propagate_findings(result.segments, result.findings)
     return result
+
+
+#: Wie oft ein Stueck hoechstens angefragt wird — Erstversuch eingerechnet.
+#:
+#: Zwei, nicht drei — und im Normalbetrieb greift der zweite nie.
+#:
+#: Mit Apertus gelangen am 2026-08-24 alle neun Anfragen des Golden-Sets beim
+#: ersten Versuch. Die Wiederholung ist damit **Versicherung, kein
+#: Werkzeug**: Sie kostet nichts, solange nichts schiefgeht, und faengt
+#: einen einzelnen Aussetzer ab.
+#:
+#: Wichtig ist, was sie NICHT kann. Ein Modell, das bei einer bestimmten
+#: Eingabe reproduzierbar degeneriert, tut das beim zweiten Versuch genauso
+#: — gemessen: drei von drei Wiederholungen scheiterten damals identisch.
+#: Dagegen hilft nur ein anderes Modell, nie ein weiterer Versuch.
+MAX_KI_VERSUCHE = 2
+
+
+def _frage_mit_wiederholung(ki, stueck, gesamt_fenster: int):
+    """Fragt ein Stueck an und wiederholt hoechstens einmal.
+
+    Wiederholt wird nur, was Aussicht auf Erfolg hat: Zeitgrenzen,
+    Netzwerkfehler, 429 und 5xx. Ein HTTP 400 oder ein fehlender Schluessel
+    aendern sich beim zweiten Mal nicht (``KiFehler.wiederholbar``).
+
+    Gibt die Antwort zurueck oder ``None``, wenn alle Versuche scheiterten.
+    """
+    from backend.ki import namen
+    from backend.ki.infomaniak import KiFehler
+
+    for versuch in range(1, MAX_KI_VERSUCHE + 1):
+        try:
+            return ki.chat_json(namen.baue_nachrichten(stueck), namen.SCHEMA)
+        except KiFehler as fehler:
+            letzter = versuch >= MAX_KI_VERSUCHE or not getattr(
+                fehler, "wiederholbar", True
+            )
+            logger.warning(
+                "KI-Pruefung fehlgeschlagen (Versuch %d, %d von %d Fenstern "
+                "betroffen)%s: %s",
+                versuch,
+                len(stueck),
+                gesamt_fenster,
+                "" if letzter else " — wird wiederholt",
+                fehler,
+            )
+            if letzter:
+                return None
+    return None
+
+
+def _ki_pruefen(segments, findings, ki) -> tuple[list[Finding], bool]:
+    """Laesst die KI die Namensgrenzen pruefen. Faellt nie hart aus.
+
+    Jeder Fehler — nicht konfiguriert, Zeitgrenze, Fehlerstatus, leere oder
+    ungueltige Antwort — fuehrt zum lokalen Ergebnis und ``False``. Der
+    Aufrufer zeigt das an; still schlechter zu erkennen waere die
+    gefaehrlichere Variante.
+
+    Der Import steht bewusst **in** der Funktion: Ohne angeforderte
+    KI-Pruefung wird ``backend.ki`` nie geladen, und der bisherige Weg bleibt
+    frei von jeder zusaetzlichen Abhaengigkeit.
+    """
+    from backend.config import get_settings
+    from backend.ki import namen
+    from backend.ki.infomaniak import InfomaniakKi, ist_verfuegbar
+
+    einstellungen = get_settings()
+    if ki is None:
+        if not ist_verfuegbar(einstellungen):
+            logger.info("KI-Pruefung angefordert, aber nicht konfiguriert.")
+            return list(findings), False
+        ki = InfomaniakKi(einstellungen)
+
+    fenster = namen.baue_fenster(segments, findings)
+    if not fenster:
+        return list(findings), False
+
+    # Gestueckelt, weil die Antwortzeit mit der Fensterzahl waechst (gemessen:
+    # rund 5 s Grundlast plus 1.3 s je Fenster). Faellt ein Stueck aus, bleiben
+    # nur dessen Fenster unkorrigiert statt des ganzen Dokuments.
+    aktuell = list(findings)
+    stuecke = namen.stueckle(fenster)
+    gelungen = 0
+    verworfen_gesamt = 0
+
+    for stueck in stuecke:
+        antwort = _frage_mit_wiederholung(ki, stueck, len(fenster))
+        if antwort is None:
+            continue
+        aktuell, verworfen = namen.wende_an(aktuell, stueck, antwort)
+        verworfen_gesamt += verworfen
+        gelungen += 1
+
+    logger.info(
+        "KI-Pruefung: %d/%d Anfragen gelungen, %d Fenster, %d Vorschlaege "
+        "verworfen, Modell %s",
+        gelungen,
+        len(stuecke),
+        len(fenster),
+        verworfen_gesamt,
+        # Der ANGEFRAGTE Name, nicht der aus der Antwort: Manche Modelle
+        # nennen sich dort anders (`large-endpoint`).
+        einstellungen.infomaniak_ai_modell,
+    )
+    # `ki_geprueft` nur, wenn ALLE Stuecke durchkamen. Ein teilweise geprueftes
+    # Ergebnis als geprueft auszuweisen waere die gefaehrlichere Aussage: Der
+    # Mensch verliesse sich dann auf eine Pruefung, die einen Teil des
+    # Dokuments nie gesehen hat.
+    return aktuell, gelungen == len(stuecke)
 
 
 # ── Uebertragung eines Fundes auf gleichlautende Stellen ────────────────────
@@ -535,11 +675,15 @@ def anonymize_text(
     entities: Optional[Iterable[str]] = None,
     custom_terms: Optional[Sequence] = None,
     selected: Optional[Sequence[dict]] = None,
+    ki_pruefung: bool = False,
 ) -> tuple[str, DetectionResult, list[Finding]]:
     """Pseudonymisiert einen reinen Text. Gibt Ergebnis, Befund und Auswahl zurueck."""
     segment = Segment(id=TEXT_SEGMENT_ID, text=text, location=None)
     detection = detect_in_segments(
-        [segment], entities=entities, custom_terms=custom_terms
+        [segment],
+        entities=entities,
+        custom_terms=custom_terms,
+        ki_pruefung=ki_pruefung,
     )
     applied = _select(detection.findings, selected, entities=entities)
     per_segment, _ = build_replacements(session, vault, applied, custom_terms)
@@ -560,6 +704,7 @@ def anonymize_document(
     custom_terms: Optional[Sequence] = None,
     selected: Optional[Sequence[dict]] = None,
     strip_metadata: bool = True,
+    ki_pruefung: bool = False,
 ) -> tuple[bytes, DetectionResult, list[Finding]]:
     """Pseudonymisiert ein Dokument formaterhaltend.
 
@@ -570,7 +715,10 @@ def anonymize_document(
     adapter: DocumentAdapter = get_adapter(filename)
     segments = adapter.extract_segments(data)
     detection = detect_in_segments(
-        segments, entities=entities, custom_terms=custom_terms
+        segments,
+        entities=entities,
+        custom_terms=custom_terms,
+        ki_pruefung=ki_pruefung,
     )
     applied = _select(detection.findings, selected, entities=entities)
     per_segment, _ = build_replacements(session, vault, applied, custom_terms)

@@ -162,7 +162,8 @@ curl -X POST https://pseudo.pti-tip-hub.ch/api/ext/v1/documents:detect \
       "propagated": false
     }
   ],
-  "char_count": 40
+  "char_count": 40,
+  "ki_geprueft": false
 }
 ```
 
@@ -176,6 +177,32 @@ Klarname bliebe im Dokument stehen, obwohl er im Befund steht. Für die
 Ersetzung sind beide Arten gleichwertig; das Feld ist reine Auskunft über die
 Herkunft. Übertragen werden nur `PERSON`, `LOCATION` und `ORGANIZATION`:
 Muster- und Begriffslisten-Erkenner finden ihren Text ohnehin an jeder Stelle.
+
+#### KI-Prüfung der Namensgrenzen
+
+Alle drei Verarbeitungs-Endpunkte nehmen ein optionales **`ki_pruefung`**
+entgegen (JSON: `"ki_pruefung": true`; Multipart: Formularfeld
+`ki_pruefung=true`).
+
+Ist es gesetzt, prüft ein Schweizer KI-Dienst (Infomaniak AI) die Grenzen der
+gefundenen Personennamen. Das behebt den häufigsten Fehler der lokalen
+Erkennung: einen halb erkannten Namen (`Sandra` statt `Sandra Zbinden`), bei
+dem der Nachname im Dokument stehen bleibt und das Ergebnis trotzdem
+pseudonymisiert *aussieht*.
+
+**Dabei verlassen kurze Textausschnitte den Server** — rund 20 Wörter um jede
+gefundene Stelle, nie das ganze Segment und nie das Dokument.
+
+**Die Vorgabe ist `false`.** Das ist Absicht: Dieser Maschinenpfad hängt
+dieselben Router ein wie die Oberfläche. Wäre die Vorgabe `true`, begänne jede
+anbindende Anwendung ab einem Deploy stillschweigend, Dokumentinhalte
+hinauszuschicken. Wer den Datenversand will, fordert ihn an.
+
+Jede Antwort trägt **`ki_geprueft`**. `false` heisst: nicht angefordert, nicht
+konfiguriert, nichts zu prüfen — **oder der Dienst hat nicht geantwortet**. Im
+letzten Fall enthält die Antwort trotzdem die vollständige lokale Fundliste;
+der Lauf scheitert nicht. Wer auf die KI-Prüfung angewiesen ist, muss das Feld
+auswerten.
 
 ### `POST /documents:anonymize`
 

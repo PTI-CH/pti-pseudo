@@ -124,6 +124,14 @@ export interface Ergebnis {
   /** Bei Dateiverarbeitung: Link zum Herunterladen des Ergebnisses. */
   downloadUrl: string | null;
   dateiname: string | null;
+  /**
+   * Ob die KI-Prüfung der Namensgrenzen tatsächlich gelaufen ist.
+   *
+   * `false` heisst: nicht angefordert, nicht konfiguriert, nichts zu prüfen —
+   * **oder der Dienst hat nicht geantwortet**. Der letzte Fall verdient einen
+   * sichtbaren Hinweis: Das Ergebnis ist dann nur lokal geprüft.
+   */
+  kiGeprueft: boolean;
 }
 
 /**
@@ -156,6 +164,7 @@ interface RohAntwort {
   /** Dateiantworten: Base64-codierte Bytes des Ergebnisdokuments. */
   content_base64?: string | null;
   filename?: string | null;
+  ki_geprueft?: boolean | null;
 }
 
 /**
@@ -221,6 +230,7 @@ function normalisiereAntwort(roh: RohAntwort): Ergebnis {
       (roh.content_base64 ? base64ZuBlobUrl(roh.content_base64) : null) ??
       (roh.download_url ?? null),
     dateiname: roh.filename ?? null,
+    kiGeprueft: roh.ki_geprueft === true,
   };
 }
 
@@ -282,6 +292,7 @@ export async function anonymisiereText(
   text: string,
   modus: Modus,
   kategorien: string[],
+  kiPruefung: boolean,
   nurBefunde?: Befund[],
   signal?: AbortSignal,
 ): Promise<Ergebnis> {
@@ -290,6 +301,7 @@ export async function anonymisiereText(
     mode: MODUS_API[modus],
     language: 'de',
     entities: kategorien,
+    ki_pruefung: kiPruefung,
   };
   if (nurBefunde) {
     koerper.selected_entities = nurBefunde.map(auswahlEintrag);
@@ -321,6 +333,7 @@ export async function anonymisiereDatei(
   datei: File,
   modus: Modus,
   kategorien: string[],
+  kiPruefung: boolean,
   nurBefunde?: Befund[],
   signal?: AbortSignal,
 ): Promise<Ergebnis> {
@@ -328,6 +341,7 @@ export async function anonymisiereDatei(
   daten.append('file', datei);
   daten.append('mode', MODUS_API[modus]);
   daten.append('entities', kategorien.join(','));
+  daten.append('ki_pruefung', String(kiPruefung));
   if (nurBefunde) {
     daten.append('selected_entities', JSON.stringify(nurBefunde.map(auswahlEintrag)));
   }

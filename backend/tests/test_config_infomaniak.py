@@ -74,3 +74,19 @@ def test_env_example_nennt_beide_pflichtwerte() -> None:
     inhalt = (_REPO_ROOT / ".env.example").read_text(encoding="utf-8")
     for name in ("INFOMANIAK_AI_KEY", "INFOMANIAK_AI_PRODUCT_ID"):
         assert name in inhalt, f"{name} fehlt in .env.example"
+
+
+def test_modell_ist_gemessen_und_nicht_uebernommen() -> None:
+    """Apertus, weil Ministral-3 an dieser Aufgabe messbar ausfaellt.
+
+    Ministral-3 ist fuer Massenklassifikation das empfohlene Modell und war
+    zwischenzeitlich gesetzt. Am Golden-Set gemessen (2026-08-24) gibt es
+    bei drei von neun Dokumenten eine oeffnende Klammer aus und danach 2000
+    Token Leerzeichen — die Antwort ist kein gueltiges JSON. Reproduzierbar,
+    und weder von einer hoeheren Temperatur noch von einem strikteren Schema
+    behoben. Apertus schafft 9/9.
+    """
+    from backend.config import Settings
+
+    vorgabe = Settings.model_fields["infomaniak_ai_modell"].default
+    assert vorgabe == "swiss-ai/Apertus-v1.5-70B"

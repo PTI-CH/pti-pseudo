@@ -53,6 +53,94 @@ stille Verschlechterung an einem anderen erkaufen.
 - Kopf- und Fusszeile, Tabellen, Fussnoten und mindestens eine Textbox
   einbauen; diese Teile erreicht `python-docx` nicht von selbst.
 
+## Die KI-Schicht wird standardmaessig NICHT mitgemessen
+
+Seit Phase 3 gibt es eine KI-Pruefung der Namensgrenzen (`ki_pruefung`). Der
+Golden-Set-Lauf schaltet sie **nicht** zu, und das aus zwei Gruenden:
+
+1. **Vergleichbarkeit.** Alle Zahlen seit dem 2026-08-18 sind ohne KI
+   gemessen. Ein stiller Wechsel machte die Reihe wertlos — man wuesste nicht
+   mehr, ob eine Verbesserung von der Engine oder vom Dienst kommt.
+2. **Kosten und Verfuegbarkeit.** Jeder Testlauf verursachte sonst echte
+   Anfragen und haenge von einem fremden Dienst ab. Ein Gate, das rot wird,
+   weil Infomaniak gerade wartet, ist kein Gate.
+
+Ein Lauf **mit** KI wird ausdruecklich angefordert und misst gegen den echten
+Dienst. Beide Zahlen gehoeren hierher, nebeneinander — die Differenz ist das,
+was die Schicht tatsaechlich beitraegt.
+
+### Messung der KI-Schicht am echten Dienst, 2026-08-24
+
+Das ganze Golden-Set, einmal ohne und einmal mit KI-Pruefung, gegen
+`swiss-ai/Apertus-v1.5-70B`:
+
+| | ohne KI | mit KI |
+|---|---|---|
+| **PERSON** Precision / Recall | 95.0 % / 95.0 % | **100 % / 100 %** |
+| Gesamt-Precision | 90.8 % | **92.3 %** |
+| Gesamt-Recall | 96.7 % | **98.4 %** |
+
+`Sandra Zbinden` wird vollstaendig gefunden, der Fehlalarm auf `Sandra`
+verschwindet — das Abnahmekriterium ist erfuellt. Der einzige verbleibende
+verfehlte Fund ist `Meldestelle fuer Geldwaescherei`, eine ORGANIZATION in
+einem Dokument ohne Begriffsliste; die liegt ausserhalb dieser Schicht.
+
+**Neun von neun Anfragen gelangen**, jede in 0.7 bis 2.2 Sekunden. Keine
+Wiederholung war noetig.
+
+### Der Umweg, der dabei sichtbar wurde
+
+Mit dem Modell `mistralai/Ministral-3-14B-Instruct-2512` scheiterten drei von
+neun Anfragen **reproduzierbar**. Es sah zuerst nach einem Zeitproblem aus:
+Die Aufrufe brachen an der Zeitgrenze ab. Tatsaechlich gab das Modell bei
+diesen Eingaben eine oeffnende Klammer aus und danach 2000 Token Leerzeichen
+(`finish_reason: length`) — die Antwort war damit kein gueltiges JSON.
+
+Weder eine hoehere Temperatur noch ein strikteres Schema noch ein zweiter
+Versuch halfen:
+
+| Modell | Temperatur | brauchbar |
+|---|---|---|
+| Ministral-3 | 0.0 | 0/3 |
+| Ministral-3 | 0.2 | 0/3 |
+| **Apertus** | 0.0 | **3/3** |
+| gemma-4 | 0.0 | 3/3 |
+
+Ministral-3 ist fuer Massenklassifikation das empfohlene Modell und war
+zwischenzeitlich gesetzt. **An dieser Aufgabe gemessen faellt es aus.** Die
+Wahl steht jetzt auf Apertus, und sie ist eine Messung und keine Uebernahme.
+
+Zwei Lehren, die ueber diesen Fall hinausgehen: Eine knappe Zeitgrenze
+verwandelt fremde Fehler in scheinbar eigene. Und eine Wiederholung hilft
+gegen Aussetzer, nie gegen reproduzierbares Verhalten.
+
+### Der Zielfall einzeln
+
+
+
+Der Fusszeilentext aus `tabelle_kopf_fusszeile`, die Stelle mit dem
+Namenssplit:
+
+```
+Text:    Diese Fallakte wird von Sandra Zbinden bearbeitet, Rueckfragen an
+         sandra.zbinden@example.ch.
+OHNE KI: PERSON ['Sandra']
+MIT KI:  PERSON ['Sandra Zbinden']
+verworfen: 0
+```
+
+Ein Fenster, ein Aufruf, korrekte Erweiterung. Das Schema hat gehalten.
+
+Was das **noch nicht** zeigt: wie sich das Modell auf schwierigen Faellen
+verhaelt (mehrere Namen im selben Fenster, Namen an Zellgrenzen, franzoesische
+Namen) und ab welcher Fensterzahl gestueckelt werden muss. Beides gehoert
+gemessen, bevor die Schicht als verlaesslich gilt.
+
+**Abnahmekriterium der Etappe:** `tabelle_kopf_fusszeile` findet
+`Sandra Zbinden` vollstaendig, und der Fehlalarm auf `Sandra` verschwindet.
+Ohne diesen Nachweis hat die Etappe ihr Ziel verfehlt, unabhaengig davon, was
+die Gesamtzahl sagt.
+
 ---
 
 ## Messstand vom 2026-08-24 (abends) — Gate wieder gruen

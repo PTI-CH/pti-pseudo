@@ -41,6 +41,21 @@ Die Erwartungsdatei listet je Entitaet Typ und Zeichenbereich:
 Zweck dieses Verzeichnisses: eine Verbesserung an einem Erkenner darf keine
 stille Verschlechterung an einem anderen erkaufen.
 
+### `nur_messen` — und wofuer es NICHT da ist
+
+Ein `Testdokument` mit `nur_messen=True` erscheint im Bericht, zaehlt aber
+nicht ins Gate. Gedacht fuer Dokumente, die eine **Reichweitengrenze** des
+Werkzeugs vermessen statt eine Zusicherung zu pruefen. Heute zwei:
+
+| Dokument | warum |
+|---|---|
+| `franzoesische_namen` | Das Modell ist deutsch trainiert. Auf Franzoesisch nimmt spaCy `Sylvie Marchand a rédigé le procès-verbal` als **eine** Person und haelt `Police cantonale` fuer einen Namen. |
+| `uebersehener_name` | Misst Stufe D (Zweitmeinung), die ab Werk **aus** ist. Ohne sie **muss** dieses Dokument einen Fund verfehlen, sonst prueft es nicht mehr, wofuer es gebaut wurde. |
+
+**Es ist kein Ventil fuer unbequeme Ergebnisse.** Wird eine Marke gerissen,
+weil die Erkennung schlechter geworden ist, gehoert das behoben und nicht
+umdeklariert.
+
 ## Beim Erstellen synthetischer Dokumente beachten
 
 - **Echte Umlaute verwenden.** Das deutsche Modell erkennt transliterierte
@@ -386,3 +401,51 @@ als erstes verschwinden:
 Punkt 2 ist der praktisch wichtigste: er zeigt, dass die Begriffsliste kein
 Beiwerk ist, sondern die Ebene, auf der organisationsspezifisches Vokabular
 zuverlaessig erfasst wird.
+
+---
+
+## Messstand vom 2026-08-25 — mit KI-Schicht
+
+14 bewertete Dokumente, gegen den echten Dienst gemessen (`ki_pruefung=True`).
+
+| | ohne KI (= das Gate) | mit KI-Schicht | Marke |
+|---|---|---|---|
+| Gesamt-Precision | 91.9 % | **93.2 %** | ≥ 90 % — gehalten |
+| Gesamt-Recall | 98.6 % | **100 %** | — |
+| PERSON | 96.4 % / 96.4 % | **100 % / 100 %** | ≥ 90 % Recall — gehalten |
+| Struktur-PII | 100 % | 100 % | 100 % — gehalten |
+
+**Das Gate misst ohne KI-Schicht.** Sie braucht Netz und Schluessel, die CI hat
+beides nicht. Die 93.2 % entstehen nur im Lauf von Hand auf dem Knoten:
+
+```bash
+ssh -i ~/.ssh/jelastic_ci -p 3022 213705-10792@gate.jpc.infomaniak.com   'set -a; . /.jelenv; set +a; cd /home/jelastic/ROOT &&    /opt/jelastic-python314/bin/python3.14 -c "..."'
+```
+
+### Was sich seit dem 24.08. geaendert hat
+
+- **Zwei Messfehler behoben, die aelter waren als die Zahlen.** `pti_protokoll`
+  erwartete `Meldestelle fuer Geldwaescherei`, gab dem Lauf aber keine
+  Begriffsliste mit — es prueft damit, ob das Sprachmodell einen Behoerdennamen
+  erraet. Und die blossen Nachnamen in `mehrere_namen_je_fenster` sind echte
+  Funde (`Frau Kuhn`), wurden aber als Fehlalarm gezaehlt.
+- **Der Namenssplit ist behoben** (Befund 1 unten, historisch): Die KI-Schicht
+  liefert `Sandra Zbinden` vollstaendig.
+- **Befund 3 ist als dauerhaft erkannt.** Sachbegriffe wie `Kontrollschild` und
+  `Fallnummer` sind **nicht** ueber die Wortart loesbar — am 2026-08-25
+  nachgemessen tragen Strassennamen wie `Talblick`, `Bahnhofstrasse` und
+  `Ruetiweg` im Satzzusammenhang dieselbe Wortart (`NOUN`) wie die Fehlalarme.
+  Wer das angeht, braucht die KI-Schicht, nicht die Wortarten.
+
+### Der stille Ausfall, der das Messen rechtfertigt
+
+Am 2026-08-25 lieferte die KI-Schicht vormittags 9/9 brauchbare Antworten und
+nachmittags **0/3** — das Modell antwortete ploetzlich in Prosa statt in JSON,
+ohne dass sich an unserem Code etwas geaendert haette. Die Schicht faellt bei
+so etwas sauber auf die lokale Erkennung zurueck; **niemand haette es bemerkt**,
+haette nicht jemand gegen den echten Dienst gemessen.
+
+Deshalb: **Das Gate allein genuegt nicht.** Es laeuft ohne KI und kann diesen
+Ausfall nicht sehen. Der Lauf von Hand gehoert in regelmaessigen Abstaenden
+gemacht — und immer dann, wenn im Betrieb der Hinweis „Die KI-Pruefung war
+nicht erreichbar" gehaeuft auftaucht.

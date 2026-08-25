@@ -21,8 +21,10 @@ war der ganze Zweck des Kopierens statt eines `pip install presidio-analyzer`.
 
 Das Fachkonzept liegt im Schwester-Repo `landing` unter
 `frontend/public/ideen/pseudonymizer.html` (§1–§15) und ist live unter
-<https://pti-tip-hub.ch/ideen/pseudonymizer.html>. Diese Etappe setzt **Phase 1**
-daraus um (§12): Engine + GUI, lokal, ohne Async-Jobs und ohne LLM-Schicht.
+<https://pti-tip-hub.ch/ideen/pseudonymizer.html>. Umgesetzt sind daraus (§12)
+die Phasen **1, 2, 3 und 5**: Engine + GUI, Kategorienwahl und externe API,
+die KI-Schicht fuer Personennamen, xlsx und pptx. Offen sind PDF/OCR (Phase 6)
+und der SaaS-Vollausbau mit Async-Jobs (Phase 4).
 
 ## Verzeichnis-Konvention (wichtig für Upstream-Merges)
 

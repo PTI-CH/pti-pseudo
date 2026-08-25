@@ -199,10 +199,20 @@ anbindende Anwendung ab einem Deploy stillschweigend, Dokumentinhalte
 hinauszuschicken. Wer den Datenversand will, fordert ihn an.
 
 Jede Antwort trägt **`ki_geprueft`**. `false` heisst: nicht angefordert, nicht
-konfiguriert, nichts zu prüfen — **oder der Dienst hat nicht geantwortet**. Im
-letzten Fall enthält die Antwort trotzdem die vollständige lokale Fundliste;
-der Lauf scheitert nicht. Wer auf die KI-Prüfung angewiesen ist, muss das Feld
-auswerten.
+konfiguriert — **oder der Dienst hat nicht geantwortet**. Im letzten Fall
+enthält die Antwort trotzdem die vollständige lokale Fundliste; der Lauf
+scheitert nicht. Wer auf die KI-Prüfung angewiesen ist, muss das Feld auswerten.
+
+„Nichts zu prüfen" gehört seit dem 25.08.2026 **nicht** mehr dazu: Ein Text
+ohne Fundkandidaten liefert `true`, weil die Schicht vollständig gelaufen ist.
+Ein Hinweis, der ohne Grund erscheint, bringt Menschen dazu, Hinweise zu
+übergehen — und dieses Feld ist genau dafür da, gelesen zu werden.
+
+**Der Ausfall ist still.** Am 25.08.2026 antwortete der Dienst plötzlich in
+Prosa statt in JSON, ohne dass sich an unserem Code etwas geändert hätte: Die
+KI-Prüfung lief einen halben Tag lang wirkungslos, während die Antworten
+weiterhin gültig aussahen. Genau dagegen ist dieses Feld die einzige
+Sicherung — wer es nicht auswertet, merkt einen solchen Fall nie.
 
 ### `POST /documents:anonymize`
 

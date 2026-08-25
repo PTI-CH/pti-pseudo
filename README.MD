@@ -17,10 +17,10 @@ gemeinsame Anmeldeverfahren des TIP-Hubs.
 
 | | |
 |---|---|
-| **Erkennen** | Drei Ebenen: eigene Begriffsliste, Muster mit Prüfziffer (AHV, IBAN, Telefon), deutsche Namenserkennung (spaCy) |
+| **Erkennen** | Vier Ebenen: eigene Begriffsliste, Muster mit Prüfziffer (AHV, IBAN, Telefon), deutsche Namenserkennung (spaCy), KI-Prüfung der Namensgrenzen (Infomaniak AI Tools, abwählbar) |
 | **Ersetzen** | Umkehrbar (`[[PERSON_1]]`, Zuordnung im verschlüsselten Tresor) oder endgültig anonym |
 | **Zurückführen** | Verlustfrei — der zurückgeführte Text ist byte-identisch zum Original |
-| **Formate** | DOCX (inkl. Kopf-/Fusszeilen, Tabellen, Fussnoten, Kommentare, Textboxen), TXT, CSV |
+| **Formate** | DOCX (inkl. Kopf-/Fusszeilen, Tabellen, Fussnoten, Kommentare, Textboxen), XLSX, PPTX (inkl. Sprechernotizen), TXT, CSV |
 | **Kategorienwahl** | Vor dem Lauf bestimmen, welche Entitätstypen pseudonymisiert werden (nur IBANs, nur Namen, beliebige Kombination) |
 
 Schweizer Erkenner: AHV-Nummer mit EAN-13-Prüfziffer, CH-/LI-IBAN mit
@@ -29,8 +29,9 @@ Postleitzahlen.
 
 Der fachliche Entwurf (Ziele, Datenmodell, API, Phasenplan) liegt im
 Schwester-Repo `landing` unter `frontend/public/ideen/pseudonymizer.html` und
-ist live unter <https://pti-tip-hub.ch/ideen/pseudonymizer.html> lesbar. Dieser
-Stand setzt **Phase 1** daraus um.
+ist live unter <https://pti-tip-hub.ch/ideen/pseudonymizer.html> lesbar.
+Umgesetzt sind die Phasen **1, 2, 3 und 5**; offen sind PDF/OCR (Phase 6) und
+der SaaS-Vollausbau (Phase 4).
 
 ## Lokal starten
 
@@ -79,6 +80,10 @@ denen vorher feststeht, was gefunden werden muss und was nicht.
 .venv/Scripts/python -m pytest backend/tests/test_golden_set.py -v   # Gate
 .venv/Scripts/python scripts/golden_set_report.py                    # Bericht
 ```
+
+Stand 25.08.2026: **93.2 % Precision, 100 % Recall, Personennamen 100 %**
+gegen den echten KI-Dienst gemessen. Das Gate misst **ohne** die KI-Schicht —
+die CI hat weder Netz noch Schluessel — und liegt bei 91.9 % / 98.6 %.
 
 Messstand, Zielmarken und die bekannten Modellschwaechen stehen in
 [golden-set/README.md](golden-set/README.md).

@@ -221,7 +221,23 @@ PUBLIC_BASE_URL=https://pseudo.pti-tip-hub.ch
 VAULT_MASTER_KEY=…                  openssl rand -hex 32
 SPACY_MODEL=de_core_news_md
 MAX_UPLOAD_BYTES=26214400
+INFOMANIAK_AI_KEY=…                 Token der AI Tools
+INFOMANIAK_AI_PRODUCT_ID=110819     steht im PFAD der Anfrage, nicht im Kopf
+INFOMANIAK_AI_MODELL=swiss-ai/Apertus-v1.5-70B
+KI_ZWEITMEINUNG=off                 Vorgabe; siehe unten
 ```
+
+> **`INFOMANIAK_AI_PRODUCT_ID` ist kein Beiwerk.** Sie steht im Pfad
+> (`{base}/2/ai/{product_id}/openai/v1/chat/completions`) — ohne sie lässt sich
+> der Dienst nicht adressieren, auch mit gültigem Token nicht.
+
+> **`KI_ZWEITMEINUNG`** schaltet Stufe D zu: die Zweitmeinung auf dem
+> maskierten Volltext. Sie ist die einzige Stufe, bei der der **vollständige**
+> Dokumenttext hinausgeht — ohne die erkannten Namen, aber mit dem ganzen
+> Sachverhalt. Vorgabe `off`, und das ist gemessen: Sie senkte die Precision
+> von 93.2 % auf 87.2 % und verdreifachte die Anfragen je Dokument. Der
+> Schalter existiert, damit sich das ohne Deploy ändern lässt — in beide
+> Richtungen.
 
 > **`VAULT_MASTER_KEY` geht verloren = alle Vaults sind unwiderruflich unlesbar.**
 > Der Schlüssel gehört zusätzlich in den Passwortmanager, nicht nur ins Panel.

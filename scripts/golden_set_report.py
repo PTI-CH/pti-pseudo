@@ -552,14 +552,43 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         print("Keine Testdokumente im Golden-Set.", file=sys.stderr)
         return 1
 
-    auswertung = werte_aus(dokumente)
+    # Getrennt ausgewiesen, nicht zusammengezaehlt: Dokumente mit
+    # ``nur_messen`` vermessen eine Reichweitengrenze des Werkzeugs statt eine
+    # Zusicherung zu pruefen. In der Gesamtzeile wuerden sie die Kennzahl
+    # druecken, ohne dass jemand etwas verschlechtert haette — weggelassen
+    # waeren sie unsichtbar, und eine unsichtbare Schwaeche wird nie behoben.
+    bewertet = [d for d in dokumente if not getattr(d, "nur_messen", False)]
+    gemessen = [d for d in dokumente if getattr(d, "nur_messen", False)]
 
-    print(f"Golden-Set-Auswertung — {len(dokumente)} Dokument(e)\n")
-    print(formatiere_tabelle(auswertung))
-    print()
-    print(formatiere_verfehlte(auswertung))
-    print()
-    print(formatiere_fehlalarme(auswertung))
+    if bewertet:
+        auswertung = werte_aus(bewertet)
+        print(f"Golden-Set-Auswertung — {len(bewertet)} Dokument(e)\n")
+        print(formatiere_tabelle(auswertung))
+        print()
+        print(formatiere_verfehlte(auswertung))
+        print()
+        print(formatiere_fehlalarme(auswertung))
+
+    if gemessen:
+        namen = ", ".join(sorted(d.name for d in gemessen))
+        print()
+        print("=" * 74)
+        print(f"Nur gemessen, nicht bewertet — {namen}")
+        print("=" * 74)
+        print(
+            "Diese Dokumente zaehlen nicht in die Zahlen oben und nicht ins\n"
+            "Gate. Sie vermessen, wie weit das Werkzeug ueber seinen\n"
+            "Auslegungsbereich hinaus traegt. Schlechte Werte sind hier ein\n"
+            "Befund, kein Rueckschritt — die Begruendung steht je Dokument im\n"
+            "Generator.\n"
+        )
+        messung = werte_aus(gemessen)
+        print(formatiere_tabelle(messung))
+        print()
+        print(formatiere_verfehlte(messung))
+        print()
+        print(formatiere_fehlalarme(messung))
+
     return 0
 
 

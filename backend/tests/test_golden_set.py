@@ -46,8 +46,14 @@ pytestmark = pytest.mark.skipif(
 
 @pytest.fixture(scope="session")
 def auswertung() -> report.Gesamtauswertung:
-    """Lässt die Erkennung genau einmal über das gesamte Golden-Set laufen."""
-    dokumente = list(generator.DOKUMENTE)
+    """Lässt die Erkennung genau einmal über das bewertete Golden-Set laufen.
+
+    Dokumente mit ``nur_messen`` bleiben draussen. Sie vermessen eine
+    Reichweitengrenze des Werkzeugs statt eine Zusicherung zu prüfen und
+    liefern erwartungsgemäss schlechte Zahlen — im Bericht sichtbar, hier
+    nicht sperrend. Die Begründung je Dokument steht am Dokument selbst.
+    """
+    dokumente = [d for d in generator.DOKUMENTE if not d.nur_messen]
     if not dokumente:
         pytest.skip("golden-set/synthetic/generator.py liefert keine Dokumente.")
     return report.werte_aus(dokumente)

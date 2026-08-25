@@ -5,15 +5,22 @@ Feinheiten:
 
 1. Die Fenster nehmen **nicht mehr Text mit als vereinbart**. Nur was hier
    entsteht, verlaesst das Haus.
-2. Die Antwort **erweitert Fundgrenzen nur**. Ein verkleinerter Fund liesse
-   einen Namensteil im Dokument stehen — das gefaehrlichste Fehlerbild dieses
-   Werkzeugs, weil das Ergebnis trotzdem pseudonymisiert aussieht.
+2. Die Antwort **laesst keinen Namensteil zurueck**. Erweitern ist immer
+   erlaubt; verkleinert werden darf nur, wenn dabei kein grossgeschriebenes
+   Wort wegfaellt. Ein zurueckgelassener Namensteil ist das gefaehrlichste
+   Fehlerbild dieses Werkzeugs, weil das Ergebnis trotzdem pseudonymisiert
+   aussieht.
 """
 
 from __future__ import annotations
 
 from backend.adapters import Segment
-from backend.ki.namen import baue_fenster, baue_nachrichten, wende_an
+from backend.ki.namen import (
+    baue_eigenname_nachrichten,
+    baue_fenster,
+    baue_nachrichten,
+    wende_an,
+)
 from backend.pipeline import Finding
 
 
@@ -229,3 +236,96 @@ def test_schema_verbietet_zusaetzliche_felder():
 
     assert SCHEMA["additionalProperties"] is False
     assert SCHEMA["properties"]["funde"]["items"]["additionalProperties"] is False
+
+
+def test_verkleinern_erlaubt_wenn_nur_kleingeschriebenes_wegfaellt():
+    """Der franzoesische Fall: spaCy nimmt den halben Satz als Namen.
+
+    Am 2026-08-24 am echten Dienst gemessen — spaCy meldete
+    ``Sylvie Marchand a rédigé le procès-verbal`` als **eine** Person, die KI
+    antwortete korrekt ``Sylvie Marchand``. Was wegfaellt, ist Fliesstext:
+    Der Name bleibt vollstaendig abgedeckt, es steht danach kein Namensteil
+    im Klartext. Genau dafuer ist die Ausnahme da.
+    """
+    text = "Madame Sylvie Marchand a rédigé le procès-verbal."
+    findings = [_fund(text, "Sylvie Marchand a rédigé le procès-verbal")]
+    fenster = baue_fenster([_segment(text)], findings)
+    neu, verworfen = wende_an(
+        findings,
+        fenster,
+        {"funde": [{"nummer": 0, "name": "Sylvie Marchand", "ist_person": True}]},
+    )
+    assert neu[0].text == "Sylvie Marchand"
+    assert text[neu[0].start : neu[0].end] == "Sylvie Marchand"
+    assert verworfen == 0
+
+
+def test_verkleinern_verworfen_wenn_vorne_ein_name_wegfaellt():
+    """Die Gegenprobe zur Ausnahme — und ihr eigentlicher Zweck.
+
+    ``Jean-Pierre`` ist grossgeschrieben und damit moeglicherweise ein
+    Namensteil. Faellt er weg, stuende er danach im Klartext in einem
+    Dokument, das pseudonymisiert aussieht. Die Ausnahme darf hier **nicht**
+    greifen.
+    """
+    text = "Der Bericht stammt von Jean-Pierre Rochat aus Freiburg."
+    findings = [_fund(text, "Jean-Pierre Rochat")]
+    fenster = baue_fenster([_segment(text)], findings)
+    neu, verworfen = wende_an(
+        findings,
+        fenster,
+        {"funde": [{"nummer": 0, "name": "Rochat", "ist_person": True}]},
+    )
+    assert neu[0].text == "Jean-Pierre Rochat"
+    assert verworfen == 1
+
+
+# ── Ort und Organisation: nur messen ───────────────────────────────────────
+
+
+def test_fenster_nur_fuer_die_verlangten_typen():
+    """``typen`` steuert, welche Funde ueberhaupt ein Fenster bekommen."""
+    text = "Die Kantonspolizei Bern meldete Frau Zbinden aus Thun."
+    findings = [
+        Finding(
+            "text",
+            "ORGANIZATION",
+            text.index("Kantonspolizei"),
+            text.index("Kantonspolizei") + len("Kantonspolizei Bern"),
+            0.85,
+            "Kantonspolizei Bern",
+        ),
+        Finding(
+            "text",
+            "PERSON",
+            text.index("Zbinden"),
+            text.index("Zbinden") + len("Zbinden"),
+            0.85,
+            "Zbinden",
+        ),
+    ]
+
+    assert [f.markiert for f in baue_fenster([_segment(text)], findings)] == ["Zbinden"]
+    nur_org = baue_fenster([_segment(text)], findings, typen=("ORGANIZATION",))
+    assert [f.markiert for f in nur_org] == ["Kantonspolizei Bern"]
+
+
+def test_eigenname_nachrichten_fragen_nach_gattungswoertern():
+    """Die Messfrage ist eine andere als die Namensfrage — und bleibt getrennt."""
+    text = "Der Abgleich lief über die Fallnummer 2026-4711."
+    findings = [
+        Finding(
+            "text",
+            "LOCATION",
+            text.index("Fallnummer"),
+            text.index("Fallnummer") + len("Fallnummer"),
+            0.85,
+            "Fallnummer",
+        )
+    ]
+    fenster = baue_fenster([_segment(text)], findings, typen=("LOCATION",))
+    nachrichten = baue_eigenname_nachrichten(fenster)
+
+    assert nachrichten[0]["role"] == "system"
+    assert "Eigenname" in nachrichten[0]["content"]
+    assert ">>>Fallnummer<<<" in nachrichten[1]["content"]

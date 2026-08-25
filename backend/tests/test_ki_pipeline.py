@@ -26,10 +26,15 @@ class KiDoppel:
         self.antwort = antwort
         self.aufrufe = 0
         self.letzte_nachrichten = None
+        #: Alle Anfragen, nicht nur die letzte. Seit die Messung zu Ort und
+        #: Organisation mitlaeuft, ist die letzte Anfrage nicht mehr
+        #: zwangslaeufig die Namenspruefung.
+        self.alle_nachrichten = []
 
     def chat_json(self, nachrichten, schema, max_tokens=2000):
         self.aufrufe += 1
         self.letzte_nachrichten = nachrichten
+        self.alle_nachrichten.append(nachrichten)
         if isinstance(self.antwort, Exception):
             raise self.antwort
         return self.antwort
@@ -85,15 +90,28 @@ def test_nur_fenster_gehen_hinaus():
     """Die Datenschutz-Zusage, am Einhaengepunkt geprueft.
 
     Der Segmenttext ist laenger als das Fenster; was ausserhalb liegt, darf
-    die Anfrage nicht erreichen.
+    die Anfrage nicht erreichen — und zwar **jede** Anfrage. Seit die Messung
+    zu Ort und Organisation mitlaeuft, gibt es davon mehrere: Das Modell haelt
+    ``Streng`` im Vorspann sechsmal fuer einen Ort, und um jeden dieser
+    Fehlalarme entsteht ebenfalls ein Fenster.
+
+    Geprueft wird deshalb die Zusage selbst — kein Ausschnitt umfasst das
+    Segment — statt einer Zahl, die nur fuer das eine Namensfenster stimmte.
     """
     lang = "Streng vertraulicher Vorspann ohne Namen. " * 6 + TEXT
     ki = KiDoppel({"funde": []})
     pipeline.detect_in_segments(
         [Segment(id="text", text=lang, location=None)], ki_pruefung=True, ki=ki
     )
-    inhalt = ki.letzte_nachrichten[-1]["content"]
-    assert inhalt.count("vertraulicher") <= 1
+
+    assert ki.alle_nachrichten, "es muss ueberhaupt gefragt worden sein"
+    for nachrichten in ki.alle_nachrichten:
+        inhalt = nachrichten[-1]["content"]
+        assert len(inhalt) < len(lang), "kein Ausschnitt darf das Segment umfassen"
+
+    # Die Namenspruefung ist die erste Anfrage; fuer sie gilt die urspruengliche,
+    # schaerfere Zusicherung weiterhin.
+    assert ki.alle_nachrichten[0][-1]["content"].count("vertraulicher") <= 1
 
 
 def test_korrektur_wird_durchs_dokument_getragen():
@@ -203,3 +221,85 @@ def test_klientfehler_wird_nicht_wiederholt():
     ergebnis = pipeline.detect_in_segments(_segmente(), ki_pruefung=True, ki=ki)
     assert ki.aufrufe == 1, "kein zweiter Versuch bei einem Fehler unsererseits"
     assert ergebnis.ki_geprueft is False
+
+
+# ── Ort und Organisation: nur messen ───────────────────────────────────────
+
+TEXT_GEMISCHT = (
+    "Frau Sandra Zbinden von der Kantonspolizei Bern meldete den Vorfall in Thun."
+)
+
+
+class KiNachSchema:
+    """Antwortet je nach gestelltem Schema — wie der echte Dienst auch."""
+
+    def __init__(self, person, eigenname):
+        self.person = person
+        self.eigenname = eigenname
+        self.schemata = []
+
+    def chat_json(self, nachrichten, schema, max_tokens=2000):
+        self.schemata.append(schema)
+        gefragt = "ist_eigenname" in str(schema)
+        antwort = self.eigenname if gefragt else self.person
+        if isinstance(antwort, Exception):
+            raise antwort
+        return antwort
+
+    @property
+    def wurde_gemessen(self) -> bool:
+        return any("ist_eigenname" in str(s) for s in self.schemata)
+
+
+def _gemischt():
+    return [Segment(id="text", text=TEXT_GEMISCHT, location=None)]
+
+
+def _ohne_person(ergebnis):
+    return sorted(
+        (f.entity_type, f.text)
+        for f in ergebnis.findings
+        if f.entity_type != "PERSON"
+    )
+
+
+def test_messung_zu_ort_und_organisation_aendert_keinen_fund():
+    """Der Waechter dieser Etappe.
+
+    Die Messung fragt die KI zu Ort- und Organisationsfunden, **wendet aber
+    nichts an**. Selbst wenn die KI jeden davon fuer ein Gattungswort haelt,
+    muss die Fundliste danach Zeichen fuer Zeichen dieselbe sein wie ohne
+    KI-Pruefung. Faellt dieser Test, ist aus einer Messung unbemerkt ein
+    Eingriff geworden.
+    """
+    ki = KiNachSchema(
+        person={"funde": [{"nummer": 0, "name": "Sandra Zbinden", "ist_person": True}]},
+        eigenname={
+            "funde": [
+                {"nummer": 0, "ist_eigenname": False},
+                {"nummer": 1, "ist_eigenname": False},
+            ]
+        },
+    )
+    ohne = pipeline.detect_in_segments(_gemischt())
+    mit = pipeline.detect_in_segments(_gemischt(), ki_pruefung=True, ki=ki)
+
+    assert ki.wurde_gemessen, "die Messfrage muss ueberhaupt gestellt worden sein"
+    assert _ohne_person(mit) == _ohne_person(ohne)
+
+
+def test_ausfall_der_messung_kostet_den_lauf_nicht():
+    """Die Messung ist ein Nebenprodukt — sie darf keine Erkennung kosten.
+
+    ``ki_geprueft`` bleibt ``True``: Die Aussage des Flags betrifft die
+    angewandte Namenspruefung, und die ist vollstaendig durchgelaufen.
+    """
+    ki = KiNachSchema(
+        person={"funde": [{"nummer": 0, "name": "Sandra Zbinden", "ist_person": True}]},
+        eigenname=KiFehler("Dienst nicht erreichbar"),
+    )
+    ergebnis = pipeline.detect_in_segments(_gemischt(), ki_pruefung=True, ki=ki)
+
+    personen = [f.text for f in ergebnis.findings if f.entity_type == "PERSON"]
+    assert "Sandra Zbinden" in personen
+    assert ergebnis.ki_geprueft is True

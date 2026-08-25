@@ -106,6 +106,14 @@ Drei Regeln:
 1. **Marken nicht nachziehen.** Reisst eine Zielmarke, ist die Erkennung
    schlechter geworden — nicht die Marke zu hoch. Zielmarken und Messstand
    stehen in `golden-set/README.md`.
+
+   Das Feld `nur_messen` am `Testdokument` ist **kein Schlupfloch dafür**. Es
+   ist für Dokumente gedacht, die eine *Reichweitengrenze* des Werkzeugs
+   vermessen statt eine Zusicherung zu prüfen — heute nur
+   `franzoesische_namen`, weil das Modell deutsch trainiert ist. Solche
+   Dokumente stehen im Bericht in einem eigenen Block und sperren nicht.
+   Wird eine Marke gerissen, **weil die Erkennung schlechter geworden ist**,
+   gehört das behoben und nicht umdeklariert.
 2. **Echte Umlaute in Testdaten.** Das Modell haelt `Spaeter` faelschlich fuer
    einen Personennamen, `Später` nicht. Ein Golden-Set in ae/oe/ue-Schreibweise
    misst die falsche Groesse.

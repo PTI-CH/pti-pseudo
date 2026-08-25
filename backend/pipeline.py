@@ -207,6 +207,11 @@ def detect_in_segments(
         result.findings, result.ki_geprueft = _ki_pruefen(
             result.segments, result.findings, ki
         )
+        # Reine Messung, danach und getrennt: Sie nimmt die Fundliste nur
+        # lesend und gibt nichts zurueck. `ki_geprueft` bleibt davon
+        # unberuehrt — das Flag sagt aus, ob die ANGEWANDTE Namenspruefung
+        # vollstaendig durchlief, und das tut sie unabhaengig davon.
+        _ki_messen_ort_organisation(result.segments, result.findings, ki)
 
     if propagate:
         result.findings = propagate_findings(result.segments, result.findings)
@@ -321,6 +326,72 @@ def _ki_pruefen(segments, findings, ki) -> tuple[list[Finding], bool]:
     # Mensch verliesse sich dann auf eine Pruefung, die einen Teil des
     # Dokuments nie gesehen hat.
     return aktuell, gelungen == len(stuecke)
+
+
+#: Typen, zu denen die KI **befragt, aber nicht gehoert** wird.
+#:
+#: Fuenf der sechs verbleibenden Fehlalarme des Golden-Sets sind
+#: Gattungswoerter, die als Ort oder Organisation durchgehen (``Fallnummer``,
+#: ``Kontrollschild``, ``Intern``). Die Wortart-Regel kann sie nachweislich
+#: nicht trennen — siehe ``backend/engine/wortarten.py``.
+#:
+#: Die KI koennte es; sie hat ``Police cantonale`` unaufgefordert als
+#: Nicht-Person bezeichnet. Wieviel sie in **echten** Dokumenten taugt, weiss
+#: aber niemand, und das Golden-Set hat dafuer zu wenige Faelle. Deshalb wird
+#: hier nur gefragt und protokolliert. Ob daraus je ein Eingriff wird,
+#: entscheidet der Auftraggeber an gemessenen Zahlen — nicht an einer
+#: Vermutung.
+MESSTYPEN = ("LOCATION", "ORGANIZATION")
+
+
+def _ki_messen_ort_organisation(segments, findings, ki) -> None:
+    """Fragt die KI zu Ort- und Organisationsfunden und aendert nichts.
+
+    Gibt bewusst ``None`` zurueck und nimmt ``findings`` nur lesend: Es gibt
+    kein Gegenstueck zu :func:`backend.ki.namen.wende_an`, damit aus der
+    Messung nicht versehentlich ein Eingriff wird. Der Waechter darueber ist
+    ``test_messung_zu_ort_und_organisation_aendert_keinen_fund``.
+
+    Faellt irgendetwas aus, kostet das nichts ausser der Messung selbst —
+    deshalb faengt der Block **jede** Ausnahme. Das ist hier richtig und nicht
+    nachlaessig: Eine Erkennung, die an einem Nebenprodukt scheitert, waere
+    ein Rueckschritt gegenueber dem Zustand ohne Messung.
+    """
+    try:
+        from backend.config import get_settings
+        from backend.ki import namen
+        from backend.ki.infomaniak import InfomaniakKi, ist_verfuegbar
+
+        if ki is None:
+            einstellungen = get_settings()
+            if not ist_verfuegbar(einstellungen):
+                return
+            ki = InfomaniakKi(einstellungen)
+
+        fenster = namen.baue_fenster(segments, findings, typen=MESSTYPEN)
+        if not fenster:
+            return
+
+        for stueck in namen.stueckle(fenster):
+            antwort = ki.chat_json(
+                namen.baue_eigenname_nachrichten(stueck), namen.SCHEMA_EIGENNAME
+            )
+            nach_nummer = {f.nummer: f for f in stueck}
+            for eintrag in antwort.get("funde", []):
+                gefragt = nach_nummer.get(eintrag.get("nummer"))
+                if gefragt is None:
+                    continue
+                # Festes Praefix zum Filtern im Protokoll; kein Dokumentbezug
+                # und kein Segmenttext — nur der Fundtext, der ohnehin schon
+                # in der Fundliste vor dem Nutzer steht.
+                logger.info(
+                    "KI-Messung typ=%s ist_eigenname=%s text=%r",
+                    findings[gefragt.finding_index].entity_type,
+                    eintrag.get("ist_eigenname"),
+                    gefragt.markiert,
+                )
+    except Exception:
+        logger.warning("KI-Messung zu Ort/Organisation ausgefallen.", exc_info=True)
 
 
 # ── Uebertragung eines Fundes auf gleichlautende Stellen ────────────────────

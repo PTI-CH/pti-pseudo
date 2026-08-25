@@ -161,6 +161,20 @@ class Testdokument:
         Ohne solche Fälle wäre eine geleerte Begriffsliste im Betrieb
         unsichtbar: die Messung liefe weiterhin grün, während die Erkennung
         still schlechter geworden wäre.
+    nur_messen
+        ``True`` bedeutet: Der Bericht wertet dieses Dokument aus, das Gate
+        lässt es aus.
+
+        Gedacht für Dokumente, die eine **Reichweitengrenze** des Werkzeugs
+        vermessen statt eine Zusicherung zu prüfen — etwa fremdsprachigen
+        Text, für den das deutsche Modell nicht trainiert ist. Ein solches
+        Dokument liefert erwartungsgemäss schlechte Zahlen; sie ins Gate zu
+        nehmen hiesse, jeden künftigen PR an einer Schwäche zu blockieren,
+        die niemand mit dieser Änderung eingebaut hat.
+
+        Es ist ausdrücklich **kein** Ventil für unbequeme Ergebnisse: Wird
+        eine Zielmarke gerissen, weil die Erkennung schlechter geworden ist,
+        gehört das behoben und nicht umdeklariert.
     """
 
     name: str
@@ -170,6 +184,7 @@ class Testdokument:
     erwartet: tuple[Erwartung, ...]
     verboten: tuple[Erwartung, ...]
     begriffe: tuple[dict, ...] = ()
+    nur_messen: bool = False
 
 
 # ── PTI-Fachvokabular (Auszug aus dem Translator-Glossar) ──────────────────
@@ -738,6 +753,14 @@ def _baue_pti_protokoll() -> Testdokument:
         inhalt=_als_bytes(dokument),
         erwartet=erwartet,
         verboten=(),
+        # Ohne diese Zeile mass das Dokument die falsche Grösse: Es erwartet
+        # ``Meldestelle für Geldwäscherei`` als ORGANIZATION, gab dem Lauf
+        # aber keine Begriffsliste mit — und prüfte damit, ob das
+        # Sprachmodell einen Behördennamen errät. Das kann es nicht, das ist
+        # keine Neuigkeit, und genau dafür gibt es Ebene 0. In der
+        # Produktionsliste steht der Begriff seit Etappe B; der Bericht
+        # meldete also einen Fehler, den der Betrieb nicht hat.
+        begriffe=_behoerden_aus_datei(),
     )
 
 
@@ -1128,11 +1151,159 @@ def _baue_behoerdenliste() -> Testdokument:
     )
 
 
+def _baue_mehrere_namen_je_fenster() -> Testdokument:
+    """Mehrere Personen so dicht beieinander, dass ihre Fenster sich decken.
+
+    Die KI-Schicht baut je Fundkandidat ein Fenster von ±10 Wörtern. Stehen
+    drei Namen in einem Satz, sieht das Modell in jedem Fenster **alle drei**
+    und muss trotzdem für jede Nummer genau den einen markierten Namen
+    zurückgeben. Verwechselt es die Zuordnung, wandert ein Name auf die
+    Fundstelle eines anderen — und die Ersetzung träfe die falsche Stelle.
+
+    Ein Fehlerbild, das ohne KI-Schicht gar nicht existiert. Deshalb steht der
+    Fall hier.
+    """
+    text = "\n".join(
+        [
+            "Besprechungsnotiz",
+            "",
+            "Anwesend waren Marlies Kuhn, Reto Bachmann und Fabienne Lüthi.",
+            "Frau Kuhn führte das Protokoll, Herr Bachmann berichtete zur Lage,",
+            "und Frau Lüthi ergänzte die Zahlen.",
+            "",
+            "Nächster Termin: Dienstag.",
+        ]
+    )
+
+    # Die blossen Nachnamen im zweiten Satz sind ECHTE Funde, keine
+    # Fehlalarme — "Frau Kuhn" ist eine Person. Sie gehoeren in die Erwartung,
+    # sonst misst der Satz eine korrekte Erkennung als Fehler.
+    erwartet = (
+        Erwartung("Marlies Kuhn", "PERSON"),
+        Erwartung("Reto Bachmann", "PERSON"),
+        Erwartung("Fabienne Lüthi", "PERSON"),
+        Erwartung("Kuhn", "PERSON"),
+        Erwartung("Bachmann", "PERSON"),
+        Erwartung("Lüthi", "PERSON"),
+    )
+
+    return Testdokument(
+        name="mehrere_namen_je_fenster",
+        dateiname="besprechungsnotiz.txt",
+        beschreibung=(
+            "Drei Personen in einem Satz — die Fenster der KI-Schicht "
+            "überlappen sich vollständig."
+        ),
+        inhalt=text.encode("utf-8"),
+        erwartet=erwartet,
+        verboten=(),
+    )
+
+
+def _baue_franzoesische_namen() -> Testdokument:
+    """Die Schweiz ist mehrsprachig, das Werkzeug muss es aushalten.
+
+    Das deutsche spaCy-Modell ist auf deutschen Text trainiert. Bei
+    französischem Text ist offen, ob es überhaupt etwas findet — und ob die
+    KI-Schicht die Grenzen dann richtig setzt. Ein Vorname wie ``Jean-Pierre``
+    mit Bindestrich ist der Fall, an dem eine Grenzkorrektur schiefgehen kann.
+
+    Dieses Dokument misst, statt eine Erwartung zu bestätigen: Reisst hier
+    etwas, ist das ein Befund über die Reichweite des Werkzeugs und kein
+    Fehler im Testfall.
+    """
+    text = "\n".join(
+        [
+            "Note de service",
+            "",
+            "L'entretien a été mené par Jean-Pierre Rochat, Police cantonale.",
+            "Madame Sylvie Marchand a rédigé le procès-verbal.",
+            "",
+            "Contact: sylvie.marchand@example.ch",
+        ]
+    )
+
+    erwartet = (
+        Erwartung("Jean-Pierre Rochat", "PERSON"),
+        Erwartung("Sylvie Marchand", "PERSON"),
+        Erwartung("sylvie.marchand@example.ch", "EMAIL_ADDRESS"),
+    )
+
+    return Testdokument(
+        name="franzoesische_namen",
+        dateiname="note_de_service.txt",
+        beschreibung=(
+            "Französischer Text mit Bindestrich-Vornamen — misst, wie weit "
+            "das deutsche Modell und die KI-Schicht dort tragen."
+        ),
+        inhalt=text.encode("utf-8"),
+        erwartet=erwartet,
+        verboten=(),
+        # Das Modell ist auf deutschen Text trainiert; auf Französisch
+        # vermisst dieses Dokument eine Reichweitengrenze, die schon vor
+        # seiner Aufnahme bestand. Am 2026-08-24 gemessen: spaCy nimmt
+        # ``Sylvie Marchand a rédigé le procès-verbal`` als **eine** Person
+        # und hält ``Police cantonale`` für einen Personennamen.
+        #
+        # Die KI-Schicht richtet den ersten Fall inzwischen (siehe
+        # ``backend/ki/namen.py``) — das Gate misst aber ohne sie. Es an
+        # dieser Schwäche scheitern zu lassen hiesse, jeden künftigen PR zu
+        # blockieren; sie zu verschweigen hiesse, sie nie zu beheben. Also:
+        # im Bericht sichtbar, im Gate aussen vor.
+        nur_messen=True,
+    )
+
+
+def _baue_namen_an_zellgrenzen() -> Testdokument:
+    """Ein Name, den erst der Tabulator zwischen zwei Zellen zusammensetzt.
+
+    Der XLSX-Adapter verbindet die Zellen einer Zeile mit Tabulator. Ein
+    Fenster der KI-Schicht enthält damit einen Namen, der im Dokument über
+    eine Zellgrenze läuft — und eine korrigierte Grenze muss beim
+    Zurückschreiben wieder die richtige Zelle treffen.
+
+    ``xlsx_personenliste`` kennt den Fall bereits; hier steht er zusätzlich mit
+    einem Bindestrich-Vornamen, an dem eine Erweiterung danebengehen kann.
+    """
+    daten = baue_xlsx(
+        [
+            (
+                "Anwesenheit",
+                [
+                    ["Nachname", "Vorname", "Funktion"],
+                    ["Steinmann", "Katharina", "Leitung"],
+                    ["Hauser", "Jean-Marc", "Protokoll"],
+                ],
+            )
+        ]
+    )
+
+    erwartet = (
+        Erwartung("Steinmann\tKatharina", "PERSON"),
+        Erwartung("Hauser\tJean-Marc", "PERSON"),
+    )
+
+    return Testdokument(
+        name="namen_an_zellgrenzen",
+        dateiname="anwesenheit.xlsx",
+        beschreibung=(
+            "Namen, die erst der Tabulator zwischen zwei Zellen zusammensetzt "
+            "— einer davon mit Bindestrich-Vornamen."
+        ),
+        inhalt=daten,
+        erwartet=erwartet,
+        verboten=(),
+    )
+
+
 DOKUMENTE: List[Testdokument] = [
     _baue_begriffsliste(),
     _baue_behoerdenliste(),
     _baue_xlsx_personenliste(),
     _baue_pptx_praesentation(),
+    _baue_mehrere_namen_je_fenster(),
+    _baue_franzoesische_namen(),
+    _baue_namen_an_zellgrenzen(),
     _baue_mehrere_runs(),
     _baue_struktur_pii(),
     _baue_fehlalarm_fallen(),

@@ -73,6 +73,25 @@ Kontext vorkommt.
 Diese Abwägung ist bewusst getroffen und gehört überprüft, wenn das Golden-Set
 wächst: Wer sie umdrehen will, findet die Zahlen oben und den Waechter in
 ``golden-set/``.
+
+Warum nicht auch ORT und ORGANISATION — die Tür ist zu
+-------------------------------------------------------
+Es liegt nahe, die Regel auf ``LOCATION`` und ``ORGANIZATION`` auszuweiten:
+Die verbleibenden Fehlalarme des Golden-Sets sind fast alle Gattungswörter
+(``Fallnummer``, ``Kontrollschild``, ``Polizei-Abfrageplattform``, ``Intern``).
+Ein erster Versuch kostete sieben echte Funde und wurde zurückgenommen — was
+wie ein Umsetzungsfehler aussah.
+
+Am 2026-08-24 nachgemessen, und es ist keiner. Die Wortart trennt diese
+beiden Gruppen schlicht nicht, **auch nicht im Satzzusammenhang**:
+
+    echte Funde   Talblick/NOUN   Bahnhofstrasse/NOUN   Rütiweg/NOUN
+    Fehlalarme    Fallnummer/NOUN Kontrollschild/NOUN   Polizei-…/NOUN
+
+Deutsche Strassen- und Flurnamen *sind* Substantive; das Modell hat recht und
+liefert trotzdem kein verwertbares Signal. Kein Feinschliff an dieser Regel
+ändert daran etwas — wer diese Fehlerklasse angehen will, braucht die
+KI-Schicht (``backend/ki/``) und nicht die Wortarten.
 """
 
 from __future__ import annotations

@@ -12,12 +12,20 @@ und nie das Dokument. Preis: Ein Name, den spaCy vollstaendig uebersieht,
 bleibt uebersehen — die KI sieht nur, wo die lokale Erkennung schon etwas
 gefunden hat.
 
-**Nur erweitern.** Ein Vorschlag, der eine Fundgrenze verkleinert oder einen
-Fund entfernen will, wird verworfen. Die Fehler sind asymmetrisch: Ein
-Fehlalarm kostet ein Wort, das ein Mensch in der Fundliste abwaehlt; ein zu
-Unrecht verworfener Fund kostet einen Klarnamen in einem Dokument, das
-aussieht wie pseudonymisiert. Dieselbe Regel gilt seit PR #8 fuer
-``pipeline.propagate_findings``.
+**Nie entfernen, und nur gefahrlos verkleinern.** Die Fehler sind
+asymmetrisch: Ein Fehlalarm kostet ein Wort, das ein Mensch in der Fundliste
+abwaehlt; ein zu Unrecht verworfener Fund kostet einen Klarnamen in einem
+Dokument, das aussieht wie pseudonymisiert. Dieselbe Ueberlegung traegt seit
+PR #8 ``pipeline.propagate_findings``.
+
+Erweitern ist deshalb immer erlaubt, Entfernen (``ist_person: false``) nie.
+Verkleinern ist erlaubt, **solange kein grossgeschriebenes Wort wegfaellt** —
+denn nur ein solches koennte ein Namensteil sein, der danach im Klartext
+stuende. Am 2026-08-24 am Dienst gemessen: spaCy meldete
+``Sylvie Marchand a rédigé le procès-verbal`` als eine Person; die KI
+antwortete ``Sylvie Marchand``. Diese Kuerzung deckt den Namen weiterhin
+vollstaendig ab und laesst nur Fliesstext fallen. Sie zu verbieten kostete
+Genauigkeit ohne Sicherheitsgewinn.
 """
 
 from __future__ import annotations
@@ -35,7 +43,9 @@ __all__ = [
     "Fenster",
     "MAX_FENSTER_JE_ANFRAGE",
     "SCHEMA",
+    "SCHEMA_EIGENNAME",
     "WORTRADIUS",
+    "baue_eigenname_nachrichten",
     "baue_fenster",
     "baue_nachrichten",
     "stueckle",
@@ -91,13 +101,18 @@ def baue_fenster(
     segments: Sequence[Segment],
     findings: Sequence,
     wortradius: int = WORTRADIUS,
+    typen: Sequence[str] = ("PERSON",),
 ) -> list[Fenster]:
     """Baut je Fundkandidat ein Fenster.
 
-    Beruecksichtigt werden ausschliesslich Funde vom Typ ``PERSON``, die
-    **nicht** uebertragen sind: Ein uebertragener Fund stammt aus einem
-    anderen, bereits geprueften — ihn erneut zu pruefen kostet nur und
-    schickte denselben Text ein zweites Mal hinaus.
+    ``typen`` bestimmt, welche Funde ueberhaupt eines bekommen. Vorgabe ist
+    ``PERSON`` — der angewandte Pfad. Die reine Messung zu Ort und
+    Organisation (siehe ``pipeline._ki_messen_ort_organisation``) ruft mit
+    ``("LOCATION", "ORGANIZATION")``.
+
+    Uebertragene Funde bleiben immer aussen vor: Ein uebertragener Fund stammt
+    aus einem anderen, bereits geprueften — ihn erneut zu pruefen kostet nur
+    und schickte denselben Text ein zweites Mal hinaus.
 
     Das Fenster endet **immer** an der Segmentgrenze. Darueber hinaus gibt es
     keinen Kontext, der zu dieser Stelle gehoerte.
@@ -107,7 +122,7 @@ def baue_fenster(
     nummer = 0
 
     for index, fund in enumerate(findings):
-        if fund.entity_type != "PERSON" or getattr(fund, "propagated", False):
+        if fund.entity_type not in typen or getattr(fund, "propagated", False):
             continue
         segment = nach_id.get(fund.segment_id)
         if segment is None:
@@ -212,16 +227,96 @@ _ANWEISUNG = (
 )
 
 
-def baue_nachrichten(fenster: Sequence[Fenster]) -> list[dict]:
-    """Baut die Chat-Nachrichten — **nur die Fenstertexte gehen hinaus**."""
+#: Die Messfrage zu Ort und Organisation. **Bewusst getrennt von**
+#: :data:`_ANWEISUNG`: Die Namensfrage wird angewandt und ist am Dienst
+#: gemessen gut formuliert; sie um einen zweiten Zweck zu erweitern hiesse,
+#: eine funktionierende Frage fuer eine Messung aufs Spiel zu setzen.
+_ANWEISUNG_EIGENNAME = (
+    "Du pruefst markierte Textstellen in deutschsprachigen Behoerdendokumenten. "
+    "Zu jedem nummerierten Ausschnitt ist eine Stelle mit >>> <<< markiert. "
+    "Sage fuer jede Nummer, ob die Markierung ein Eigenname ist — also der "
+    "Name eines konkreten Ortes, einer Strasse, eines Gebaeudes oder einer "
+    "Organisation. Ein allgemeines Wort wie 'Fallnummer', 'Kontrollschild', "
+    "'Dienstgebrauch' oder 'Intern' ist KEIN Eigenname, auch wenn es "
+    "grossgeschrieben ist."
+)
+
+#: Antwortschema der Messfrage. ``additionalProperties: False`` aus demselben
+#: Grund wie bei :data:`SCHEMA`.
+SCHEMA_EIGENNAME = {
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+        "funde": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                    "nummer": {"type": "integer"},
+                    "ist_eigenname": {"type": "boolean"},
+                },
+                "required": ["nummer", "ist_eigenname"],
+            },
+        }
+    },
+    "required": ["funde"],
+}
+
+
+def _nachrichten(fenster: Sequence[Fenster], anweisung: str) -> list[dict]:
+    """Setzt Anweisung und markierte Fenstertexte zu einer Anfrage zusammen."""
     zeilen = []
     for f in fenster:
         markiert = f.text.replace(f.markiert, f">>>{f.markiert}<<<", 1)
         zeilen.append(f"{f.nummer}: {markiert}")
     return [
-        {"role": "system", "content": _ANWEISUNG},
+        {"role": "system", "content": anweisung},
         {"role": "user", "content": "\n".join(zeilen)},
     ]
+
+
+def baue_nachrichten(fenster: Sequence[Fenster]) -> list[dict]:
+    """Baut die Chat-Nachrichten — **nur die Fenstertexte gehen hinaus**."""
+    return _nachrichten(fenster, _ANWEISUNG)
+
+
+def baue_eigenname_nachrichten(fenster: Sequence[Fenster]) -> list[dict]:
+    """Baut die Anfrage der Messung zu Ort und Organisation.
+
+    Die Antwort darauf wird **nur protokolliert, nie angewandt** — siehe
+    ``pipeline._ki_messen_ort_organisation``. Es gibt hier deshalb bewusst
+    kein Gegenstueck zu :func:`wende_an`.
+    """
+    return _nachrichten(fenster, _ANWEISUNG_EIGENNAME)
+
+
+def _nur_kleinschreibung(text: str) -> bool:
+    """Steht im Text kein grossgeschriebenes Wort.
+
+    Die Frage entscheidet, ob eine Verkleinerung harmlos ist. Ein Namensteil
+    ist grossgeschrieben, Fliesstext nicht — mehr Unterscheidungskraft braucht
+    es an dieser Stelle nicht, und mehr waere Wortartenraten (siehe
+    ``backend/engine/wortarten.py``, wo genau das nicht traegt).
+    """
+    return not any(wort[:1].isupper() for wort in text.split())
+
+
+def _darf_angewandt_werden(fenster: Fenster, alt, start: int, ende: int) -> bool:
+    """Erweitert der Vorschlag, oder verkleinert er gefahrlos."""
+    if (start, ende) == (alt.start, alt.end):
+        return False
+    if start <= alt.start and ende >= alt.end:
+        return True
+    if start >= alt.start and ende <= alt.end:
+        versatz = fenster.versatz
+        vorne = fenster.text[alt.start - versatz : start - versatz]
+        hinten = fenster.text[ende - versatz : alt.end - versatz]
+        return _nur_kleinschreibung(vorne) and _nur_kleinschreibung(hinten)
+    # Vorne erweitern und hinten verkleinern (oder umgekehrt): dafuer gibt es
+    # keinen belegten Fall, und ungeprueft gewaehrte Freiheit ist hier das
+    # Risiko.
+    return False
 
 
 def wende_an(
@@ -229,7 +324,7 @@ def wende_an(
     fenster: Sequence[Fenster],
     antwort: dict,
 ) -> tuple[list, int]:
-    """Wendet die Vorschlaege an — **nur erweiternd**.
+    """Wendet die Vorschlaege an — erweiternd, oder gefahrlos verkleinernd.
 
     Ein Vorschlag wird verworfen, wenn er
 
@@ -237,8 +332,11 @@ def wende_an(
     * einen leeren Namen liefert,
     * den Fund entfernen will (``ist_person: false``),
     * einen Namen liefert, der im Fenster gar nicht vorkommt (das Modell darf
-      nichts erfinden), oder
-    * die Grenze verkleinert oder gar nichts aendert.
+      nichts erfinden),
+    * gar nichts aendert,
+    * die Grenze verkleinert und dabei ein grossgeschriebenes Wort fallen
+      laesst (:func:`_darf_angewandt_werden`), oder
+    * vorne erweitert und hinten verkleinert — oder umgekehrt.
 
     Returns
     -------
@@ -267,7 +365,7 @@ def wende_an(
         alt = neu[f.finding_index]
         start = f.versatz + stelle
         ende = start + len(name)
-        if start > alt.start or ende < alt.end or (start, ende) == (alt.start, alt.end):
+        if not _darf_angewandt_werden(f, alt, start, ende):
             verworfen += 1
             continue
 

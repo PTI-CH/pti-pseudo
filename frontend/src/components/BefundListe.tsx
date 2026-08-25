@@ -117,12 +117,21 @@ export default function BefundListe({
         </span>
       </div>
 
-      {zuPruefen > 0 && (
-        <p className="text-xs text-gray-500 dark:text-gray-400">
-          {zuPruefen} {zuPruefen === 1 ? 'Fund ist' : 'Funde sind'} unsicher und stehen zuoberst.
-          Bitte prüfen Sie diese und wählen Sie Fehlalarme ab.
-        </p>
-      )}
+      {/* Der Hinweis stand frueher nur bei unsicheren Funden. Sind alle gruen,
+          erschien gar keiner — und dann erklaert nichts, wozu die Haekchen da
+          sind. Die Spaltenueberschrift heisst „Ersetzen", ist aber nur fuer
+          Vorleseprogramme sichtbar. */}
+      <p className="text-xs text-gray-500 dark:text-gray-400">
+        {zuPruefen > 0 ? (
+          <>
+            {zuPruefen} {zuPruefen === 1 ? 'Fund ist' : 'Funde sind'} unsicher und stehen
+            zuoberst. Bitte prüfen Sie diese und wählen Sie Fehlalarme ab.{' '}
+          </>
+        ) : (
+          <>Alle Funde sind sicher erkannt. </>
+        )}
+        Ersetzt wird nur, was angehakt ist; alles andere bleibt im Klartext stehen.
+      </p>
 
       <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
         <div className="overflow-x-auto">

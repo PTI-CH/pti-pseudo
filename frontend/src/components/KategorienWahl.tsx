@@ -53,6 +53,15 @@ export default function KategorienWahl({ kategorien, gewaehlt, onGewaehlt, deakt
         </div>
       </div>
 
+      {/* Ohne diesen Satz ist die Kachelreihe eine Liste ohne Zweck: Sie sieht
+          aus wie eine Anzeige dessen, was gefunden WIRD, und ist in Wahrheit
+          die Vorgabe dessen, wonach ueberhaupt gesucht wird. Wer eine Kachel
+          abwaehlt, bekommt keinen Hinweis auf das, was dadurch stehen bleibt. */}
+      <p className="text-xs text-gray-500 dark:text-gray-400">
+        Gesucht wird nur nach dem, was hier angehakt ist. Was Sie abwählen,
+        bleibt im Ergebnis <strong>unverändert im Klartext</strong> stehen.
+      </p>
+
       <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
         {kategorien.map((k) => {
           const an = gewaehlt.has(k.entity_type);

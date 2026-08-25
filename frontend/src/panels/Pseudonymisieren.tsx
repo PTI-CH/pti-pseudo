@@ -40,6 +40,18 @@ export default function Pseudonymisieren() {
   const [wendetAn, setWendetAn] = useState(false);
   const [fehler, setFehler] = useState<string | null>(null);
   const [ergebnis, setErgebnis] = useState<Ergebnis | null>(null);
+  /**
+   * Stand eines im Hintergrund laufenden Auftrags (grosse Datei, Server
+   * antwortet mit 202). `null` ausserhalb dieses Wartezustands.
+   *
+   * Bewusst getrennt von `laeuft`/`wendetAn`: die beiden bleiben während des
+   * gesamten Auftrags gesetzt (deaktivieren die Bedienelemente), `auftrag`
+   * steuert nur, ob der Fortschritts-Hinweis erscheint.
+   */
+  const [auftrag, setAuftrag] = useState<{
+    fortschritt: number | null;
+    gesamt: number | null;
+  } | null>(null);
   /** Der Text, aus dem das aktuelle Ergebnis entstand — Grundlage für „Anwenden“. */
   const [quellText, setQuellText] = useState('');
   /**
@@ -137,10 +149,19 @@ export default function Pseudonymisieren() {
   async function starten(): Promise<void> {
     setFehler(null);
     setLaeuft(true);
+    setAuftrag(null);
     try {
       const kategorienListe = Array.from(gewaehlteKategorien);
       if (quelle === 'datei' && datei) {
-        const e = await anonymisiereDatei(datei, modus, kategorienListe, kiPruefung);
+        const e = await anonymisiereDatei(
+          datei,
+          modus,
+          kategorienListe,
+          kiPruefung,
+          undefined,
+          undefined,
+          (fortschritt, gesamt) => setAuftrag({ fortschritt, gesamt }),
+        );
         uebernimmErgebnis(e, '', kategorienListe, 'datei', modus, kiPruefung);
       } else {
         const e = await anonymisiereText(text, modus, kategorienListe, kiPruefung);
@@ -155,6 +176,7 @@ export default function Pseudonymisieren() {
       setErgebnis(null);
     } finally {
       setLaeuft(false);
+      setAuftrag(null);
     }
   }
 
@@ -181,6 +203,7 @@ export default function Pseudonymisieren() {
     }
     setFehler(null);
     setWendetAn(true);
+    setAuftrag(null);
     try {
       const auswahl = ergebnis.befunde.filter((b) => ausgewaehlt.has(b.id));
       // Bewusst `laufKategorien` und `laufModus` statt der aktuellen
@@ -189,7 +212,14 @@ export default function Pseudonymisieren() {
       const neu =
         laufQuelle === 'datei' && datei
           ? await anonymisiereDatei(
-              datei, laufModus, laufKategorien, laufKiPruefung, auswahl)
+              datei,
+              laufModus,
+              laufKategorien,
+              laufKiPruefung,
+              auswahl,
+              undefined,
+              (fortschritt, gesamt) => setAuftrag({ fortschritt, gesamt }),
+            )
           : await anonymisiereText(
               quellText, laufModus, laufKategorien, laufKiPruefung, auswahl);
       // Die alte Blob-URL wird durch die neue ersetzt und muss vorher weg.
@@ -200,6 +230,7 @@ export default function Pseudonymisieren() {
       setFehler(fehlerMeldung(e));
     } finally {
       setWendetAn(false);
+      setAuftrag(null);
     }
   }
 
@@ -215,6 +246,7 @@ export default function Pseudonymisieren() {
     setLaufKiPruefung(true);
     setAusgewaehlt(new Set());
     setFehler(null);
+    setAuftrag(null);
   }
 
   return (
@@ -351,6 +383,15 @@ export default function Pseudonymisieren() {
       {!kategorienLaden && !kategorienFehler && gewaehlteKategorien.size === 0 && (
         <Hinweis ton="warnung">
           Wählen Sie mindestens eine Kategorie aus, bevor Sie starten.
+        </Hinweis>
+      )}
+
+      {auftrag && (
+        <Hinweis ton="info">
+          Die Datei wird im Hintergrund verarbeitet
+          {auftrag.gesamt ? ` — Seite ${auftrag.fortschritt} von ${auftrag.gesamt}` : ''}.
+          Sie können das Fenster offen lassen; die Fundliste erscheint, sobald der Lauf fertig
+          ist.
         </Hinweis>
       )}
 

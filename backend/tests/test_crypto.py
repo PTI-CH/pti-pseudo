@@ -233,3 +233,22 @@ def test_klartext_ist_aus_dem_cluster_hmac_nicht_ablesbar() -> None:
     # Und ohne Kenntnis des Master-Keys ist der Digest nicht nachzubauen.
     fremder_schluessel = os.urandom(32)
     assert digest != hashlib.sha256(fremder_schluessel + klartext.encode()).digest()
+
+
+# ── Testfall 4: Rohbytes versiegeln ───────────────────────────────────────────
+
+
+def test_bytes_ueberstehen_die_versiegelung() -> None:
+    """Ein DOCX ist keine UTF-8-Zeichenkette — seal() traegt es nicht."""
+    rohdaten = bytes(range(256)) * 4  # alle Bytewerte, auch ungueltiges UTF-8
+    blob = crypto.seal_bytes(TENANT_A, rohdaten)
+
+    assert blob != rohdaten, "es muss verschluesselt sein"
+    assert crypto.open_bytes(TENANT_A, blob) == rohdaten
+
+
+def test_fremder_mandant_kann_bytes_nicht_oeffnen() -> None:
+    """Die Mandanten-Id geht als AAD mit ein — dieselbe Sperre wie bei seal()."""
+    blob = crypto.seal_bytes(TENANT_A, b"vertraulich")
+    with pytest.raises(InvalidTag):
+        crypto.open_bytes(TENANT_B, blob)

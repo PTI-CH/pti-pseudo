@@ -254,6 +254,40 @@ def open(tenant_id: str, blob: bytes) -> str:  # noqa: A001 - Tresor-Fachbegriff
 unseal = open
 
 
+def seal_bytes(tenant_id: str, plaintext: bytes) -> bytes:
+    """Wie :func:`seal`, aber fuer Rohbytes.
+
+    Ein DOCX oder PDF ist keine UTF-8-Zeichenkette; ``seal()`` wuerde daran
+    scheitern. Der Umweg ueber Base64 haette den Speicherbedarf um ein Drittel
+    erhoeht — bei einer 25-MB-Datei in einer Datenbankzeile ist das keine
+    Nebensache.
+
+    Drahtformat identisch zu :func:`seal`: ``Nonce || Ciphertext || Tag``.
+    Deshalb braucht die Tabelle **eine** Spalte und keine zweite fuer die Nonce.
+    """
+    key = _derive(get_master_key(), str(tenant_id), PURPOSE_SEAL)
+    nonce = os.urandom(NONCE_BYTES)
+    ciphertext = AESGCM(key).encrypt(nonce, plaintext, str(tenant_id).encode("utf-8"))
+    return nonce + ciphertext
+
+
+def open_bytes(tenant_id: str, blob: bytes) -> bytes:
+    """Gegenstueck zu :func:`seal_bytes`.
+
+    Ein fehlschlagender GCM-Tag wirft ``InvalidTag`` und wird — wie bei
+    :func:`open` — absichtlich nicht abgefangen.
+    """
+    if len(blob) < NONCE_BYTES + TAG_BYTES:
+        raise VaultSealError(
+            f"Auftrags-Blob ist zu kurz: {len(blob)} Byte. Ein gueltiger Blob "
+            f"hat mindestens {NONCE_BYTES + TAG_BYTES} Byte (Nonce + Tag)."
+        )
+    key = _derive(get_master_key(), str(tenant_id), PURPOSE_SEAL)
+    return AESGCM(key).decrypt(
+        blob[:NONCE_BYTES], blob[NONCE_BYTES:], str(tenant_id).encode("utf-8")
+    )
+
+
 def cluster_key_hmac(tenant_id: str, normalized_entity: str) -> bytes:
     """Berechnet den Cluster-Schluessel als HMAC-SHA256 (32 Byte).
 
@@ -267,3 +301,24 @@ def cluster_key_hmac(tenant_id: str, normalized_entity: str) -> bytes:
     """
     key = _derive(get_master_key(), str(tenant_id), PURPOSE_CLUSTER)
     return hmac.new(key, normalized_entity.encode("utf-8"), hashlib.sha256).digest()
+
+
+__all__ = [
+    "NONCE_BYTES",
+    "TAG_BYTES",
+    "KEY_BYTES",
+    "MASTER_KEY_HEX_LEN",
+    "PURPOSE_SEAL",
+    "PURPOSE_CLUSTER",
+    "VaultKeyError",
+    "VaultSealError",
+    "get_master_key",
+    "ensure_master_key",
+    "derive_tenant_key",
+    "seal",
+    "open",
+    "unseal",
+    "seal_bytes",
+    "open_bytes",
+    "cluster_key_hmac",
+]

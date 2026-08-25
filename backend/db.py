@@ -180,6 +180,17 @@ def get_sessionmaker() -> sessionmaker[Session]:
 NACHZUZIEHENDE_SPALTEN: tuple[tuple[str, str, str], ...] = (
     # 2026-08-19 — festes Pseudonym je Begriff (CustomTerm.replacement).
     ("custom_terms", "replacement", "VARCHAR(100)"),
+    # 2026-08-25 — asynchrone Auftraege (Job).
+    ("jobs", "eingabe_blob", "BYTEA"),
+    ("jobs", "dateiname", "VARCHAR(255)"),
+    ("jobs", "parameter_json", "JSONB"),
+    ("jobs", "ergebnis_blob", "BYTEA"),
+    ("jobs", "fortschritt", "INTEGER"),
+    ("jobs", "gesamt", "INTEGER"),
+    ("jobs", "fehler", "TEXT"),
+    ("jobs", "aktor", "VARCHAR(200)"),
+    ("jobs", "updated_at", "TIMESTAMPTZ"),
+    ("jobs", "freigaben", "INTEGER NOT NULL DEFAULT 0"),
 )
 
 #: Schluessel des PostgreSQL-Advisory-Locks, der den Nachtrag serialisiert.

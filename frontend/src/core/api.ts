@@ -163,6 +163,12 @@ interface RohAntwort {
   download_url?: string | null;
   /** Dateiantworten: Base64-codierte Bytes des Ergebnisdokuments. */
   content_base64?: string | null;
+  /**
+   * Sowohl beim synchronen Weg (`documents:anonymize-file`) als auch beim
+   * Auftrags-Endpunkt `GET /jobs/{id}/result` — Letzterer packt seit
+   * Aufgabe 9 denselben Umschlag aus und liefert deshalb dieselbe Form
+   * (siehe `backend/routers/jobs.py`).
+   */
   filename?: string | null;
   ki_geprueft?: boolean | null;
 }
@@ -234,6 +240,61 @@ function normalisiereAntwort(roh: RohAntwort): Ergebnis {
   };
 }
 
+// ─── Aufträge (asynchrone Verarbeitung grosser Dateien) ────────────────────
+//
+// Oberhalb einer Grössenschwelle beantwortet der Server `…-file` nicht mehr
+// synchron, sondern mit 202 und einer `job_id` (siehe `_check_size`-Aufrufer
+// in `backend/routers/documents.py`). Die Datei läuft dann im Hintergrund;
+// die Oberfläche muss nachfragen statt auf eine Antwort zu warten, die sonst
+// den Balancer-Timeout risse.
+
+/** Status eines Auftrags, wie ihn `GET /jobs/{id}` liefert. */
+interface AuftragsStand {
+  status: 'wartend' | 'laeuft' | 'fertig' | 'fehler';
+  fortschritt: number | null;
+  gesamt: number | null;
+  fehler?: string | null;
+}
+
+/** Abstand zwischen zwei Nachfragen — dieselbe Grössenordnung wie im Arbeiter. */
+const AUFTRAG_TAKT_MS = 2000;
+
+/**
+ * Fragt einen Auftrag ab, bis er fertig ist, und holt dann das Ergebnis.
+ *
+ * Scheitert der Auftrag, wird die Meldung des Servers geworfen — sie ist für
+ * Menschen geschrieben (`backend/jobs/arbeiter.py`) und muss unverändert in
+ * der Oberfläche stehen, nicht in einer eigenen Formulierung neu verpackt.
+ *
+ * Die Schleife hat bewusst **keine eigene Obergrenze**. Der Server gibt
+ * verwaiste Aufträge nach zehn Minuten frei und markiert sie nach dem
+ * dritten Verwaisen endgültig als `fehler` — dieser Zweig hier greift dann
+ * ganz normal, ohne dass der Client mitzählen müsste. Ein zusätzliches
+ * Client-Zeitlimit hätte nur eine zweite, unabhängig zu pflegende Grenze
+ * geschaffen, ohne einen Fall abzudecken, den der Server nicht ohnehin
+ * beendet — und ein zu kurz gewähltes Limit hätte einen noch laufenden,
+ * gesunden Auftrag vorzeitig als Fehler ausgegeben.
+ */
+export async function warteAufAuftrag(
+  jobId: string,
+  onFortschritt: (fortschritt: number | null, gesamt: number | null) => void,
+): Promise<Ergebnis> {
+  for (;;) {
+    const stand = await alsJson<AuftragsStand>(await hole(`/api/v1/jobs/${jobId}`));
+    onFortschritt(stand.fortschritt, stand.gesamt);
+
+    if (stand.status === 'fertig') {
+      return normalisiereAntwort(
+        await alsJson<RohAntwort>(await hole(`/api/v1/jobs/${jobId}/result`)),
+      );
+    }
+    if (stand.status === 'fehler') {
+      throw new Error(stand.fehler ?? 'Der Auftrag ist gescheitert.');
+    }
+    await new Promise((r) => setTimeout(r, AUFTRAG_TAKT_MS));
+  }
+}
+
 // ─── Kategorien (Entitätstypen) ─────────────────────────────────────────────
 
 /** Ein Eintrag im Server-Katalog der Entitätstypen — Grundlage der Kategorienwahl. */
@@ -262,7 +323,15 @@ export async function ladeKategorien(): Promise<Kategorie[]> {
  * `segment_id` ist der Teil, auf den es ankommt: Der Server vergleicht
  * `(segment_id, start, end)`. Fehlt der Abschnitt, passt die Auswahl auf keinen
  * einzigen Fund und es wird stillschweigend **nichts** ersetzt — der Aufruf
- * meldet trotzdem Erfolg. Die übrigen Felder sind reine Beigabe für Protokolle.
+ * meldet trotzdem Erfolg.
+ *
+ * Bewusst OHNE `text` und `score`: Der Server identifiziert einen Fund
+ * ausschliesslich über das Tripel `(segment_id, start, end)` — beide Felder
+ * wären totes Gewicht. Bei einer grossen Datei landet diese Auswahl über den
+ * Auftragsweg in `parameter_json`, einer normalen, unverschlüsselten
+ * JSONB-Spalte; `text` wäre dort der volle Klartext des Fundes (Name,
+ * AHV-Nummer, IBAN …), lesbar in jedem Datenbankabzug. `entity_type` bleibt,
+ * weil er keine Personenangabe ist, sondern nur die Kategorie.
  */
 function auswahlEintrag(b: Befund) {
   return {
@@ -270,8 +339,6 @@ function auswahlEintrag(b: Befund) {
     entity_type: b.entity_type,
     start: b.start,
     end: b.end,
-    score: b.score,
-    text: b.text,
   };
 }
 
@@ -329,6 +396,11 @@ export async function anonymisiereText(
  * Dokument-Bytes vor (siehe Modulkopf von `backend/routers/documents.py`), es
  * gibt also nichts, worauf sich ein zweiter Aufruf beziehen könnte.
  */
+/**
+ * `onFortschritt` wird nur gebraucht, wenn der Server mit 202 antwortet
+ * (Datei oberhalb der Schwelle, siehe `warteAufAuftrag`). Beim gewohnten
+ * synchronen Weg bleibt er ungenutzt.
+ */
 export async function anonymisiereDatei(
   datei: File,
   modus: Modus,
@@ -336,6 +408,7 @@ export async function anonymisiereDatei(
   kiPruefung: boolean,
   nurBefunde?: Befund[],
   signal?: AbortSignal,
+  onFortschritt?: (fortschritt: number | null, gesamt: number | null) => void,
 ): Promise<Ergebnis> {
   const daten = new FormData();
   daten.append('file', datei);
@@ -345,11 +418,16 @@ export async function anonymisiereDatei(
   if (nurBefunde) {
     daten.append('selected_entities', JSON.stringify(nurBefunde.map(auswahlEintrag)));
   }
-  return normalisiereAntwort(
-    await alsJson<RohAntwort>(
-      await hole('/api/v1/documents:anonymize-file', { method: 'POST', body: daten, signal }),
-    ),
-  );
+  const res = await hole('/api/v1/documents:anonymize-file', {
+    method: 'POST',
+    body: daten,
+    signal,
+  });
+  if (res.status === 202) {
+    const { job_id } = await alsJson<{ job_id: string }>(res);
+    return warteAufAuftrag(job_id, onFortschritt ?? (() => {}));
+  }
+  return normalisiereAntwort(await alsJson<RohAntwort>(res));
 }
 
 // ─── Rückführen ─────────────────────────────────────────────────────────────
@@ -371,6 +449,12 @@ export async function rueckfuehrenText(
   );
 }
 
+/**
+ * Dieselbe Schwelle wie bei `anonymisiereDatei` gilt auch hier
+ * (`backend/routers/documents.py:reverse_file`) — eine grosse Rückführung
+ * ist genauso lang unterwegs wie eine grosse Pseudonymisierung und bekommt
+ * dieselbe 202-Behandlung.
+ */
 export async function rueckfuehrenDatei(
   datei: File,
   vaultId: string,
@@ -379,11 +463,16 @@ export async function rueckfuehrenDatei(
   const daten = new FormData();
   daten.append('file', datei);
   daten.append('vault_id', vaultId);
-  return normalisiereAntwort(
-    await alsJson<RohAntwort>(
-      await hole('/api/v1/documents:reverse-file', { method: 'POST', body: daten, signal }),
-    ),
-  );
+  const res = await hole('/api/v1/documents:reverse-file', {
+    method: 'POST',
+    body: daten,
+    signal,
+  });
+  if (res.status === 202) {
+    const { job_id } = await alsJson<{ job_id: string }>(res);
+    return warteAufAuftrag(job_id, () => {});
+  }
+  return normalisiereAntwort(await alsJson<RohAntwort>(res));
 }
 
 // ─── Vaults (Zuordnungstabellen) ────────────────────────────────────────────

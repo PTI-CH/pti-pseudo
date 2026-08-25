@@ -232,3 +232,23 @@ def test_anwendung_repariert_altes_schema_beim_start(tmp_path: Path) -> None:
         reset_engine_cache()
         mp.undo()
         get_settings.cache_clear()
+
+
+def test_neue_auftragsspalten_stehen_in_der_nachzugsliste() -> None:
+    """Ohne Eintrag entsteht die Spalte in Produktion nicht.
+
+    `create_all()` legt fehlende TABELLEN an, aber keine fehlenden SPALTEN.
+    Der Fehler faellt dann nicht beim Deploy auf, sondern beim ersten Zugriff —
+    und weil die Auftragstabelle bei jedem grossen Upload gelesen wird, waere
+    das Werkzeug damit ausser Betrieb.
+    """
+    from backend.db import NACHZUZIEHENDE_SPALTEN
+    from backend.vault.models import Job
+
+    eingetragen = {spalte for tabelle, spalte, _ in NACHZUZIEHENDE_SPALTEN if tabelle == "jobs"}
+    neu = {
+        "eingabe_blob", "dateiname", "parameter_json", "ergebnis_blob",
+        "fortschritt", "gesamt", "fehler", "aktor", "updated_at", "freigaben",
+    }
+    assert neu <= eingetragen, f"nicht nachgezogen: {sorted(neu - eingetragen)}"
+    assert neu <= set(Job.__table__.columns.keys())

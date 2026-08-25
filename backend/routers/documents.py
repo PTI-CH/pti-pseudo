@@ -21,6 +21,7 @@ import json
 from typing import Annotated, Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -28,7 +29,7 @@ from sqlalchemy.orm import Session
 from backend import pipeline
 from backend.adapters import UnsupportedFormatError, supported_formats
 from backend.config import get_settings
-from backend.core.deps import current_username, get_session, get_tenant
+from backend.core.deps import current_actor, current_username, get_session, get_tenant
 from backend.engine import entities as ents
 from backend.vault.models import CustomTerm, UsageEvent, Vault
 
@@ -347,6 +348,55 @@ async def anonymize_file(
     parsed_entities = parse_entities(entities)
     parsed_selected = parse_selected(selected_entities)
 
+    # Oberhalb der Schwelle wird daraus ein Auftrag. Der Grund steht in
+    # `sync_threshold_bytes`: Ein grosses Dokument sprengt den Request, bevor
+    # der Balancer ihn zu Ende laufen laesst.
+    #
+    # Die TEXTrouten bleiben davon unberuehrt — sie sind durch `max_text_chars`
+    # begrenzt und laufen in Sekundenbruchteilen. Sie einzubeziehen gaebe der
+    # haeufigsten Nutzung ohne Not einen Umweg.
+    einstellungen = get_settings()
+    if len(data) > einstellungen.sync_threshold_bytes:
+        from backend.jobs import warteschlange
+
+        try:
+            job = warteschlange.lege_an(
+                session,
+                tenant=get_tenant(session, request),
+                aktor=current_actor(request),
+                mode="anonymize",
+                dateiname=file.filename or "dokument",
+                daten=data,
+                parameter={
+                    "modus": mode,
+                    "vault_id": vault_id,
+                    # Dieselbe Rueckfallregel wie im synchronen Pfad unten
+                    # (``_resolve_vault(..., vault_label or file.filename)``).
+                    # Die Oberflaeche schickt vault_label nie mit -- ohne den
+                    # Rueckfall hiesse jeder ueber einen Auftrag angelegte
+                    # Tresor "Ohne Bezeichnung", und in der Tresorliste liesse
+                    # sich nicht mehr sagen, welche Tabelle zu welchem
+                    # Dokument gehoert.
+                    "vault_label": vault_label or file.filename,
+                    "entities": parsed_entities,
+                    "selected_entities": parsed_selected,
+                    "ki_pruefung": ki_pruefung,
+                },
+            )
+        except warteschlange.AuftragNichtMoeglichError as exc:
+            # 503, nicht 500: es liegt nicht an der Anfrage, sondern daran,
+            # dass diese Installation keinen Hintergrundarbeiter faehrt. Ohne
+            # diese Abweisung bekaeme die Datei eine job_id, die nie jemand
+            # abarbeitet — der Auftrag bliebe fuer immer auf "wartend", und
+            # die Oberflaeche fragte endlos nach, ohne dass irgendwo stuende,
+            # warum.
+            raise HTTPException(503, detail=str(exc)) from exc
+        session.commit()
+        return JSONResponse(
+            status_code=202,
+            content={"job_id": str(job.id), "status": job.status},
+        )
+
     tenant = get_tenant(session, request)
     terms = _load_custom_terms(session, tenant.id)
     vault = _resolve_vault(
@@ -433,6 +483,31 @@ async def reverse_file(
     """Fuehrt ein pseudonymisiertes Dokument formaterhaltend zurueck."""
     data = await file.read()
     _check_size(data)
+
+    # Dieselbe Schwelle wie bei `anonymize_file` — eine grosse Rueckfuehrung
+    # ist genauso lang unterwegs wie eine grosse Pseudonymisierung.
+    einstellungen = get_settings()
+    if len(data) > einstellungen.sync_threshold_bytes:
+        from backend.jobs import warteschlange
+
+        try:
+            job = warteschlange.lege_an(
+                session,
+                tenant=get_tenant(session, request),
+                aktor=current_actor(request),
+                mode="reverse",
+                dateiname=file.filename or "dokument",
+                daten=data,
+                parameter={"vault_id": vault_id},
+            )
+        except warteschlange.AuftragNichtMoeglichError as exc:
+            # Dieselbe Abweisung wie bei anonymize_file — siehe dort.
+            raise HTTPException(503, detail=str(exc)) from exc
+        session.commit()
+        return JSONResponse(
+            status_code=202,
+            content={"job_id": str(job.id), "status": job.status},
+        )
 
     tenant = get_tenant(session, request)
     vault = session.get(Vault, _as_uuid(vault_id))

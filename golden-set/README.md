@@ -446,6 +446,22 @@ so etwas sauber auf die lokale Erkennung zurueck; **niemand haette es bemerkt**,
 haette nicht jemand gegen den echten Dienst gemessen.
 
 Deshalb: **Das Gate allein genuegt nicht.** Es laeuft ohne KI und kann diesen
-Ausfall nicht sehen. Der Lauf von Hand gehoert in regelmaessigen Abstaenden
-gemacht — und immer dann, wenn im Betrieb der Hinweis „Die KI-Pruefung war
-nicht erreichbar" gehaeuft auftaucht.
+Ausfall nicht sehen.
+
+### Wann der Lauf von Hand gemacht wird — und wann nicht
+
+**Nur nach ausdruecklicher Freigabe des Auftraggebers.** Das Kontingent der
+Infomaniak AI Tools ist endlich, und ein einziger Lauf ueber das Golden-Set
+kostet rund vierzig Anfragen. Am 2026-08-25 hat genau diese Messung — ein
+Dutzend Mal an einem Tag, beim Einkreisen eines Fehlers — das Kontingent
+sichtbar belastet.
+
+Der Lauf ist ein **Untersuchungswerkzeug**, kein Ritual: Er lohnt, wenn im
+Betrieb der Hinweis „Die KI-Pruefung war nicht erreichbar" gehaeuft auftaucht,
+oder nach einer Aenderung an `backend/ki/`. Nicht auf Verdacht und nicht
+regelmaessig.
+
+**Die Testsuite selbst erzeugt keinen Verkehr** — alle 17 Tests mit
+``ki_pruefung=True`` bekommen eine Attrappe hereingereicht, und das Gate misst
+ohne KI. Das ist so gebaut und soll so bleiben: Ein Test, der ans Netz geht,
+ist kein Test mehr, sondern eine Wette.

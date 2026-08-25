@@ -322,6 +322,116 @@ fehlt bislang. Es auf einer laufenden Produktionsdatenbank einzuführen heisst,
 den Bestand korrekt auf eine Basisversion zu stempeln — ein Schritt, der nicht
 nebenbei mit einer Funktionsänderung ausgeliefert werden sollte.
 
+## Asynchrone Aufträge
+
+Dateien oberhalb von `SYNC_THRESHOLD_BYTES` (Default 2 MiB) laufen in den
+beiden Dateirouten (`anonymize-file`, `reverse-file`) nicht mehr im offenen
+Request, sondern als Zeile in der Tabelle `jobs` — sonst schneidet der
+Balancer eine grosse Verarbeitung ab, bevor sie fertig ist. Details und
+Beispiele stehen in API.md; hier nur, was man wissen muss, bevor man am
+Mechanismus schraubt.
+
+**Der Arbeiter lebt im Prozess, nicht im System.** Der Jelastic-Knoten startet
+genau einen Befehl (`python -m uvicorn … --workers 2`); der Benutzer `python`
+hat kein `sudo` — kein systemd-Dienst, kein zweiter überwachter Prozess ist
+möglich. Je uvicorn-Worker läuft deshalb ein `threading.Thread`
+(`backend/jobs/arbeiter.py`), der die Warteschlange im Zwei-Sekunden-Takt
+abfragt.
+
+**Die Zuteilung geschieht in der Datenbank, nicht im Prozess.** Zwei Worker
+greifen nach derselben wartenden Zeile; wählte jeder für sich aus, verarbeitete
+die Pipeline dasselbe Dokument doppelt und der Vault vergäbe zwei Pseudonyme
+für denselben Namen. `warteschlange.hole_naechsten` sperrt deshalb die Zeile
+mit `FOR UPDATE SKIP LOCKED` auf PostgreSQL; SQLite (nur im Testbetrieb) hat
+dafür ein bedingtes `UPDATE … WHERE status = 'wartend'` mit Prüfung der
+betroffenen Zeilenzahl.
+
+**Der Wächter dieser Zuteilung prüft die kompilierte SQL, nicht einen
+SQLite-Faden.** `test_zuteilung_sperrt_die_zeile_und_ueberspringt_gesperrte`
+(`backend/tests/test_jobs_warteschlange.py`) kompiliert
+`warteschlange._wartende_abfrage()` gegen `sqlalchemy.dialects.postgresql.dialect()`
+und prüft `"FOR UPDATE"`/`"SKIP LOCKED"` als Teilstrings der erzeugten SQL —
+ohne Datenbank, ohne Fäden. Das sieht für einen Nebenläufigkeitstest
+ungewöhnlich aus, ist aber Absicht: Ein Fadentest auf SQLite bewachte nur den
+Zweig, der in Produktion nie läuft (SQLite kennt `SKIP LOCKED` gar nicht),
+und wäre für die Regression, die tatsächlich schadet — `skip_locked`
+verschwindet aus dem PostgreSQL-Zweig, oder `with_for_update` ganz —, blind
+geblieben. Ein solcher Fadentest war ausserdem selbst flatterhaft, siehe
+nächster Punkt.
+
+**Der Arbeiter startet nur auf PostgreSQL — das ist keine Vorsicht, sondern
+gemessen notwendig.** Die Testsuite läuft auf SQLite mit `StaticPool`: eine
+einzige geteilte Verbindung für alle Sitzungen. Ein Hintergrundfaden, der
+daneben alle zwei Sekunden pollt und committet, zerlegt gelegentlich deren
+Transaktionszustand für alle anderen Sitzungen — gemessen am 2026-08-25:
+`sqlite3.InterfaceError` in etwa 4 von 5 Läufen, sichtbar unter anderem als
+ein direkt in der Datenbank angelegter API-Schlüssel, der für die nächste
+Anfrage nicht mehr sichtbar war. Der Arbeiter prüft deshalb beim Start im
+Lifespan `hintergrundverarbeitung_moeglich(get_engine().dialect.name)`; auf
+jedem anderen Dialekt bleibt er aus und schreibt eine `logger.warning()` —
+nicht, um einen liegen gebliebenen Auftrag zu erklären (grosse Dateien werden
+seit dem nächsten Absatz gar nicht mehr angenommen), sondern damit, wer den
+Knoten betreibt, im Protokoll sieht, WARUM Uploads oberhalb der Schwelle
+scheitern, nicht nur, dass sie es tun. **Diese Schranke wirkt willkürlich,
+ist es aber nicht: sie beim nächsten Aufräumen zu entfernen macht die
+Testsuite wieder flatterhaft.**
+
+**Ein Auftrag, den nie jemand abarbeiten würde, darf gar nicht erst
+entstehen.** Dieselbe Schranke trifft auch die Ein-Knoten-Rückfallvariante
+(`JELASTIC_SETUP.md`, Abschnitt 1b), nicht nur den Testbetrieb — dort läuft
+`DATABASE_URL` ebenfalls auf SQLite, und der Arbeiter startet dort ebenso
+wenig. Eine erste Fassung liess die Schwellenprüfung in `documents.py` den
+Auftrag trotzdem anlegen: `202`, eine `job_id`, und der Auftrag blieb für
+immer auf `wartend` stehen, während die Oberfläche endlos nachfragte, ohne
+dass irgendwo stand, warum — dokumentiert zu haben reicht nicht, wenn
+niemand die Dokumentation liest, während er auf einen Fortschrittsbalken
+starrt. `warteschlange.lege_an` prüft deshalb selbst zuerst
+`hintergrundverarbeitung_moeglich` und weist ab, statt eine Zeile
+anzulegen; der Router übersetzt die Ablehnung in **`503`** mit einem Text,
+der einen nächsten Schritt nennt (Datei aufteilen oder Administration
+kontaktieren).
+
+**Die Prüfung sitzt bewusst in `lege_an`, nicht im Router davor.**
+`lege_an` ist die einzige Stelle im ganzen Baum, an der überhaupt eine
+Auftragszeile entsteht — eine Prüfung im Router (`documents.py`) hätte ein
+künftiger zweiter Aufrufer (eine weitere Route, ein Skript) versehentlich
+umgehen können, eine Prüfung in `lege_an` nicht. Die Ausnahme
+(`AuftragNichtMoeglichError`) ist bewusst kein `HTTPException`: Das Modul
+bleibt frei von HTTP (siehe Modul-Docstring in `warteschlange.py`); die
+Übersetzung in eine Statuszeile geschieht im Router.
+
+**Ein verwaister Auftrag kommt nach 10 Minuten zurück in die Warteschlange,
+dreimal — danach gilt er als endgültig gescheitert.**
+`warteschlange.gib_verwaiste_frei` setzt einen Auftrag, dessen `updated_at`
+älter als `VERWAIST_NACH` (10 Minuten) ist, zurück auf `wartend`; ein
+Auftrag, der so `MAX_FREIGABEN` (3) mal freigegeben wurde, geht stattdessen
+auf `fehler`. Ohne diese Grenze würde ein Dokument, das den Arbeiter
+zuverlässig zum Absturz bringt, für immer im Kreis wandern und bei jedem
+Durchlauf einen Worker mitnehmen. Der Aufräumlauf (`raeume_ab`, entfernt
+abgelaufene Aufträge samt Ergebnis) läuft im selben Faden, aber nur jeder
+150. Durchgang — bei einem Zwei-Sekunden-Takt rund alle fünf Minuten;
+abgelaufene Aufträge haben es nicht eilig.
+
+**Die Eingabe wird bei jedem Ende gelöscht** — bei Erfolg *und* bei Fehler
+(`warteschlange.melde_fertig`/`melde_fehler` setzen `eingabe_blob` beide auf
+`None`). Auch ein gescheiterter Auftrag darf keine Personendaten
+liegenlassen; das ist eine eigene Zusicherung mit eigenem Test, kein
+Nebeneffekt.
+
+**Das Auftragsergebnis ist ein verschlüsselter JSON-Umschlag, nicht das nackte
+Dokument.** `ergebnis_blob` trägt Dokument (Base64), Fundliste, `applied` und
+`vault_id` — dieselbe Form wie die Antwort des synchronen Pfads. Ohne die
+Tresor-Kennung könnte ein umkehrbar pseudonymisiertes Dokument nie
+zurückgeführt werden, weil die Zuordnung nur verschlüsselt in der Datenbank
+liegt; ohne die Fundliste entfiele bei einer grossen Datei die menschliche
+Prüfung auf Fehlalarme. Der Umschlag insgesamt bleibt so AES-GCM-verschlüsselt
+wie zuvor die reinen Dokumentbytes — nur grösser.
+
+**Neue Spalten am `Job`-Modell gehören in `NACHZUZIEHENDE_SPALTEN`** wie jede
+andere Spalte auch (siehe „Schemaänderungen" oben) — hier besonders leicht zu
+vergessen, weil `Job` schon lange existierte und eine neue Spalte daran wie
+eine Erweiterung eines längst produktiven Modells aussieht, nicht wie ein neues.
+
 ## Betriebs-Eigenheiten von Infomaniak jCloud
 
 - **Env-Variablen nur über das Dashboard, danach Dashboard-Restart.** Ein

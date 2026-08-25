@@ -93,11 +93,12 @@ Alle anderen Fehler folgen dem Standard-FastAPI-Format `{"detail": "…"}`
 |---|---|
 | `400` | Ungültige Eingabe — unbekannter Modus, unbekannter Entitätstyp, leere Kategorienliste, ungültige Kennung |
 | `403` | Aktion einem Administrator in der Oberfläche vorbehalten — über einen Schlüssel `DELETE /mappings/{id}`, ausserdem die gar nicht extern erreichbare Schlüsselverwaltung `/api/v1/api-keys` |
-| `404` | Zuordnungstabelle oder Begriff nicht gefunden (auch wenn sie existiert, aber einem anderen Mandanten gehört) |
-| `409` | Der Begriff steht bereits in der Liste, oder sein festes Pseudonym ist schon einem anderen Begriff zugeordnet (`POST /terms`) |
+| `404` | Zuordnungstabelle, Begriff oder Auftrag nicht gefunden (auch wenn er existiert, aber einem anderen Aktor/Mandanten gehört) |
+| `409` | Der Begriff steht bereits in der Liste, oder sein festes Pseudonym ist schon einem anderen Begriff zugeordnet (`POST /terms`) — oder ein Auftrag ist noch nicht fertig (`GET /jobs/{id}/result`) |
 | `413` | Datei oder Text über dem Grössenlimit (siehe unten) |
 | `415` | Dateiformat nicht unterstützt |
 | `422` | Pydantic-Validierung (z. B. Pflichtfeld fehlt) |
+| `503` | Datei oberhalb der Auftragsschwelle, aber diese Installation fährt keinen Hintergrundarbeiter (`anonymize-file`, `reverse-file`) |
 
 Ein unbekannter Pfad unterhalb von `/api/` liefert ein auswertbares JSON-404
 (`{"code": "NOT_FOUND", ...}`), nie eine HTML-Seite.
@@ -262,6 +263,10 @@ JSON, weil eine Datei mitgeschickt wird. Die Antwort trägt das Ergebnis als
 Base64, nicht als Datei-Download — daneben steht in derselben Antwort auch der
 Befund.
 
+**Oberhalb von `SYNC_THRESHOLD_BYTES` (Default 2 MiB) liefert dieser Endpunkt
+`202` statt des Ergebnisses** — siehe „Grosse Dateien: asynchrone Aufträge"
+weiter unten.
+
 ```bash
 curl -X POST https://pseudo.pti-tip-hub.ch/api/ext/v1/documents:anonymize-file \
   -H "X-Api-Key: ptps_…" \
@@ -332,6 +337,10 @@ curl -X POST https://pseudo.pti-tip-hub.ch/api/ext/v1/documents:reverse \
 
 Dasselbe für Dokumente — Multipart, Antwort wieder als Base64.
 
+**Dieselbe Schwelle wie bei `:anonymize-file`** — ein grosses Dokument
+zurückzuführen heisst, es erneut zu zerlegen und zusammenzusetzen, also
+dasselbe Timeout-Risiko wie beim Pseudonymisieren.
+
 ```bash
 curl -X POST https://pseudo.pti-tip-hub.ch/api/ext/v1/documents:reverse-file \
   -H "X-Api-Key: ptps_…" \
@@ -346,6 +355,119 @@ curl -X POST https://pseudo.pti-tip-hub.ch/api/ext/v1/documents:reverse-file \
   "vault_id": "7c9e6679-7425-40de-944b-e07fc1f90ae7"
 }
 ```
+
+### Grosse Dateien: asynchrone Aufträge
+
+`documents:anonymize-file` und `documents:reverse-file` verarbeiten eine Datei
+oberhalb von `SYNC_THRESHOLD_BYTES` (Default 2 MiB — eine Server-Einstellung,
+nicht über die API abfragbar, nur an ihrer Wirkung erkennbar) nicht mehr im
+laufenden Request, sondern als Auftrag im Hintergrund. Ohne diesen Umweg liefe
+die Verarbeitung einer grossen Datei in den Gateway-Timeout, lange bevor sie
+fertig ist.
+
+**Betroffen sind ausschliesslich diese beiden Dateirouten.** Die drei
+Textrouten (`:detect`, `:anonymize`, `:reverse`) bleiben in jedem Fall
+synchron — sie sind durch `max_text_chars` (300'000 Zeichen) begrenzt und
+laufen in Sekundenbruchteilen; ein Auftrag wäre dort ein Rückschritt für die
+häufigste Nutzung.
+
+Oberhalb der Schwelle antwortet die Route mit **`202 Accepted`** statt mit dem
+gewohnten Ergebnis:
+
+```json
+{"job_id": "3f2a1c9e-7425-40de-944b-e07fc1f90ae7", "status": "wartend"}
+```
+
+**Nicht jede Installation kann das.** Der Hintergrundarbeiter braucht
+PostgreSQL (siehe CLAUDE.md, Abschnitt „Asynchrone Aufträge"); auf einer
+Installation ohne Hintergrundarbeiter liefert eine Datei oberhalb der
+Schwelle **`503 Service Unavailable`** statt `202` — **keine** `job_id`,
+**keine** Auftragszeile:
+
+```json
+{"detail": "Grosse Dateien werden im Hintergrund verarbeitet; das ist auf dieser Installation nicht eingerichtet. Bitte teilen Sie die Datei auf, oder wenden Sie sich an die Administration."}
+```
+
+Bewusst 503, nicht 500: Es liegt nicht an der Anfrage, sondern daran, dass
+diese Installation die Hintergrundverarbeitung nicht anbietet. Eine frühere
+Fassung legte hier trotzdem einen Auftrag an — der blieb dann für immer auf
+`wartend` stehen, ohne dass irgendwo stand, warum. Diese Abweisung entsteht
+in `warteschlange.lege_an` selbst, nicht erst in der Route, damit sie kein
+künftiger zweiter Aufrufer versehentlich umgehen kann.
+
+#### `GET /jobs/{id}`
+
+Status des Auftrags, **ohne Dokumentinhalte** — weder Fundtexte noch
+Auszüge:
+
+```json
+{
+  "id": "3f2a1c9e-7425-40de-944b-e07fc1f90ae7",
+  "status": "laeuft",
+  "mode": "anonymize",
+  "dateiname": "protokoll.docx",
+  "fortschritt": null,
+  "gesamt": null,
+  "fehler": null,
+  "erstellt": "2026-08-25T09:00:00+00:00",
+  "laeuft_ab": null
+}
+```
+
+`status` durchläuft `wartend` → `laeuft` → `fertig` oder `fehler`. Die
+Felder `fortschritt` und `gesamt` existieren, sind aber **für jedes heute
+unterstützte Format immer `null`**: Der Rückruf, der sie befüllen würde, wird
+von keinem der aktuellen Format-Adapter aufgerufen — es gibt heute nichts, an
+dem sich Fortschritt zählen liesse. PDF, wo eine Seite eine natürliche
+Einheit wäre, ist noch kein unterstütztes Format und liefert stattdessen
+`415` (siehe „Fehlerformat" oben). Vorgesehen sind die Felder für einen
+künftigen Zyklus mit Seitenzahl (OCR); bis dahin bedeutet ein Auftrag ohne
+diese Felder nicht „läuft nicht", nur „kein Fortschritt in Einheiten
+verfügbar". `laeuft_ab` ist erst gesetzt, sobald der Auftrag fertig oder
+gescheitert ist; 24 Stunden danach ist er samt Ergebnis verschwunden.
+
+#### `GET /jobs/{id}/result`
+
+Liefert das fertige Ergebnis — **nur bei `status: "fertig"`**, sonst `409
+Conflict` mit dem aktuellen Status im Rumpf:
+
+```json
+{"detail": {"status": "laeuft", "fehler": null, "meldung": "Der Auftrag ist noch nicht fertig."}}
+```
+
+Bei Erfolg trägt die Antwort **dieselbe Form wie der synchrone Pfad** — nicht
+nur das Dokument, sondern auch Fundliste, angewendete Zahl und Tresor-Kennung:
+
+```json
+{
+  "filename": "protokoll.docx",
+  "content_base64": "UEsDBBQAAAAIAA…",
+  "entities": [ { "...": "..." } ],
+  "applied": 3,
+  "vault_id": "7c9e6679-7425-40de-944b-e07fc1f90ae7",
+  "mode": "reversible",
+  "char_count": 8213,
+  "ki_geprueft": false
+}
+```
+
+(Bei einem Auftrag aus `:reverse-file` entsprechend schmaler: nur `filename`,
+`content_base64`, `vault_id` — wie bei `POST /documents:reverse-file` selbst.)
+
+Ohne die Fundliste könnte bei einer grossen Datei niemand einen Fehlalarm
+abwählen; ohne `vault_id` wäre ein umkehrbar pseudonymisiertes Dokument nie
+wieder zurückführbar, weil die Zuordnung nur verschlüsselt in der Datenbank
+liegt.
+
+#### Sichtbarkeit
+
+**Ein Aufrufer sieht ausschliesslich seine eigenen Aufträge**, geprüft gegen
+den Aktor — den Benutzernamen in der Oberfläche, `apikey:<Schlüssel-ID>`
+über diese API — nicht nur gegen den Mandanten. Ein fremder oder unbekannter
+Auftrag liefert **`404`, nicht `403`**: Ein `403` würde verraten, dass der
+Auftrag überhaupt existiert.
+
+Beide Routen hängen wie alle anderen unter `/api/v1` **und** `/api/ext/v1`.
 
 ### Zuordnungstabellen (`/mappings`)
 

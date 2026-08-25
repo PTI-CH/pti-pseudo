@@ -36,7 +36,16 @@ from backend.config import get_settings
 from backend.core.api_key_auth import require_api_key
 from backend.core.https_redirect import HttpsRedirectMiddleware
 from backend.core.hub_access_auth import HubAccessAuthMiddleware
-from backend.routers import api_keys, documents, entities, health, me, terms, vaults
+from backend.routers import (
+    api_keys,
+    documents,
+    entities,
+    health,
+    jobs,
+    me,
+    terms,
+    vaults,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -61,11 +70,11 @@ EXEMPT_PATHS = [re.compile(r"^/api/health$"), re.compile(r"^/api/ext/")]
 #: (Design-Spec Abschnitt 5).
 HTTPS_EXEMPT_PATHS = [re.compile(r"^/api/health$")]
 
-#: Die vier Router, die unter beiden Einhaengepunkten haengen. Nicht dabei:
+#: Die Router, die unter beiden Einhaengepunkten haengen. Nicht dabei:
 #: ``me`` und ``health`` (kein Gegenstueck fuer Maschinen) und die
 #: Schluesselverwaltung selbst (``api_keys``, siehe unten) — ein Schluessel
 #: darf keine weiteren Schluessel erzeugen oder widerrufen.
-DUAL_MOUNT_ROUTERS = (documents, entities, vaults, terms)
+DUAL_MOUNT_ROUTERS = (documents, entities, vaults, terms, jobs)
 
 
 @asynccontextmanager
@@ -106,15 +115,64 @@ async def lifespan(app: FastAPI):
     except Exception:
         logger.exception("Datenbank nicht erreichbar — Vault-Funktionen fallen aus")
 
-    yield
-
-    # Der Introspektions-Client haelt offene Verbindungen zum CRM.
+    # Der Auftragsarbeiter. Je uvicorn-Worker einer; die Zuteilung regelt die
+    # Datenbank, sonst bekaemen beide denselben Auftrag.
+    #
+    # Nur auf PostgreSQL: dort teilen sich die Sitzungen KEINE Verbindung,
+    # jede Sitzung holt sich eine eigene aus dem Pool. Auf SQLite (Testbetrieb,
+    # ``StaticPool``) teilen sich dagegen ALLE Sitzungen eine einzige
+    # zugrunde liegende Verbindung — ein Faden, der daneben pollt, zerlegt
+    # deren Transaktionszustand fuer alle anderen. Gemessen am 2026-08-25:
+    # mit gestartetem Faden wurde ``test_api_key_auth.py`` sporadisch rot
+    # (ein direkt eingefuegter Schluessel war fuer die naechste Anfrage nicht
+    # sichtbar), obwohl derselbe Test allein zuverlaessig gruen lief — dasselbe
+    # Fehlerbild, das ``warteschlange.hole_naechsten`` fuer den SQLite-Zweig
+    # schon dokumentiert. ``hintergrundverarbeitung_moeglich`` traegt dieselbe
+    # Bedingung; ``warteschlange.lege_an`` prueft sie ebenfalls und weist eine
+    # grosse Datei auf diesem Dialekt mit 503 ab, statt eine Auftragszeile
+    # anzulegen, die dieser Faden nie abarbeiten wuerde.
+    arbeiter = None
     try:
-        from backend.core.hub_access_auth import _HTTP_CLIENT
+        from backend.db import get_engine, get_sessionmaker
+        from backend.jobs.arbeiter import Arbeiter
+        from backend.jobs.ausfuehrung import fuehre_aus
+        from backend.jobs.warteschlange import hintergrundverarbeitung_moeglich
 
-        await _HTTP_CLIENT.aclose()
-    except Exception:  # pragma: no cover — Abbau darf nie den Shutdown blockieren
-        logger.debug("Schliessen des HTTP-Clients fehlgeschlagen", exc_info=True)
+        dialekt = get_engine().dialect.name
+        if hintergrundverarbeitung_moeglich(dialekt):
+            arbeiter = Arbeiter(get_sessionmaker(), fuehre_aus)
+            arbeiter.start()
+        else:
+            # Nicht stumm bleiben: ``lege_an`` weist grosse Dateien auf
+            # diesem Dialekt zwar bereits mit einer klaren 503-Meldung ab
+            # (niemand wartet auf einen Auftrag, der nie startet) — aber wer
+            # den Knoten betreibt, soll trotzdem im Protokoll sehen, WARUM,
+            # nicht nur, dass Uploads oberhalb der Schwelle scheitern.
+            logger.warning(
+                "Auftragsarbeiter nicht gestartet: Dialekt %s. Auftraege "
+                "bleiben liegen. Hintergrundverarbeitung braucht PostgreSQL "
+                "— auf SQLite teilen sich alle Sitzungen eine Verbindung, "
+                "und ein Faden daneben zerlegt deren Zustand.",
+                dialekt,
+            )
+    except Exception:
+        # Wie beim spaCy-Modell: nicht fatal. Ohne Arbeiter bleiben Auftraege
+        # liegen, aber /api/health und der synchrone Pfad antworten weiter.
+        logger.warning("Auftragsarbeiter konnte nicht starten", exc_info=True)
+
+    try:
+        yield
+    finally:
+        if arbeiter is not None:
+            arbeiter.stopp()
+
+        # Der Introspektions-Client haelt offene Verbindungen zum CRM.
+        try:
+            from backend.core.hub_access_auth import _HTTP_CLIENT
+
+            await _HTTP_CLIENT.aclose()
+        except Exception:  # pragma: no cover — Abbau darf nie blockieren
+            logger.debug("Schliessen des HTTP-Clients fehlgeschlagen", exc_info=True)
 
 
 def create_app() -> FastAPI:

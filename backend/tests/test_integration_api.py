@@ -476,3 +476,27 @@ def test_riesiger_text_liefert_auch_bei_reverse_413(client: TestClient) -> None:
     )
     assert r.status_code == 413, r.text
     assert "300000" in r.json()["detail"] or "Zeichen" in r.json()["detail"]
+
+
+def test_auftragsarbeiter_startet_nicht_auf_sqlite(client: TestClient) -> None:
+    """Bewacht die Dialekt-Schranke im Lifespan gegen SQLite-Flatterhaftigkeit.
+
+    Am 2026-08-25 gemessen, beim ersten Verdrahten des Arbeiters in den
+    Lifespan: mit einem echten Hintergrundfaden wurde
+    ``test_api_key_auth.py::test_vault_loeschen_ist_fuer_schluessel_gesperrt``
+    sporadisch rot — ein direkt eingefuegter API-Schluessel war fuer die
+    naechste Anfrage nicht sichtbar, obwohl derselbe Test allein
+    zuverlaessig gruen lief. Ursache: die Testsuite laeuft auf SQLite mit
+    ``StaticPool``, wo sich ALLE Sitzungen eine einzige zugrunde liegende
+    Verbindung teilen — ein Faden, der daneben pollt, zerlegt deren
+    Transaktionszustand fuer alle anderen. Dieselbe Klasse von Fehler, die
+    ``warteschlange.hole_naechsten`` fuer den SQLite-Zweig schon dokumentiert.
+
+    Diese Schranke sieht wie eine ueberfluessige Sonderbehandlung aus, bis
+    man den obigen Absatz gelesen hat — deshalb ein eigener Test dafuer, statt
+    sie nur einem Kommentar in ``main.py`` zu ueberlassen.
+    """
+    import threading
+
+    namen = {faden.name for faden in threading.enumerate()}
+    assert "pti-auftraege" not in namen

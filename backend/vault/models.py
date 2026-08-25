@@ -38,6 +38,7 @@ from sqlalchemy import (
     Integer,
     LargeBinary,
     String,
+    Text,
     Uuid,
 )
 from sqlalchemy.dialects.postgresql import JSONB
@@ -308,6 +309,34 @@ class Job(Base):
     expires_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    #: Die verschluesselte Eingabe. Wird auf ``None`` gesetzt, sobald der
+    #: Auftrag endet — bei Erfolg UND bei Fehler. Ein gescheiterter Auftrag
+    #: darf keine Personendaten liegenlassen.
+    eingabe_blob: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
+    dateiname: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    #: Die Wahl des Nutzers beim Anlegen: Kategorien, Modus, KI-Haekchen,
+    #: Fundauswahl, bei der Rueckfuehrung die vault_id. Enthaelt KEINE Inhalte
+    #: -- eine normale, unverschluesselte JSONB-Spalte, sichtbar in jedem
+    #: Datenbankabzug. Die Fundauswahl (``selected_entities``) traegt dabei
+    #: NIE den Klartext eines Fundes, nur das Tripel, ueber das
+    #: ``pipeline._select`` ihn wiedererkennt (``segment_id``, ``start``,
+    #: ``end``) plus die Kategorie: ``warteschlange._ohne_klartext`` streift
+    #: alles andere ab, bevor die Zeile entsteht -- selbst wenn ein Aufrufer
+    #: (etwa ueber ``/api/ext/v1``) weiterhin ``text`` mitschickt.
+    parameter_json: Mapped[dict | None] = mapped_column(JSONVariant, nullable=True)
+    ergebnis_blob: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
+    fortschritt: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    gesamt: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    fehler: Mapped[str | None] = mapped_column(Text, nullable=True)
+    #: ``benutzer:<username>`` oder ``apikey:<id>`` — siehe ``core.deps.current_actor``.
+    aktor: Mapped[str | None] = mapped_column(String(200), nullable=True, index=True)
+    updated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    #: Wie oft dieser Auftrag schon als verwaist freigegeben wurde. Ab drei
+    #: gilt er als endgueltig gescheitert — sonst wandert ein Dokument, das den
+    #: Arbeiter zuverlaessig abstuerzen laesst, fuer immer im Kreis.
+    freigaben: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
 
 class UsageEvent(Base):

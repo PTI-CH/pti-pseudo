@@ -22,6 +22,7 @@ gemeinsame Anmeldeverfahren des TIP-Hubs.
 | **Zurückführen** | Verlustfrei — der zurückgeführte Text ist byte-identisch zum Original |
 | **Formate** | DOCX (inkl. Kopf-/Fusszeilen, Tabellen, Fussnoten, Kommentare, Textboxen), XLSX, PPTX (inkl. Sprechernotizen), TXT, CSV |
 | **Kategorienwahl** | Vor dem Lauf bestimmen, welche Entitätstypen pseudonymisiert werden (nur IBANs, nur Namen, beliebige Kombination) |
+| **Grosse Dateien** | Oberhalb von 2 MiB läuft die Verarbeitung als Auftrag im Hintergrund statt im offenen Request — Status über `GET /jobs/{id}`, Ergebnis über `.../result` |
 
 Schweizer Erkenner: AHV-Nummer mit EAN-13-Prüfziffer, CH-/LI-IBAN mit
 mod-97-Prüfung, Telefonnummern mit Vorwahlprüfung, Kontrollschilder,

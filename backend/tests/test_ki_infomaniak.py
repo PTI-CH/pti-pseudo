@@ -177,3 +177,65 @@ def test_fehlende_konfiguration_ist_nicht_wiederholbar():
     with pytest.raises(KiNichtKonfiguriert) as fehler:
         ki.chat_json([{"role": "user", "content": "x"}], {"type": "object"})
     assert fehler.value.wiederholbar is False
+
+
+# ── Antworten, die nur fast JSON sind ──────────────────────────────────────
+
+
+def test_json_ohne_beiwerk():
+    from backend.ki.infomaniak import _json_aus_antwort
+
+    assert _json_aus_antwort('{"funde": []}') == {"funde": []}
+
+
+def test_angehaengte_dublette_wird_abgeschnitten():
+    """Am 2026-08-25 gemessen: Apertus wiederholt die Antwort im Code-Zaun.
+
+    Die Antwort davor ist einwandfrei. Sie wegen des Anhangs zu verwerfen
+    kostete im Golden-Set-Lauf ganze Dokumente.
+    """
+    from backend.ki.infomaniak import _json_aus_antwort
+
+    roh = (
+        '[{"text": "Zbinden", "typ": "PERSON"}]\n'
+        '```json\n[{"text": "Zbinden", "typ": "PERSON"}]\n```'
+    )
+    assert _json_aus_antwort(roh) == [{"text": "Zbinden", "typ": "PERSON"}]
+
+
+def test_umschliessender_code_zaun_wird_entfernt():
+    from backend.ki.infomaniak import _json_aus_antwort
+
+    assert _json_aus_antwort('```json\n{"funde": []}\n```') == {"funde": []}
+
+
+def test_vorangestellter_text_bleibt_ein_fehler():
+    """Ein Modell, das erst erzaehlt, soll auffallen — nicht stillschweigend gehen."""
+    from backend.ki.infomaniak import KiFehler, _json_aus_antwort
+
+    try:
+        _json_aus_antwort('Gerne! Hier die Funde: {"funde": []}')
+    except KiFehler:
+        return
+    raise AssertionError("haette KiFehler ausloesen muessen")
+
+
+def test_blosse_zahl_ist_kein_gueltiges_ergebnis():
+    """`raw_decode` liest auch eine Zahl — und die kann niemand gebrauchen.
+
+    Am 2026-08-25 im Golden-Set-Lauf passiert: Der Dienst antwortete mit
+    etwas, das mit einer Ziffer begann, der Client reichte einen `int` durch,
+    und `namen.wende_an` starb an `'int' object has no attribute 'get'` —
+    ein AttributeError, den niemand fing, und der den ganzen Lauf riss.
+
+    Brauchbar sind nur Objekt und Liste. Alles andere ist ein Fehler und muss
+    als solcher auf den Ausfallpfad.
+    """
+    from backend.ki.infomaniak import KiFehler, _json_aus_antwort
+
+    for roh in ("0", "42 und noch was", '"nur ein Text"', "true", "null"):
+        try:
+            _json_aus_antwort(roh)
+        except KiFehler:
+            continue
+        raise AssertionError(f"haette KiFehler ausloesen muessen: {roh!r}")

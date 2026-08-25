@@ -229,6 +229,43 @@ Kosten sein und keine neue Grundsatzdebatte.
 | **A** (dieses Design) | Fenster von ±10 Wörtern um Fundkandidaten | Korrekte Namensgrenzen; über `propagate_findings` faktisch dokumentweite Namen | Vollständig übersehene Namen bleiben übersehen |
 | **B** | ganze Segmente (Absatz, Zelle, Folie) | Echte Koreferenz; auch Namen, die spaCy gar nicht meldet | Praktisch das ganze Dokument geht durch die Leitung, in Stücken |
 | **C** | ganzes Dokument in einem Zug | Maximaler Kontext | Grösster Schritt beim Datenschutz, teuer bei langen Akten |
+| **D** (umgesetzt 2026-08-25) | ganzes Dokument, aber **maskiert** — jeder erkannte Fund durch `[Person]`, `[Ort]`, … ersetzt | Schliesst A's blinden Fleck vollständig; **kein erkannter Name verlässt das Haus** | Der Sachverhalt geht vollständig hinaus; die Abschneide-Fehlerquelle kehrt zurück (deshalb gestückelt) |
+
+**Nachgemessen am 2026-08-24, Anteil des Golden-Set-Textes, der hinausgeht:**
+
+    A   66.5 %   (in namensdichten Passagen bis 371 %, weil Fenster überlappen)
+    B   85.5 %
+    C  100 %
+    D  100 %  — davon kein einziger erkannter Name
+
+Die Zahl für A ist die Überraschung: Fenster sind nicht automatisch sparsamer.
+Stehen drei Namen in einem Satz, geht dieser Satz dreimal hinaus, einmal je
+Fund.
+
+**Warum D und nicht B oder C.** D verlangt dieselbe Textmenge wie C, gibt aber
+die eine Grösse nicht preis, um die es geht. Der Rückweg ist dabei einfach: Ein
+übersehener Name wurde gerade *nicht* ersetzt und steht im Original wortgleich
+da — eine Textsuche genügt. Der ehrliche Haken bleibt, dass Pseudonymisieren
+Namen entfernt und nicht den Sachverhalt; bei einem Polizeidokument kann der so
+heikel sein wie die Namen. Der Auftraggeber hat D in Kenntnis dieses Punktes
+entschieden, bevor die Frage zum Auftragsverarbeitungsvertrag mit Infomaniak
+geklärt war. Deshalb der Betriebsschalter `KI_ZWEITMEINUNG`.
+
+**Nachtrag 2026-08-25 — D ist gebaut und ab Werk ausgeschaltet.** Nicht wegen
+des Datenschutzes, sondern wegen einer gemessenen Nebenwirkung: D verdreifacht
+die Anfragen je Dokument, der Dienst antwortet unter dieser Last mit
+unbrauchbarem JSON statt mit einem sauberen HTTP 429, und dadurch fällt die
+*Namensprüfung* aus — 26-mal in einem Lauf über 14 Dokumente. Am Golden-Set:
+
+    ohne Zweitmeinung   93.2 % Precision, 100 % Recall, PERSON 100/100
+    mit  Zweitmeinung   87.2 % Precision,  98.6 % Recall, PERSON 84/96
+
+D findet also nicht das Falsche, sondern verbraucht das Kontingent, das die
+funktionierende Schicht braucht. Der nächste sinnvolle Schritt ist deshalb
+nicht ein anderes Modell, sondern **weniger Anfragen**: überlappende Fenster
+der Namensprüfung zusammenfassen (gemessen bis 371 % Textvolumen durch
+Dopplung) und die reine Ort/Organisation-Messung wieder ausbauen, sobald sie
+genug Daten geliefert hat.
 
 **Was ein Wechsel technisch kostet:** Nur der Fensterbau in `ki/namen.py`.
 Client, Schema, Fehlerbehandlung, Vertrag und Oberfläche bleiben. Das ist der
@@ -252,6 +289,17 @@ stimmt:
 Dazu die Roadmap: Punkt 3 verspricht „Zusammenfassen gleicher Personen über
 das ganze Dokument" — Variante A liefert das nur für Namen, die wenigstens
 einmal teilweise erkannt wurden.
+
+**Seit Stufe D (2026-08-25) kommt ein dritter Punkt dazu, und er wiegt
+schwerer als die beiden anderen:** Es geht nicht mehr nur um Ausschnitte. Der
+vollständige Text jedes Dokuments wird an die AI Tools übertragen — ohne die
+erkannten Namen, aber mit dem gesamten Sachverhalt. Auch ein Dokument, in dem
+die lokale Erkennung **nichts** findet, geht damit hinaus; das ist gewollt,
+denn genau dort ist eine Zweitmeinung etwas wert.
+
+„Keine Inhalte an Dritte" bleibt zutreffend — die AI Tools sind ein anderes
+Produkt desselben Anbieters, im selben Rechenzentrum. Ein Wortlaut, der
+nahelegt, es gingen nur Ausschnitte hinaus, stimmt dagegen nicht mehr.
 
 **Der Wortlaut wird vorgeschlagen, nicht gesetzt.** Er ist eine Aussage des
 Auftraggebers gegenüber seinen Kunden, keine technische Angabe.

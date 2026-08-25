@@ -66,3 +66,14 @@ export HUB_AUTH DEV_ROLE PSEUDONYM_TEMPLATE
 # Dienst nicht adressieren, auch mit gueltigem Token nicht.
 export INFOMANIAK_AI_KEY INFOMANIAK_AI_PRODUCT_ID
 export INFOMANIAK_AI_BASE INFOMANIAK_AI_MODELL
+
+# Der Notaus fuer die Zweitmeinung (Stufe D). Sie ist die einzige Stufe, bei
+# der der vollstaendige Dokumenttext hinausgeht — maskiert, also ohne jeden
+# erkannten Namen, aber mit dem gesamten Sachverhalt.
+#
+# Diese Zeile ist der Grund, warum das Abstellen im Dashboard genuegt und
+# keinen Deploy braucht. Fehlt sie, waere `KI_ZWEITMEINUNG=off` im Panel
+# wirkungslos — der Runner liest /.jelenv per `source`, exportiert aber nicht,
+# und der Dienstprozess saehe die Variable nie. Genau daran ist der
+# Infomaniak-Schluessel schon einmal haengengeblieben.
+export KI_ZWEITMEINUNG

@@ -207,24 +207,82 @@ Vier Entscheidungen, die man kennen muss, bevor man daran schraubt. Die
 Begründungen samt Ausbaustufen stehen in
 `docs/superpowers/specs/2026-08-24-ki-schicht-namen-design.md`.
 
-1. **Nur Fenster verlassen das Haus** — rund 20 Wörter um jeden Fundkandidaten,
-   nie ein ganzes Segment. Preis: Ein vollständig übersehener Name bleibt
-   übersehen. Trägt trotzdem, weil `propagate_findings` **nach** der KI läuft
-   und den korrigierten vollständigen Namen durchs Dokument trägt — deshalb ist
-   die Reihenfolge in `detect_in_segments` nicht beliebig.
+1. **Die Namensprüfung schickt nur Fenster hinaus** — rund 20 Wörter um jeden
+   Fundkandidaten. Sie läuft **vor** `propagate_findings`, damit der
+   korrigierte vollständige Name anschliessend durchs Dokument getragen wird;
+   die Reihenfolge in `detect_in_segments` ist nicht beliebig.
 2. **Bei Ausfall weiterlaufen**, nicht scheitern. Die lokale Erkennung ist mit
    95 % Namen-Recall der Normalbetrieb.
-3. **Nur erweitern, nie verwerfen** — dieselbe Regel wie bei
-   `propagate_findings`. Ein zu Unrecht verworfener Fund kostet einen
-   Klarnamen, und zwar unsichtbar.
+3. **Nie entfernen, und nur gefahrlos verkleinern.** Ein zu Unrecht
+   verworfener Fund kostet einen Klarnamen, und zwar unsichtbar. Verkleinern
+   ist erlaubt, solange **kein grossgeschriebenes Wort wegfällt** — nur ein
+   solches könnte ein Namensteil sein, der danach im Klartext stünde.
 4. **Vorgabe aus auf API-Ebene**, vorangehakt in der Oberfläche. Sonst begänne
    `/api/ext/v1` ab einem Deploy stillschweigend, Inhalte hinauszuschicken.
 
-Drei am echten Dienst gemessene Eigenheiten stecken in
+### Stufe D: die Zweitmeinung sieht das ganze Dokument
+
+`backend/ki/zweitmeinung.py` maskiert **alle** erkannten Funde und fragt zum
+Ergebnis: „Stehen hier noch Personendaten?" Was gemeldet wird, hat die lokale
+Erkennung übersehen — und lässt sich leicht zurückschreiben, weil ein
+übersehener Name im Original wortgleich dasteht.
+
+**Das ist die Stelle, an der sich die Datenschutzaussage des Werkzeugs
+ändert.** Der vollständige Text jedes Dokuments geht hinaus, ohne die erkannten
+Namen, aber mit dem gesamten Sachverhalt. Auch ein Dokument, in dem lokal
+**nichts** gefunden wurde, geht hinaus — gewollt, denn genau dort ist eine
+Zweitmeinung etwas wert. Gemessen (2026-08-24): Stufe A überträgt 66.5 % des
+Golden-Set-Textes und in dichten Passagen bis 371 %, weil Fenster überlappen;
+Stufe D 100 %, davon keinen erkannten Namen.
+
+Vier Dinge, die dabei zusammenhängen:
+
+- **Sie ist ab Werk AUS, und das ist gemessen.** Am 2026-08-25 am Golden-Set
+  gegen den echten Dienst: ohne sie 93.2 % Precision / 100 % Recall / PERSON
+  100 %, mit ihr 87.2 % / 98.6 % / 84 %. **Sie findet nicht das Falsche — sie
+  zerstört das Richtige:** Sie verdreifacht die Anfragen je Dokument, der
+  Dienst antwortet unter dieser Last mit Müll statt mit einem sauberen 429,
+  und die *Namensprüfung* fällt aus (im Messlauf 26-mal). Zuschalten lohnt
+  erst, wenn die Anfragezahl gesenkt ist — überlappende Fenster
+  zusammenfassen ist der grösste Hebel — oder Infomaniak das Kontingent
+  anhebt.
+- **`KI_ZWEITMEINUNG=on`** schaltet sie im Dashboard zu, ohne Deploy. Die
+  Variable muss in der Export-Liste von `deploy/pythonenv` stehen, sonst
+  erreicht sie den Dienstprozess nie. Sie ist die *Betriebs*-Entscheidung;
+  `ki_pruefung` je Lauf bleibt die des Nutzers, beide müssen zutreffen.
+- **Ob der jCloud-Auftragsverarbeitungsvertrag die AI Tools mitträgt, ist
+  offen** und beim Anbieter zu klären. Der Schalter existiert genau dafür.
+- **Neue Funde von hier sind `gelb`, nicht grün** (Score 0.7): Keine lokale
+  Ebene hat sie bestätigt.
+- **`propagate_findings` läuft danach ein zweites Mal**, sonst gälte ein neu
+  gefundener Name nur an der gemeldeten Stelle.
+
+Fünf am echten Dienst gemessene Eigenheiten stecken in
 `backend/ki/infomaniak.py`: `response_format: json_object` ergibt **HTTP 400**
 (nur `json_schema` geht), **HTTP 200 mit leerem `content` ist ein Fehler** (vier
 Modelle antworten so bei knappem Token-Budget), und die **Produkt-Id steht im
-Pfad**, nicht im Kopf.
+Pfad**, nicht im Kopf. Dazu zwei, die am 2026-08-25 dazukamen:
+
+- **`json_schema` erzwingt die Antwortform nicht, es lenkt nur — und das
+  Verhalten ändert sich ohne Vorwarnung.** Am 2026-08-25 lieferte die
+  Namensprüfung vormittags 9/9 und nachmittags 0/3, ohne dass sich an unserem
+  Code oder am Modellnamen etwas geändert hätte: Das Modell antwortete plötzlich
+  in Prosa („Ist die Markierung Teil eines Personennamens? Ja …") statt in JSON.
+  Eine ausdrückliche Formatangabe **mit Beispiel** in der Anweisung stellte
+  3/3 wieder her.
+
+  **Regel daraus: Jede Anweisung an den Dienst nennt das Antwortformat und
+  zeigt ein Beispiel.** Wer sich auf das Schema allein verlässt, baut auf einen
+  Zufall, der eines Tages anders ausfällt — und der Ausfall ist still, weil die
+  Schicht sauber auf die lokale Erkennung zurückfällt. Bei der Zweitmeinung
+  dasselbe Bild von der anderen Seite: ohne Beispiel neunmal von neun eine
+  leere Liste, gültig, schnell und wertlos.
+- **Der Dienst drosselt mit HTTP 429.** Nicht dokumentiert, aber reproduzierbar
+  erreichbar. Stufe D verdreifacht die Anfragen je Dokument; wer mehrere
+  Dokumente hintereinander durchlässt, kommt daran. Der Wiederholungsversuch
+  hilft dagegen nicht, weil er ohne Pause erfolgt — er verdoppelt die Last.
+  Fällt die Erkennung im Betrieb auffällig oft auf das lokale Ergebnis zurück,
+  ist 429 der erste Verdacht; im Protokoll steht er im Klartext.
 
 Das Modell ist `Ministral-3`, nicht Apertus: Massenklassifikation, nicht Chat.
 

@@ -111,10 +111,14 @@ class DetectionResult:
     findings: list[Finding] = field(default_factory=list)
     #: ``True``, wenn die KI-Schicht tatsaechlich gelaufen ist.
     #:
-    #: ``False`` heisst: nicht angefordert, nicht konfiguriert, nichts zu
-    #: pruefen — **oder** der Dienst hat nicht geantwortet. Der Aufrufer muss
+    #: ``False`` heisst: nicht angefordert, nicht konfiguriert — **oder** der
+    #: Dienst hat bei einem der Schritte nicht geantwortet. Der Aufrufer muss
     #: wissen, was er in der Hand haelt; ein still schlechter geprueftes
     #: Ergebnis waere das gefaehrlichere Verhalten.
+    #:
+    #: „Nichts zu pruefen" gehoert seit Stufe D **nicht** mehr dazu: Die
+    #: Zweitmeinung sieht das ganze Dokument, auch wenn die lokale Erkennung
+    #: nichts gefunden hat.
     ki_geprueft: bool = False
 
     @property
@@ -204,9 +208,19 @@ def detect_in_segments(
     # uebersehen hat. In umgekehrter Reihenfolge bliebe die Korrektur auf die
     # eine Fundstelle beschraenkt, und die halbe Fassung stuende weiter da.
     if ki_pruefung:
-        result.findings, result.ki_geprueft = _ki_pruefen(
-            result.segments, result.findings, ki
-        )
+        # Die aeussere Sicherung. `_ki_pruefen` faengt bereits jeden `KiFehler`
+        # — aber am 2026-08-25 riss ein `AttributeError` aus der Auswertung
+        # einer missgestalteten Antwort den ganzen Lauf. Die Zusage dieser
+        # Schicht lautet „ein Ausfall kostet nie eine Erkennung", und die darf
+        # nicht davon abhaengen, dass jede kuenftige Aenderung an jede
+        # Ausnahmeart gedacht hat.
+        try:
+            result.findings, result.ki_geprueft = _ki_pruefen(
+                result.segments, result.findings, ki
+            )
+        except Exception:
+            logger.warning("KI-Pruefung unerwartet abgebrochen.", exc_info=True)
+            result.ki_geprueft = False
         # Reine Messung, danach und getrennt: Sie nimmt die Fundliste nur
         # lesend und gibt nichts zurueck. `ki_geprueft` bleibt davon
         # unberuehrt — das Flag sagt aus, ob die ANGEWANDTE Namenspruefung
@@ -215,6 +229,29 @@ def detect_in_segments(
 
     if propagate:
         result.findings = propagate_findings(result.segments, result.findings)
+
+    # ── Stufe D: Zweitmeinung auf dem maskierten Volltext ─────────────────
+    # NACH der Uebertragung, damit die Maske moeglichst viel abdeckt: Jeder
+    # Fund, den `propagate_findings` nachtraegt, ist einer weniger, der im
+    # hinausgehenden Text im Klartext stuende.
+    #
+    # Danach wird ein zweites Mal uebertragen. Ohne das haette Stufe D genau
+    # das Fehlerbild, gegen das PR #8 gebaut wurde: Ein neu gefundener Name
+    # gaelte nur an der einen gemeldeten Stelle, und im Ergebnisdokument
+    # stuende er anderswo weiter im Klartext.
+    if ki_pruefung:
+        try:
+            result.findings, vollstaendig = _ki_zweitmeinung(
+                result.segments, result.findings, ki
+            )
+        except Exception:
+            logger.warning("Zweitmeinung unerwartet abgebrochen.", exc_info=True)
+            vollstaendig = False
+        if not vollstaendig:
+            result.ki_geprueft = False
+        if propagate:
+            result.findings = propagate_findings(result.segments, result.findings)
+
     return result
 
 
@@ -292,7 +329,15 @@ def _ki_pruefen(segments, findings, ki) -> tuple[list[Finding], bool]:
 
     fenster = namen.baue_fenster(segments, findings)
     if not fenster:
-        return list(findings), False
+        # Nichts zu pruefen ist kein Ausfall, sondern ein vollstaendiger Lauf.
+        #
+        # Bis Stufe D stand hier `False`, und das war damals vertretbar: Ohne
+        # Fundkandidaten lief die KI-Schicht ueberhaupt nicht. Seit die
+        # Zweitmeinung auch dann fragt — gerade dann —, hiesse `False` dem
+        # Nutzer gegenueber „die KI konnte nicht pruefen", waehrend sie das
+        # ganze Dokument gesehen hat. Ein Hinweis, der ohne Grund erscheint,
+        # bringt Menschen dazu, Hinweise zu uebergehen.
+        return list(findings), True
 
     # Gestueckelt, weil die Antwortzeit mit der Fensterzahl waechst (gemessen:
     # rund 5 s Grundlast plus 1.3 s je Fenster). Faellt ein Stueck aus, bleiben
@@ -325,6 +370,66 @@ def _ki_pruefen(segments, findings, ki) -> tuple[list[Finding], bool]:
     # Ergebnis als geprueft auszuweisen waere die gefaehrlichere Aussage: Der
     # Mensch verliesse sich dann auf eine Pruefung, die einen Teil des
     # Dokuments nie gesehen hat.
+    return aktuell, gelungen == len(stuecke)
+
+
+def _ki_zweitmeinung(segments, findings, ki) -> tuple[list[Finding], bool]:
+    """Fragt zum **maskierten** Volltext, ob noch Personendaten darin stehen.
+
+    Stufe D — die Umkehrung der Fensterloesung. Statt mehr Rohtext
+    hinauszugeben, geht der Text ohne die erkannten Namen hinaus; was gemeldet
+    wird, hat die lokale Erkennung uebersehen. Die Fachlogik samt Schranken
+    steht in :mod:`backend.ki.zweitmeinung`.
+
+    Ein ausgefallenes Stueck kostet die Erkennung nichts, wird aber ueber den
+    Rueckgabewert angezeigt: Der Aufrufer setzt dann ``ki_geprueft`` auf
+    ``False``, und die Oberflaeche weist darauf hin. Anders als bei der
+    Messung zu Ort und Organisation ist das hier richtig — Stufe D **wird
+    angewandt**, ihr Ausfall aendert also das Ergebnis.
+
+    Ist der Betriebsschalter ``KI_ZWEITMEINUNG`` aus, gilt der Lauf als
+    vollstaendig: Das ist eine bewusste Betriebsentscheidung und kein Ausfall.
+    """
+    from backend.config import get_settings
+    from backend.ki import zweitmeinung
+    from backend.ki.infomaniak import InfomaniakKi, ist_verfuegbar
+
+    einstellungen = get_settings()
+    if not einstellungen.ki_zweitmeinung:
+        return list(findings), True
+
+    if ki is None:
+        if not ist_verfuegbar(einstellungen):
+            return list(findings), False
+        ki = InfomaniakKi(einstellungen)
+
+    nach_segment: dict[str, list[Finding]] = {}
+    for fund in findings:
+        nach_segment.setdefault(fund.segment_id, []).append(fund)
+
+    stuecke = zweitmeinung.stueckle(segments, nach_segment)
+    if not stuecke:
+        return list(findings), True
+
+    aktuell = list(findings)
+    gelungen = 0
+    for stueck in stuecke:
+        try:
+            antwort = ki.chat_json(
+                zweitmeinung.baue_nachrichten(stueck), zweitmeinung.SCHEMA
+            )
+        except Exception:
+            logger.warning("Zweitmeinung: ein Stueck ausgefallen.", exc_info=True)
+            continue
+        aktuell = zweitmeinung.wende_an(stueck, aktuell, antwort)
+        gelungen += 1
+
+    logger.info(
+        "Zweitmeinung: %d/%d Stuecke gelungen, %d Funde danach",
+        gelungen,
+        len(stuecke),
+        len(aktuell),
+    )
     return aktuell, gelungen == len(stuecke)
 
 
@@ -423,7 +528,7 @@ def _wortzeichen(zeichen: str) -> bool:
     return zeichen.isalnum() or zeichen == "_"
 
 
-def _muster(begriff: str) -> re.Pattern:
+def wortgrenzen_muster(begriff: str) -> re.Pattern:
     r"""Sucht ``begriff`` wortgrenzengenau — aber nur, wo eine Grenze Sinn ergibt.
 
     ``\bMeier\b`` waere falsch, sobald ein Begriff mit einem Satzzeichen
@@ -475,7 +580,10 @@ def _uebertragbare_begriffe(findings: Sequence[Finding]) -> list[_Uebertragung]:
         typ, score = _mehrheitstyp(treffer)
         uebertragungen.append(
             _Uebertragung(
-                begriff=text, entity_type=typ, score=score, muster=_muster(text)
+                begriff=text,
+                entity_type=typ,
+                score=score,
+                muster=wortgrenzen_muster(text),
             )
         )
     uebertragungen.sort(key=lambda u: (-len(u.begriff), u.begriff))

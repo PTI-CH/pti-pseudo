@@ -1296,6 +1296,57 @@ def _baue_namen_an_zellgrenzen() -> Testdokument:
     )
 
 
+def _baue_uebersehener_name() -> Testdokument:
+    """Ein Name, den das Sprachmodell **vollständig** übersieht.
+
+    Das ist der blinde Fleck der Fensterlösung, und er lässt sich mit Fenstern
+    nicht schliessen: Wo die lokale Erkennung nichts findet, entsteht kein
+    Fenster, und die KI-Namensprüfung sieht die Stelle nie. Nur die
+    Zweitmeinung auf dem maskierten Volltext (``backend/ki/zweitmeinung.py``,
+    Stufe D) kommt dort hin.
+
+    Am 2026-08-25 gemessen: In *„Die Meldung erfolgte durch Zbinden;
+    gegengezeichnet von Stalder"* meldet spaCy ausschliesslich ``Stalder``.
+    ``Zbinden`` fehlt ganz — derselbe Nachname, den das Modell in
+    ``Sandra Zbinden`` sehr wohl findet. Der Unterschied ist der Satzbau, nicht
+    der Name.
+
+    ``nur_messen``, weil das Gate ohne KI-Schicht misst: Dort **muss** dieses
+    Dokument einen Fund verfehlen, sonst prüft es nicht mehr, wofür es gebaut
+    wurde.
+    """
+    text = "\n".join(
+        [
+            "Aktennotiz",
+            "",
+            "Die Meldung erfolgte durch Zbinden; gegengezeichnet von Stalder.",
+            "Der Vorfall ereignete sich am Rosenweg in Burgdorf.",
+            "",
+            "Rückfragen an die Sachbearbeitung.",
+        ]
+    )
+
+    erwartet = (
+        Erwartung("Zbinden", "PERSON"),
+        Erwartung("Stalder", "PERSON"),
+        Erwartung("Rosenweg", "LOCATION"),
+        Erwartung("Burgdorf", "LOCATION"),
+    )
+
+    return Testdokument(
+        name="uebersehener_name",
+        dateiname="aktennotiz.txt",
+        beschreibung=(
+            "Ein Nachname, den das Sprachmodell ganz übersieht — messbar nur "
+            "mit der Zweitmeinung auf dem maskierten Volltext."
+        ),
+        inhalt=text.encode("utf-8"),
+        erwartet=erwartet,
+        verboten=(),
+        nur_messen=True,
+    )
+
+
 DOKUMENTE: List[Testdokument] = [
     _baue_begriffsliste(),
     _baue_behoerdenliste(),
@@ -1304,6 +1355,7 @@ DOKUMENTE: List[Testdokument] = [
     _baue_mehrere_namen_je_fenster(),
     _baue_franzoesische_namen(),
     _baue_namen_an_zellgrenzen(),
+    _baue_uebersehener_name(),
     _baue_mehrere_runs(),
     _baue_struktur_pii(),
     _baue_fehlalarm_fallen(),

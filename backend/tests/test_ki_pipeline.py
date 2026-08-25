@@ -13,7 +13,10 @@ ab.
 from __future__ import annotations
 
 from backend import pipeline
+import pytest
+
 from backend.adapters import Segment
+from backend.ki import namen, zweitmeinung
 from backend.ki.infomaniak import KiFehler
 
 TEXT = "Die Auskunft erteilte Frau Sandra Zbinden am Montag."
@@ -30,14 +33,25 @@ class KiDoppel:
         #: Organisation mitlaeuft, ist die letzte Anfrage nicht mehr
         #: zwangslaeufig die Namenspruefung.
         self.alle_nachrichten = []
+        self.schemata = []
 
     def chat_json(self, nachrichten, schema, max_tokens=2000):
         self.aufrufe += 1
         self.letzte_nachrichten = nachrichten
         self.alle_nachrichten.append(nachrichten)
+        self.schemata.append(schema)
         if isinstance(self.antwort, Exception):
             raise self.antwort
         return self.antwort
+
+    @property
+    def namensaufrufe(self) -> int:
+        """Nur die Anfragen der Namenspruefung.
+
+        `aufrufe` zaehlt alle KI-Schritte. Ein Test ueber die Namenspruefung
+        soll nicht rot werden, weil daneben eine Stufe dazugekommen ist.
+        """
+        return sum(1 for s in self.schemata if s is namen.SCHEMA)
 
 
 def _segmente():
@@ -58,7 +72,7 @@ def test_mit_anforderung_wird_die_grenze_korrigiert():
         {"funde": [{"nummer": 0, "name": "Sandra Zbinden", "ist_person": True}]}
     )
     ergebnis = pipeline.detect_in_segments(_segmente(), ki_pruefung=True, ki=ki)
-    assert ki.aufrufe == 1
+    assert ki.namensaufrufe == 1
     assert ergebnis.ki_geprueft is True
     personen = [f.text for f in ergebnis.findings if f.entity_type == "PERSON"]
     assert "Sandra Zbinden" in personen
@@ -77,13 +91,46 @@ def test_ausfall_liefert_das_lokale_ergebnis():
     assert ergebnis.findings, "die lokalen Funde muessen erhalten bleiben"
 
 
-def test_ohne_fundkandidaten_kein_aufruf():
-    """Nichts gefunden, nichts zu pruefen — und nichts geht hinaus."""
+def _leeres_segment():
+    return [Segment(id="text", text="Die Zahlen lauten 1, 2 und 3.", location=None)]
+
+
+def test_ohne_fundkandidaten_geht_nichts_hinaus():
+    """Im Auslieferungszustand: nichts gefunden, nichts geht hinaus.
+
+    Die Namenspruefung fragt nicht, weil es ohne Fundkandidaten kein Fenster
+    gibt; die Zweitmeinung fragt nicht, weil ihr Schalter ab Werk aus steht.
+
+    `ki_geprueft` ist trotzdem True. Frueher stand hier False mit der Lesart
+    „nichts zu pruefen" — das zeigte dem Nutzer einen Hinweis, der nichts
+    bedeutete. Ein Hinweis, der ohne Grund erscheint, bringt Menschen dazu,
+    Hinweise zu uebergehen.
+    """
     ki = KiDoppel({"funde": []})
-    leer = [Segment(id="text", text="Die Zahlen lauten 1, 2 und 3.", location=None)]
-    ergebnis = pipeline.detect_in_segments(leer, ki_pruefung=True, ki=ki)
+    ergebnis = pipeline.detect_in_segments(
+        _leeres_segment(), ki_pruefung=True, ki=ki
+    )
+
     assert ki.aufrufe == 0
-    assert ergebnis.ki_geprueft is False
+    assert ergebnis.ki_geprueft is True
+
+
+def test_ohne_fundkandidaten_fragt_die_zugeschaltete_zweitmeinung(zweitmeinung_an):
+    """Was Stufe D aendert, wenn man sie zuschaltet — ihre schaerfste Kante.
+
+    Ein Dokument, in dem die lokale Erkennung nichts findet, ist genau der
+    Fall, in dem eine Zweitmeinung etwas wert waere: Entweder ist wirklich
+    nichts drin, oder alles wurde uebersehen, und ohne zu fragen laesst sich
+    das nicht unterscheiden.
+
+    Der Preis steht daneben: Dann geht auch ein Dokument hinaus, in dem gar
+    keine Personendaten stehen. Wer den Schalter umlegt, entscheidet das mit.
+    """
+    ki = KiDoppel({"funde": []})
+    pipeline.detect_in_segments(_leeres_segment(), ki_pruefung=True, ki=ki)
+
+    assert ki.namensaufrufe == 0, "ohne Fundkandidaten gibt es kein Fenster"
+    assert ki.aufrufe == 1, "die Zweitmeinung fragt trotzdem"
 
 
 def test_nur_fenster_gehen_hinaus():
@@ -133,13 +180,22 @@ def test_korrektur_wird_durchs_dokument_getragen():
 
 
 class KiFolge:
-    """Liefert je Aufruf die naechste vorbereitete Antwort — oder wirft."""
+    """Liefert der NAMENSPRUEFUNG je Aufruf die naechste vorbereitete Antwort.
+
+    Andere Anfragen — die Messung zu Ort und Organisation, die Zweitmeinung —
+    bekommen eine leere Antwort und zaehlen nicht mit. Ohne diese Trennung
+    haenge jeder Test der Wiederholungslogik daran, wie viele KI-Schritte es
+    gerade sonst noch gibt, und eine neue Stufe machte sie alle rot, ohne dass
+    an der Wiederholung etwas kaputt waere.
+    """
 
     def __init__(self, antworten):
         self.antworten = list(antworten)
         self.aufrufe = 0
 
     def chat_json(self, nachrichten, schema, max_tokens=2000):
+        if schema is not namen.SCHEMA:
+            return {"funde": []}
         a = self.antworten[self.aufrufe]
         self.aufrufe += 1
         if isinstance(a, Exception):
@@ -303,3 +359,158 @@ def test_ausfall_der_messung_kostet_den_lauf_nicht():
     personen = [f.text for f in ergebnis.findings if f.entity_type == "PERSON"]
     assert "Sandra Zbinden" in personen
     assert ergebnis.ki_geprueft is True
+
+
+# ── Stufe D: Zweitmeinung auf dem maskierten Text ──────────────────────────
+
+#: Hier uebersieht spaCy `Zbinden` VOLLSTAENDIG und findet nur `Stalder`
+#: (am 2026-08-25 nachgemessen). Genau das ist der blinde Fleck der
+#: Fensterloesung: Ohne lokalen Fund entsteht kein Fenster, und die
+#: Namenspruefung sieht die Stelle nie.
+TEXT_LUECKE = "Die Meldung erfolgte durch Zbinden; gegengezeichnet von Stalder."
+
+
+class KiStufeD:
+    """Antwortet je nach Schema — Namenspruefung, Messung, Zweitmeinung."""
+
+    def __init__(self, person=None, zweitmeinung=None):
+        self.person = person or {"funde": []}
+        self.zweit = zweitmeinung or {"funde": []}
+        self.schemata = []
+        self.anfragen = []
+
+    def chat_json(self, nachrichten, schema, max_tokens=2000):
+        # Unterschieden wird ueber die IDENTITAET des Schemas, nicht ueber
+        # dessen Text: "typ" steckt als Teilwort in "type" und traefe damit
+        # jedes Schema.
+        self.schemata.append(schema)
+        self.anfragen.append(nachrichten[-1]["content"])
+        if schema is zweitmeinung.SCHEMA:
+            antwort = self.zweit
+        elif schema is namen.SCHEMA_EIGENNAME:
+            antwort = {"funde": []}
+        else:
+            antwort = self.person
+        if isinstance(antwort, Exception):
+            raise antwort
+        return antwort
+
+    @property
+    def zweitmeinung_gefragt(self) -> bool:
+        return any(s is zweitmeinung.SCHEMA for s in self.schemata)
+
+
+def _luecke():
+    return [Segment(id="text", text=TEXT_LUECKE, location=None)]
+
+
+@pytest.fixture
+def zweitmeinung_an(monkeypatch):
+    """Schaltet den Betriebsschalter fuer die Dauer eines Tests ein.
+
+    Die Vorgabe ist **aus** (siehe `backend/config.py`): Die Stufe verdreifacht
+    die Anfragen je Dokument und liess dadurch am echten Dienst die
+    Namenspruefung ausfallen. Wer sie hier prueft, schaltet sie ausdruecklich
+    ein — so bleibt im Test sichtbar, dass sie im Betrieb nicht laeuft.
+    """
+    from backend.config import get_settings
+
+    monkeypatch.setenv("KI_ZWEITMEINUNG", "true")
+    get_settings.cache_clear()
+    yield
+    get_settings.cache_clear()
+
+
+def test_zweitmeinung_ergaenzt_einen_uebersehenen_namen(zweitmeinung_an):
+    """Der Zielfall von Stufe D — A's blinder Fleck wird geschlossen."""
+    ki = KiStufeD(
+        zweitmeinung={"funde": [{"text": "Zbinden", "typ": "PERSON"}]}
+    )
+    ohne = pipeline.detect_in_segments(_luecke())
+    mit = pipeline.detect_in_segments(_luecke(), ki_pruefung=True, ki=ki)
+
+    assert ki.zweitmeinung_gefragt
+    assert "Zbinden" not in [f.text for f in ohne.findings]
+    zusatz = [f for f in mit.findings if f.text == "Zbinden"]
+    assert zusatz, "der uebersehene Name muss ergaenzt worden sein"
+    assert zusatz[0].confidence == "gelb"
+
+
+def test_zweitmeinung_geht_nur_maskiert_hinaus(zweitmeinung_an):
+    """Die Zusage dieser Stufe, am Einhaengepunkt geprueft.
+
+    `Stalder` ist erkannt und geht deshalb maskiert hinaus. `Zbinden` ist
+    uebersehen und steht im Klartext in der Anfrage — das ist kein Leck,
+    sondern der ganze Zweck: Was hier hinausgeht, ist genau das, was die
+    lokale Erkennung nicht gefunden hat.
+    """
+    ki = KiStufeD()
+    pipeline.detect_in_segments(_luecke(), ki_pruefung=True, ki=ki)
+
+    (anfrage,) = [
+        inhalt
+        for schema, inhalt in zip(ki.schemata, ki.anfragen)
+        if schema is zweitmeinung.SCHEMA
+    ]
+    assert "Stalder" not in anfrage, "der erkannte Name ist maskiert"
+    assert "Zbinden" in anfrage, "der uebersehene ist genau der Zweck"
+
+
+def test_ausfall_der_zweitmeinung_kostet_den_lauf_nicht(zweitmeinung_an):
+    """Kein Ausfall darf eine Erkennung kosten — aber er wird angezeigt."""
+    ki = KiStufeD(zweitmeinung=KiFehler("Dienst nicht erreichbar"))
+    ergebnis = pipeline.detect_in_segments(_luecke(), ki_pruefung=True, ki=ki)
+
+    assert [f.text for f in ergebnis.findings], "das lokale Ergebnis bleibt"
+    assert ergebnis.ki_geprueft is False, "der Mensch muss das wissen"
+
+
+def test_zweitmeinung_laesst_sich_abschalten(monkeypatch):
+    """Der Betriebsschalter — und die Vorgabe ist **aus**.
+
+    Geprueft wird beides: dass `false` die Stufe stumm schaltet, und dass die
+    Vorgabe ohne gesetzte Variable ebenfalls aus ist. Letzteres ist die
+    eigentliche Zusicherung — ein Deploy darf nicht stillschweigend anfangen,
+    ganze Dokumente hinauszuschicken.
+    """
+    from backend.config import get_settings
+
+    monkeypatch.setenv("KI_ZWEITMEINUNG", "false")
+    get_settings.cache_clear()
+    try:
+        ki = KiStufeD(
+            zweitmeinung={"funde": [{"text": "Zbinden", "typ": "PERSON"}]}
+        )
+        ergebnis = pipeline.detect_in_segments(_luecke(), ki_pruefung=True, ki=ki)
+        assert not ki.zweitmeinung_gefragt, "kein Text darf hinausgegangen sein"
+        assert "Zbinden" not in [f.text for f in ergebnis.findings]
+
+        # Und ohne gesetzte Variable ebenso.
+        monkeypatch.delenv("KI_ZWEITMEINUNG", raising=False)
+        get_settings.cache_clear()
+        assert get_settings().ki_zweitmeinung is False
+    finally:
+        get_settings.cache_clear()
+
+
+def test_unerwartete_ausnahme_kostet_keinen_lauf(monkeypatch):
+    """Die Zusage der ganzen Schicht, an ihrer schwaechsten Stelle geprueft.
+
+    `_ki_pruefen` faengt jeden `KiFehler`. Am 2026-08-25 riss aber ein
+    `AttributeError` aus der Auswertung einer missgestalteten Antwort den
+    ganzen Lauf — kein KiFehler, also ungefangen. Dass die lokale Erkennung
+    ueberlebt, darf nicht davon abhaengen, dass jede kuenftige Aenderung an
+    jede Ausnahmeart gedacht hat.
+    """
+
+    def platzt(*args, **kw):
+        raise RuntimeError("etwas ganz Unerwartetes")
+
+    monkeypatch.setattr(pipeline, "_ki_pruefen", platzt)
+    monkeypatch.setattr(pipeline, "_ki_zweitmeinung", platzt)
+
+    ergebnis = pipeline.detect_in_segments(
+        _segmente(), ki_pruefung=True, ki=KiDoppel({"funde": []})
+    )
+    assert [f.text for f in ergebnis.findings], "die lokalen Funde bleiben"
+    assert ergebnis.ki_geprueft is False

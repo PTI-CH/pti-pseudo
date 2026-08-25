@@ -109,6 +109,41 @@ class Settings(BaseSettings):
     # 2.2 s je Anfrage. `google/gemma-4-31B-it` waere die Ausweichwahl.
     infomaniak_ai_modell: str = "swiss-ai/Apertus-v1.5-70B"
 
+    # Betriebsschalter fuer die Zweitmeinung (Stufe D, backend/ki/zweitmeinung.py).
+    #
+    # Sie ist die einzige Stufe, bei der der VOLLSTAENDIGE Dokumenttext zur KI
+    # geht — maskiert, also ohne jeden erkannten Namen, aber mit dem gesamten
+    # Sachverhalt. Bei einem Polizeidokument kann der so heikel sein wie die
+    # Namen, und ob der jCloud-Auftragsverarbeitungsvertrag die AI Tools
+    # mittraegt, ist zum Zeitpunkt der Einfuehrung nicht geklaert.
+    #
+    # Deshalb dieser Schalter: `KI_ZWEITMEINUNG=off` im Infomaniak-Dashboard
+    # (danach Dashboard-Restart, ein Prozess-Restart laedt Variablen nicht neu)
+    # stellt die Stufe ab, ohne dass jemand Code anfassen oder deployen muss.
+    #
+    # Er ist die BETRIEBS-Entscheidung; `ki_pruefung` je Lauf bleibt die
+    # Entscheidung des Nutzers. Beide muessen zutreffen.
+    #
+    # VORGABE AUS, und das ist gemessen und nicht vorsichtshalber. Am
+    # 2026-08-25 am Golden-Set gegen den echten Dienst:
+    #
+    #     ohne Zweitmeinung   93.2 % Precision, 100 % Recall, PERSON 100/100
+    #     mit  Zweitmeinung   87.2 % Precision,  98.6 % Recall, PERSON 84/96
+    #
+    # Die Stufe findet nicht das Falsche — sie zerstoert das Richtige. Sie
+    # verdreifacht die Anfragen je Dokument (Namenspruefung, Ort/Organisation,
+    # Zweitmeinung); der Dienst antwortet unter dieser Last mit Muell statt
+    # mit einem sauberen 429, und die NAMENSPRUEFUNG faellt aus. Im letzten
+    # Lauf 26-mal — dieselbe Pruefung, die ohne die Zweitmeinung 100 %
+    # erreicht. `Sandra Zbinden` blieb dadurch zerrissen.
+    #
+    # Die Stufe ist damit nicht schlecht gebaut, sondern zu teuer fuer das
+    # Kontingent. Sie bleibt vollstaendig, getestet und dokumentiert im Code
+    # und laesst sich mit `KI_ZWEITMEINUNG=on` im Dashboard zuschalten —
+    # sinnvoll erst, wenn die Anfragezahl gesenkt ist (ueberlappende Fenster
+    # zusammenfassen) oder Infomaniak das Kontingent anhebt.
+    ki_zweitmeinung: bool = False
+
     # ── Grenzen ────────────────────────────────────────────────────────────
     # Muss zu client_max_body_size im NGINX des Knotens passen.
     max_upload_bytes: int = 26_214_400  # 25 MiB

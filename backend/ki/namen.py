@@ -216,6 +216,23 @@ SCHEMA = {
     "required": ["funde"],
 }
 
+#: **Die Formatangabe am Schluss ist der Unterschied zwischen laeuft und
+#: laeuft nicht.** Sie fehlte bis zum 2026-08-25, und die Schicht arbeitete
+#: trotzdem — bis sie es ploetzlich nicht mehr tat. Gemessen an diesem Tag
+#: gegen die laufende Produktion:
+#:
+#:     ohne Formatangabe   0/3   Antwort in Prosa:
+#:                               "Ist die Markierung Teil eines Personennamens? Ja
+#:                                Wie lautet der VOLLSTAENDIGE Name...? Sandra Zbinden"
+#:     mit  Formatangabe   3/3   sauberes JSON
+#:
+#: Am Vormittag desselben Tages lieferte dieselbe Anweisung noch 9/9. Es hat
+#: sich nichts an unserem Code geaendert und nichts am Modellnamen — der
+#: Dienst verhaelt sich schlicht nicht stabil. Die Lehre ist deshalb keine
+#: ueber Apertus, sondern eine ueber die Schnittstelle: **``json_schema``
+#: erzwingt die Form nicht, es lenkt nur.** Wer sich darauf verlaesst, baut
+#: auf einen Zufall, der eines Tages anders ausfaellt. Das Format gehoert in
+#: die Anweisung, mit Beispiel.
 _ANWEISUNG = (
     "Du pruefst markierte Textstellen in deutschsprachigen Behoerdendokumenten. "
     "Zu jedem nummerierten Ausschnitt ist eine Stelle mit >>> <<< markiert. "
@@ -224,6 +241,9 @@ _ANWEISUNG = (
     "Gib den Namen buchstabengetreu aus dem Ausschnitt wieder, erfinde nichts "
     "und ergaenze nichts. Titel und Anreden (Herr, Frau, Dr.) gehoeren nicht "
     "zum Namen."
+    " Antworte ausschliesslich mit JSON in dieser Form: "
+    '{"funde": [{"nummer": 0, "name": "Sandra Zbinden", "ist_person": true}]} '
+    "— ein Eintrag je Nummer, keine Erklaerungen davor oder danach."
 )
 
 
@@ -239,6 +259,9 @@ _ANWEISUNG_EIGENNAME = (
     "Organisation. Ein allgemeines Wort wie 'Fallnummer', 'Kontrollschild', "
     "'Dienstgebrauch' oder 'Intern' ist KEIN Eigenname, auch wenn es "
     "grossgeschrieben ist."
+    " Antworte ausschliesslich mit JSON in dieser Form: "
+    '{"funde": [{"nummer": 0, "ist_eigenname": true}]} '
+    "— ein Eintrag je Nummer, keine Erklaerungen davor oder danach."
 )
 
 #: Antwortschema der Messfrage. ``additionalProperties: False`` aus demselben
@@ -319,6 +342,24 @@ def _darf_angewandt_werden(fenster: Fenster, alt, start: int, ende: int) -> bool
     return False
 
 
+def _eintraege(antwort) -> list:
+    """Holt die Vorschlagsliste aus der Antwort — Objekt **oder** Liste.
+
+    Das Schema verlangt ein Objekt mit ``funde``, und so antwortet der Dienst
+    auch. Verlaesslich ist das aber nicht: Infomaniaks ``json_schema`` erzwingt
+    die Form nicht, es lenkt nur (siehe ``zweitmeinung.SCHEMA``). Eine Antwort
+    in der falschen Verpackung darf hier keinen Absturz ausloesen — der Lauf
+    faellt sonst ganz aus, statt nur diese eine Korrektur zu verlieren.
+    """
+    if isinstance(antwort, list):
+        return [e for e in antwort if isinstance(e, dict)]
+    if isinstance(antwort, dict):
+        eintraege = antwort.get("funde")
+        if isinstance(eintraege, list):
+            return [e for e in eintraege if isinstance(e, dict)]
+    return []
+
+
 def wende_an(
     findings: Sequence,
     fenster: Sequence[Fenster],
@@ -349,7 +390,7 @@ def wende_an(
     neu = list(findings)
     verworfen = 0
 
-    for eintrag in antwort.get("funde", []):
+    for eintrag in _eintraege(antwort):
         f = nach_nummer.get(eintrag.get("nummer"))
         name = (eintrag.get("name") or "").strip()
 

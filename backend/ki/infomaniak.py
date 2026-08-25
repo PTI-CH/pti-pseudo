@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from typing import Any, Protocol
 
 logger = logging.getLogger("pti.ki.infomaniak")
@@ -104,6 +105,47 @@ class KiNichtKonfiguriert(KiFehler):  # noqa: N818
 #: Fehler auf unserer Seite und bleiben beim zweiten Mal dieselben. 429 und
 #: 5xx dagegen sind Zustaende des Dienstes und koennen vorbeigehen.
 NICHT_WIEDERHOLBAR: frozenset[int] = frozenset({400, 401, 403, 404, 405, 422})
+
+
+_ZAUN = re.compile(r"^\s*```(?:json)?\s*|\s*```\s*$", re.IGNORECASE)
+
+
+def _json_aus_antwort(inhalt: str):
+    """Liest den ersten vollstaendigen JSON-Wert aus der Antwort.
+
+    Am 2026-08-25 am Dienst gemessen: Apertus liefert die richtige Antwort und
+    haengt gelegentlich eine **Dublette in einem Markdown-Block** an:
+
+        [{"text": "Zbinden", "typ": "PERSON"}]
+        ```json
+        [{"text": "Zbinden", "typ": "PERSON"}]
+        ```
+
+    ``json.loads`` scheitert daran mit „Extra data" — und verwirft damit eine
+    inhaltlich einwandfreie Antwort. Genau das kostete im Golden-Set-Lauf
+    ganze Dokumente, und zwar nicht nur bei der Zweitmeinung: Auch die
+    Namenspruefung und die Messung zu Ort und Organisation fielen so aus.
+
+    Deshalb zwei Zugestaendnisse an die Wirklichkeit, beide eng gefasst:
+    ein umschliessender Code-Zaun wird entfernt, und nach dem ersten
+    vollstaendigen JSON-Wert wird abgeschnitten (``raw_decode``). Was davor
+    steht, gilt weiterhin als Fehler — dort faende sich sonst ein Modell, das
+    erst erzaehlt und dann antwortet, und dessen Antwort wollen wir sehen.
+    """
+    text = _ZAUN.sub("", inhalt.strip())
+    try:
+        wert, _ = json.JSONDecoder().raw_decode(text)
+    except json.JSONDecodeError as fehler:
+        raise KiFehler("Die Antwort war kein gueltiges JSON.") from fehler
+
+    # Nur Objekt und Liste sind brauchbar. `raw_decode` liest auch eine blosse
+    # Zahl oder Zeichenkette — und die reichte der Client dann bis in die
+    # Fachlogik durch, wo sie mit einem AttributeError den ganzen Lauf riss
+    # (am 2026-08-25 im Golden-Set passiert). Ein unbrauchbares Ergebnis
+    # gehoert auf den Ausfallpfad, nicht in die Auswertung.
+    if not isinstance(wert, (dict, list)):
+        raise KiFehler("Die Antwort war weder Objekt noch Liste.")
+    return wert
 
 
 def ist_verfuegbar(einstellungen) -> bool:
@@ -213,7 +255,4 @@ class InfomaniakKi:
             # Siehe Modulkopf, Punkt 2: HTTP 200 heisst nicht Erfolg.
             raise KiFehler("Der KI-Dienst lieferte eine leere Antwort.")
 
-        try:
-            return json.loads(inhalt)
-        except json.JSONDecodeError as fehler:
-            raise KiFehler("Die Antwort war kein gueltiges JSON.") from fehler
+        return _json_aus_antwort(inhalt)

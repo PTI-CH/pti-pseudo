@@ -252,8 +252,10 @@ Vier Dinge, die dabei zusammenhängen:
   Variable muss in der Export-Liste von `deploy/pythonenv` stehen, sonst
   erreicht sie den Dienstprozess nie. Sie ist die *Betriebs*-Entscheidung;
   `ki_pruefung` je Lauf bleibt die des Nutzers, beide müssen zutreffen.
-- **Ob der jCloud-Auftragsverarbeitungsvertrag die AI Tools mitträgt, ist
-  offen** und beim Anbieter zu klären. Der Schalter existiert genau dafür.
+- **Rechtlich ist die Stufe getragen.** Der Auftraggeber hat am 2026-08-25
+  bestätigt, dass der jCloud-Auftragsverarbeitungsvertrag die AI Tools mit
+  umfasst. Der Schalter ist deshalb **kein Notaus**, sondern eine reine
+  Betriebsentscheidung; sie steht aus einem *gemessenen* Grund auf aus.
 - **Neue Funde von hier sind `gelb`, nicht grün** (Score 0.7): Keine lokale
   Ebene hat sie bestätigt.
 - **`propagate_findings` läuft danach ein zweites Mal**, sonst gälte ein neu
@@ -279,12 +281,15 @@ Pfad**, nicht im Kopf. Dazu zwei, die am 2026-08-25 dazukamen:
   Schicht sauber auf die lokale Erkennung zurückfällt. Bei der Zweitmeinung
   dasselbe Bild von der anderen Seite: ohne Beispiel neunmal von neun eine
   leere Liste, gültig, schnell und wertlos.
-- **Der Dienst drosselt mit HTTP 429.** Nicht dokumentiert, aber reproduzierbar
-  erreichbar. Stufe D verdreifacht die Anfragen je Dokument; wer mehrere
-  Dokumente hintereinander durchlässt, kommt daran. Der Wiederholungsversuch
-  hilft dagegen nicht, weil er ohne Pause erfolgt — er verdoppelt die Last.
-  Fällt die Erkennung im Betrieb auffällig oft auf das lokale Ergebnis zurück,
-  ist 429 der erste Verdacht; im Protokoll steht er im Klartext.
+- **Nachrangig: der Dienst drosselt mit HTTP 429.** Nicht dokumentiert, aber
+  erreichbar — beobachtet nach mehreren Stunden Messläufen im Sekundentakt, also
+  weit jenseits des normalen Gebrauchs. Wo die Grenze genau liegt, ist **nicht**
+  ausgemessen; für den Alltag mit einer Handvoll Nutzern ist bisher nichts
+  aufgefallen. Der Wiederholungsversuch hilft dagegen nicht, weil er ohne Pause
+  erfolgt — er verdoppelt die Last. Erst wenn die Erkennung im Betrieb auffällig
+  oft auf das lokale Ergebnis zurückfällt, lohnt der Blick: Im Protokoll steht
+  429 im Klartext, und dort ist er von einem echten Ausfall unterscheidbar — in
+  der Oberfläche nicht.
 
 Das Modell ist `Ministral-3`, nicht Apertus: Massenklassifikation, nicht Chat.
 

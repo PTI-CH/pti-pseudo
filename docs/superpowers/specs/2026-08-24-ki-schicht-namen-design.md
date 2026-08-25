@@ -248,8 +248,11 @@ die eine Grösse nicht preis, um die es geht. Der Rückweg ist dabei einfach: Ei
 da — eine Textsuche genügt. Der ehrliche Haken bleibt, dass Pseudonymisieren
 Namen entfernt und nicht den Sachverhalt; bei einem Polizeidokument kann der so
 heikel sein wie die Namen. Der Auftraggeber hat D in Kenntnis dieses Punktes
-entschieden, bevor die Frage zum Auftragsverarbeitungsvertrag mit Infomaniak
-geklärt war. Deshalb der Betriebsschalter `KI_ZWEITMEINUNG`.
+entschieden.
+
+**Rechtlich geklärt am 2026-08-25:** Der jCloud-Auftragsverarbeitungsvertrag
+umfasst die AI Tools mit. Der Betriebsschalter `KI_ZWEITMEINUNG` ist damit kein
+Notaus mehr, sondern eine reine Betriebsentscheidung.
 
 **Nachtrag 2026-08-25 — D ist gebaut und ab Werk ausgeschaltet.** Nicht wegen
 des Datenschutzes, sondern wegen einer gemessenen Nebenwirkung: D verdreifacht

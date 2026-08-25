@@ -114,10 +114,15 @@ class Settings(BaseSettings):
     # Sie ist die einzige Stufe, bei der der VOLLSTAENDIGE Dokumenttext zur KI
     # geht — maskiert, also ohne jeden erkannten Namen, aber mit dem gesamten
     # Sachverhalt. Bei einem Polizeidokument kann der so heikel sein wie die
-    # Namen, und ob der jCloud-Auftragsverarbeitungsvertrag die AI Tools
-    # mittraegt, ist zum Zeitpunkt der Einfuehrung nicht geklaert.
+    # Namen.
     #
-    # Deshalb dieser Schalter: `KI_ZWEITMEINUNG=off` im Infomaniak-Dashboard
+    # Rechtlich ist das getragen: Der Auftraggeber hat am 2026-08-25 bestaetigt,
+    # dass der jCloud-Auftragsverarbeitungsvertrag die AI Tools **mit umfasst**.
+    # Der Schalter ist damit kein Notaus mehr, sondern eine reine
+    # Betriebsentscheidung — die Begruendung fuer die Vorgabe steht unten und
+    # ist eine gemessene, keine rechtliche.
+    #
+    # `KI_ZWEITMEINUNG=off` im Infomaniak-Dashboard
     # (danach Dashboard-Restart, ein Prozess-Restart laedt Variablen nicht neu)
     # stellt die Stufe ab, ohne dass jemand Code anfassen oder deployen muss.
     #

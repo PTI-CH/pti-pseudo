@@ -11,11 +11,13 @@ import {
   fehlerMeldung,
   gibErgebnisFrei,
   ladeKategorien,
+  verfolgeAuftrag,
   type Befund,
   type Ergebnis,
   type Kategorie,
   type Modus,
 } from '../core/api';
+import { offenerAuftrag, vergissAuftrag } from '../core/auftragsspeicher';
 
 type Quelle = 'text' | 'datei';
 
@@ -52,6 +54,16 @@ export default function Pseudonymisieren() {
     fortschritt: number | null;
     gesamt: number | null;
   } | null>(null);
+  /**
+   * Der Dateiname eines Auftrags, der ein Seitenneuladen überlebt hat.
+   *
+   * Nur für den Hinweistext: Nach einem Neuladen ist die Datei selbst weg
+   * (ein `File` überlebt kein Neuladen), der Auftrag auf dem Server aber
+   * nicht. Der Mensch soll lesen, WELCHE Datei da noch läuft — sonst wirkt
+   * der Fortschrittshinweis wie ein Überbleibsel und er lädt dieselbe Datei
+   * ein zweites Mal hoch.
+   */
+  const [wiederaufgenommen, setWiederaufgenommen] = useState<string | null>(null);
   /** Der Text, aus dem das aktuelle Ergebnis entstand — Grundlage für „Anwenden“. */
   const [quellText, setQuellText] = useState('');
   /**
@@ -80,8 +92,14 @@ export default function Pseudonymisieren() {
    * umschaltet und dann „Anwenden“ drückt, bekäme eine Ersetzung ohne Tresor —
    * die geprüfte Fundliste sähe unverändert aus, aber die Rückführung wäre
    * unmöglich geworden, ohne dass es jemand angeordnet hätte.
+   *
+   * `null` heisst **unbekannt**: Ein wiederaufgenommener Auftrag aus der Zeit
+   * vor `mode` im Auftragsumschlag sagt nicht, womit er lief. Dann wird
+   * „Anwenden" verweigert statt geraten — die Vorgabe `umkehrbar` legte für
+   * einen `anonym`-Lauf einen Tresor an, also Klarnamen in einer
+   * Zuordnungstabelle, die niemand bestellt hat.
    */
-  const [laufModus, setLaufModus] = useState<Modus>('umkehrbar');
+  const [laufModus, setLaufModus] = useState<Modus | null>(null);
   /**
    * Ob die KI-Prüfung der Namensgrenzen zugeschaltet ist.
    *
@@ -122,6 +140,100 @@ export default function Pseudonymisieren() {
     };
   }, []);
 
+  /**
+   * Einen Auftrag wiederaufnehmen, der ein Seitenneuladen überlebt hat.
+   *
+   * Eine grosse Datei wird zu einem Auftrag; die Kennung lebte bisher nur in
+   * der laufenden Anfrage. Wer die Seite dazwischen neu lud, verlor sie —
+   * der Auftrag lief weiter, war 24 Stunden abholbar, und niemand konnte ihn
+   * mehr finden: Es gibt keine Liste eigener Aufträge, nur `GET /jobs/{id}`.
+   * Die Arbeit war getan und unerreichbar, und der Mensch begann dieselbe
+   * grosse Datei von vorn.
+   *
+   * Ohne Abfrage, ohne Knopf: Der Mensch hat diesen Lauf gestartet und
+   * wartet darauf. Ihn zu fragen, ob er sein eigenes Ergebnis haben möchte,
+   * wäre eine Höflichkeit, die ihm nur eine Entscheidung mehr abverlangt.
+   *
+   * Der Lauf setzt `laeuft`, damit die Bedienelemente währenddessen gesperrt
+   * sind — genau wie bei einem selbst gestarteten Lauf, und aus demselben
+   * Grund: Ein zweiter Start daneben legte einen zweiten Auftrag an.
+   */
+  useEffect(() => {
+    const offen = offenerAuftrag('anonymisieren');
+    if (!offen) return;
+
+    let abgebrochen = false;
+    setLaeuft(true);
+    setWiederaufgenommen(offen.dateiname);
+    (async () => {
+      try {
+        const e = await verfolgeAuftrag(
+          offen.id,
+          'anonymisieren',
+          offen.dateiname,
+          (fortschritt, gesamt) => {
+            if (!abgebrochen) setAuftrag({ fortschritt, gesamt });
+          },
+        );
+        if (abgebrochen) return;
+        // `quellText` bleibt leer und `laufQuelle` steht auf 'datei': Nach
+        // einem Neuladen ist die Datei selbst weg. Der Befund lässt sich
+        // ansehen und das Ergebnis herunterladen; „Anwenden" verlangt die
+        // Datei erneut und sagt das auch (siehe `anwenden`).
+        //
+        // Kategorien, Modus und KI-Häkchen kommen aus dem ERGEBNIS, nicht aus
+        // den Zustandsvariablen: Dieser Effekt hat `[]`-Deps und liest damit
+        // die Closure des Mounts. Dort ist `gewaehlteKategorien` noch leer
+        // (der Katalog lädt erst danach) und `modus` steht auf dem
+        // Vorgabewert `umkehrbar`. Mit diesen Werten wäre „Anwenden" bei
+        // einem wiederaufgenommenen Lauf zweimal falsch: Es bräche mit
+        // „Wählen Sie mindestens eine Kategorie aus" ab, obwohl in der
+        // Oberfläche eine angehakt ist — und wer einen `anonym`-Lauf
+        // wiederaufnähme, legte damit einen Tresor an, den er nicht bestellt
+        // hat. Der Auftragsumschlag trägt diese drei Angaben genau deswegen
+        // (`backend/jobs/ausfuehrung.py`).
+        uebernimmErgebnis(
+          e,
+          '',
+          e.laufKategorien ?? [],
+          'datei',
+          e.laufModus,
+          // Unbekannt → `false`: Die Richtung ist nicht beliebig. `true`
+          // schickte beim nächsten Aufruf Textausschnitte an den KI-Dienst,
+          // die der Mensch bei seinem Lauf womöglich abgewählt hatte; `false`
+          // kostet höchstens Erkennungsgüte in einem Lauf, den er selbst
+          // auslöst. Und die Warnung „nur lokal geprüft" bliebe sonst für
+          // einen Lauf stehen, von dem niemand weiss, ob er sie verdient.
+          e.laufKiPruefung ?? false,
+        );
+      } catch (e) {
+        if (abgebrochen) return;
+        // Auch ein 404 landet hier: Der Auftrag ist abgelaufen oder wurde
+        // aufgeräumt. `verfolgeAuftrag` hat den Eintrag dabei schon
+        // vergessen; der Hinweis erklärt dem Menschen, warum plötzlich
+        // etwas von einem Auftrag stand.
+        setFehler(fehlerMeldung(e));
+      } finally {
+        if (!abgebrochen) {
+          setLaeuft(false);
+          setAuftrag(null);
+          setWiederaufgenommen(null);
+        }
+      }
+    })();
+    return () => {
+      // Verlässt der Mensch den Bereich, hört nur die ANZEIGE auf. Der
+      // Auftrag läuft weiter und bleibt gemerkt — deshalb hier kein
+      // `vergissAuftrag()`.
+      abgebrochen = true;
+    };
+    // Absichtlich nur beim Mount: Der Auftrag wird einmal aufgenommen, nicht
+    // bei jeder Änderung an Kategorien oder Modus erneut. Dass die Closure
+    // damit veraltet ist, schadet seit oben nicht mehr — der Effekt liest
+    // keine Bedienelemente, alles Nötige steht im Auftragsergebnis.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const kannStarten =
     (quelle === 'text' ? text.trim().length > 0 : datei !== null) && gewaehlteKategorien.size > 0;
 
@@ -130,7 +242,8 @@ export default function Pseudonymisieren() {
     ursprung: string,
     kategorien: string[],
     quelleDesLaufs: Quelle,
-    modusDesLaufs: Modus,
+    /** `null` nur bei einem wiederaufgenommenen Auftrag ohne `mode` im Umschlag. */
+    modusDesLaufs: Modus | null,
     kiDesLaufs: boolean,
   ): void {
     // Eine alte Blob-URL (Dateiergebnis) lebt nur im Browser-Speicher — wird
@@ -189,6 +302,22 @@ export default function Pseudonymisieren() {
    */
   async function anwenden(): Promise<void> {
     if (!ergebnis) return;
+    // Steht vor allen anderen Prüfungen: Ist der Modus des Laufs unbekannt,
+    // hilft es nicht, die Datei erneut zu wählen. Der Fall trifft einen
+    // wiederaufgenommenen Auftrag, der noch aus der Zeit vor `mode` im
+    // Auftragsumschlag stammt (nach einem Deploy bis zu 24 Stunden lang
+    // möglich). Geraten wird hier nichts: Die Vorgabe `umkehrbar` legte für
+    // einen `anonym`-Lauf einen Tresor an — Klarnamen in einer
+    // Zuordnungstabelle, die niemand bestellt hat.
+    if (laufModus === null) {
+      setFehler(
+        'Zu diesem Auftrag ist nicht überliefert, mit welchem Modus und welchen ' +
+          'Kategorien er gelaufen ist — er stammt aus einer älteren Fassung des ' +
+          'Werkzeugs. Das Ergebnis oben können Sie unverändert herunterladen. Um ' +
+          'Fehlalarme abzuwählen, starten Sie den Lauf bitte neu.',
+      );
+      return;
+    }
     if (laufQuelle === 'datei' && !datei) {
       setFehler('Die Datei ist nicht mehr geladen. Bitte wählen Sie sie erneut aus.');
       return;
@@ -235,6 +364,16 @@ export default function Pseudonymisieren() {
   }
 
   function zuruecksetzen(): void {
+    // Auch das Auftragsgedächtnis: „Zurücksetzen" heisst, dass der Mensch
+    // mit diesem Lauf fertig ist. Bliebe der Eintrag stehen, begrüsste ihn
+    // der nächste Seitenaufruf mit einem Auftrag, den er gerade verworfen hat.
+    //
+    // Mit der Art, nicht bedingungslos: Läuft daneben im Bereich
+    // „Rückführen" ein Auftrag, steht DESSEN Eintrag auf dem einen
+    // Speicherplatz. Ein Zurücksetzen hier löschte ihn sonst mit, und die
+    // fremde Verarbeitung wäre nach einem Neuladen unauffindbar.
+    vergissAuftrag('anonymisieren');
+    setWiederaufgenommen(null);
     gibErgebnisFrei(ergebnis);
     setText('');
     setDatei(null);
@@ -242,7 +381,9 @@ export default function Pseudonymisieren() {
     setQuellText('');
     setLaufKategorien([]);
     setLaufQuelle('text');
-    setLaufModus('umkehrbar');
+    // `null` wie beim Start: Es gibt keinen Lauf mehr, dessen Modus hier
+    // stünde — und kein Ergebnis, das ihn benutzte.
+    setLaufModus(null);
     setLaufKiPruefung(true);
     setAusgewaehlt(new Set());
     setFehler(null);
@@ -388,7 +529,13 @@ export default function Pseudonymisieren() {
 
       {auftrag && (
         <Hinweis ton="info">
-          Die Datei wird im Hintergrund verarbeitet
+          {wiederaufgenommen ? (
+            <>
+              Ein Auftrag von vorhin läuft noch: <strong>{wiederaufgenommen}</strong>
+            </>
+          ) : (
+            'Die Datei wird im Hintergrund verarbeitet'
+          )}
           {auftrag.gesamt ? ` — Seite ${auftrag.fortschritt} von ${auftrag.gesamt}` : ''}.
           Sie können das Fenster offen lassen; die Fundliste erscheint, sobald der Lauf fertig
           ist.

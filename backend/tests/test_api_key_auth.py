@@ -485,7 +485,7 @@ def test_vault_loeschen_ist_fuer_schluessel_gesperrt(
         f"/api/ext/v1/mappings/{vault_id}", headers=headers
     )
     assert ueber_schluessel.status_code == 403, ueber_schluessel.text
-    assert "API-Schluessel" in ueber_schluessel.json()["detail"]
+    assert "API-Schlüssel" in ueber_schluessel.json()["detail"]
 
     noch_da = client_standard.get(f"/api/ext/v1/mappings/{vault_id}", headers=headers)
     assert noch_da.status_code == 200, noch_da.text

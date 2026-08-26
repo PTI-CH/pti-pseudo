@@ -19,6 +19,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 
 from backend.core.deps import current_actor, get_session, get_tenant
+from backend.core.kennungen import als_uuid
 from backend.vault import crypto
 from backend.vault.models import Job
 
@@ -32,10 +33,10 @@ def _as_uuid(value: str) -> uuid.UUID:
     falsche, aber wohlgeformte Kennung: beides ist fuer den Aufrufer schlicht
     "nicht gefunden".
     """
-    try:
-        return uuid.UUID(str(value))
-    except (ValueError, AttributeError, TypeError):
-        raise HTTPException(404, detail="Auftrag nicht gefunden.") from None
+    kennung = als_uuid(value)
+    if kennung is None:
+        raise HTTPException(404, detail="Auftrag nicht gefunden.")
+    return kennung
 
 
 def _hole_eigenen(session: Session, request: Request, job_id: str) -> Job:
@@ -78,16 +79,29 @@ async def ergebnis(
     request: Request,
     session: Annotated[Session, Depends(get_session)],
 ) -> dict:
-    """Das fertige Ergebnis — dieselbe Form wie die Antwort des synchronen Pfads.
+    """Das fertige Ergebnis — die Form des synchronen Pfads, und zwei Felder mehr.
 
     ``ergebnis_blob`` traegt seit Aufgabe 9 einen JSON-Umschlag (siehe
-    ``warteschlange.melde_fertig``): Dokument als Base64 plus dieselben
+    ``warteschlange.melde_fertig``): Dokument als Base64 plus die
     Zusatzangaben, die ``documents.anonymize_file`` bzw. ``reverse_file``
     synchron liefern — Fundliste, angewendete Zahl, Tresor-Kennung. Diese
     Route packt den Umschlag nur aus, statt eine eigene, aehnliche Form zu
     bauen: nur so bekommt der Mensch bei einem grossen Dokument dieselbe
     Fundliste zum Abwaehlen und dieselbe Tresor-Kennung fuer die
     Rueckfuehrung wie beim kleinen.
+
+    **Deckungsgleich ist sie trotzdem nicht — sie ist eine Obermenge.** Ein
+    ``anonymize``-Umschlag traegt zusaetzlich ``requested_entities`` und
+    ``ki_pruefung``, also womit der Lauf gestartet wurde. Der synchrone
+    Aufrufer weiss das selbst; wer einen Auftrag nach einem Seitenneuladen
+    wiederaufnimmt, hat nur noch die Auftragskennung. Ohne die beiden Felder
+    faellt seine Oberflaeche beim naechsten Schritt ("Anwenden" mit
+    abgewaehlten Fehlalarmen) auf ihre Vorgabewerte zurueck — und legt fuer
+    einen ``anonymous``-Lauf einen Tresor an, den niemand bestellt hat.
+
+    Wer die Antwort auswertet, darf also weitere Schluessel nicht als Fehler
+    behandeln. Aeltere Umschlaege (bis 24 h nach einem Deploy real moeglich)
+    haben die beiden umgekehrt noch nicht — sie fehlen dann schlicht.
     """
     job = _hole_eigenen(session, request, job_id)
     if job.status != "fertig":

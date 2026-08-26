@@ -45,6 +45,25 @@ class Settings(BaseSettings):
     env: str = "production"
     port: int = 8000
 
+    # Ab welcher Stufe die Anwendung protokolliert.
+    #
+    # Vorgabe INFO, und das ist eine Korrektur: Bis zum 2026-08-25 konfigurierte
+    # die Anwendung ihr Protokoll GAR NICHT. `pti.*` fiel damit auf den
+    # Wurzel-Logger zurueck, dessen Vorgabe WARNING ist — auf dem Knoten
+    # nachgemessen stand `logger.warning("Schema ergaenzt…")` im Protokoll,
+    # `logger.info("Erkennungs-Engine geladen…")` null Mal.
+    #
+    # Das kostete echte Daten: Die Messung zu Ort und Organisation
+    # (`pipeline._ki_messen_ort_organisation`) schreibt mit `logger.info` und
+    # sammelte seit ihrem Deploy nichts, obwohl sie ausdruecklich als
+    # „erst mitmessen, dann entscheiden" gebaut wurde.
+    #
+    # Das Volumen traegt: Am 2026-08-26 gemessen bestand das Protokoll des
+    # Knotens zur Haelfte aus `GET /api/health` des Balancers (10 388 von
+    # 20 191 Zeilen in acht Tagen). Unsere INFO-Zeilen sind dagegen eine
+    # Handvoll je verarbeitetem Dokument.
+    log_level: str = "INFO"
+
     # ── Datenbank ──────────────────────────────────────────────────────────
     # Eigene DB, bewusst nicht die geteilte pti-db: Vault-Ciphertext gehoert
     # nicht in die CRM-Datenbank.

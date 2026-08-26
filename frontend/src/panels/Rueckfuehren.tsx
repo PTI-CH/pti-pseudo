@@ -9,9 +9,11 @@ import {
   ladeVaults,
   rueckfuehrenDatei,
   rueckfuehrenText,
+  verfolgeAuftrag,
   type Ergebnis,
   type Vault,
 } from '../core/api';
+import { offenerAuftrag } from '../core/auftragsspeicher';
 
 type Quelle = 'text' | 'datei';
 
@@ -45,6 +47,15 @@ export default function Rueckfuehren() {
   const [laeuft, setLaeuft] = useState(false);
   const [fehler, setFehler] = useState<string | null>(null);
   const [ergebnis, setErgebnis] = useState<Ergebnis | null>(null);
+  /**
+   * Der Dateiname eines Auftrags, der ein Seitenneuladen überlebt hat.
+   *
+   * Dieses Panel kennt sonst keinen Wartezustand ausser dem Knopf-Spinner.
+   * Nach einem Neuladen wäre der aber unerklärlich: Es ist keine Datei
+   * ausgewählt, keine Zuordnungstabelle gewählt, und trotzdem ist alles
+   * gesperrt. Der Hinweis sagt, WELCHE Datei da noch läuft.
+   */
+  const [wiederaufgenommen, setWiederaufgenommen] = useState<string | null>(null);
 
   async function vaultsLaden_() {
     setVaultsLaden(true);
@@ -61,6 +72,67 @@ export default function Rueckfuehren() {
 
   useEffect(() => {
     void vaultsLaden_();
+  }, []);
+
+  /**
+   * Einen Rückführungs-Auftrag wiederaufnehmen, der ein Seitenneuladen
+   * überlebt hat — wie im Bereich „Pseudonymisieren“ und aus demselben
+   * Grund: Die `job_id` lebte nur im Speicher der Seite. Der Auftrag lief
+   * weiter und war 24 Stunden abholbar, aber es gibt keine Liste eigener
+   * Aufträge, nur `GET /jobs/{id}` — er war damit unauffindbar.
+   *
+   * Hier wöge der Verlust sogar schwerer: Ein zweiter Anlauf verlangt
+   * dieselbe grosse Datei UND die Kennung der Zuordnungstabelle noch einmal.
+   *
+   * **Die `vault_id` des Laufs ist nach dem Neuladen nicht mehr im Panel —
+   * das schadet dem Ergebnis nicht.** Der Server hat sie bei der Anlage in
+   * `parameter_json` festgehalten; das fertige Ergebnis trägt sie zurück
+   * (`backend/routers/jobs.py:ergebnis` packt den Umschlag mit `vault_id`
+   * aus). Der Klartext ist also vollständig, ohne dass hier irgendetwas
+   * gewählt sein muss. Zurück in die Auswahl gesetzt wird sie nur, damit
+   * ein nächster Lauf nicht erneut danach fragt.
+   *
+   * Ohne Rückfrage, ohne Knopf: Der Mensch hat diesen Lauf gestartet und
+   * wartet darauf.
+   */
+  useEffect(() => {
+    const offen = offenerAuftrag('rueckfuehren');
+    if (!offen) return;
+
+    let abgebrochen = false;
+    setLaeuft(true);
+    setWiederaufgenommen(offen.dateiname);
+    (async () => {
+      try {
+        // Kein Fortschrittsempfänger: Dieses Panel zeigt keine Seitenzahl,
+        // und einer nur für die Wiederaufnahme wäre ein Anzeigeweg, den der
+        // normale Lauf daneben nicht hat.
+        const neu = await verfolgeAuftrag(offen.id, 'rueckfuehren', offen.dateiname, () => {});
+        if (abgebrochen) return;
+        setErgebnis(neu);
+        // Siehe oben: nur für einen nächsten Lauf, nicht für dieses Ergebnis.
+        if (neu.vaultId) setVaultId(neu.vaultId);
+      } catch (e) {
+        if (abgebrochen) return;
+        // Auch ein 404 landet hier: Der Auftrag ist abgelaufen oder wurde
+        // aufgeräumt. `verfolgeAuftrag` hat den Eintrag dabei schon
+        // vergessen; der Hinweis erklärt, warum überhaupt von einem Auftrag
+        // die Rede war.
+        setFehler(fehlerMeldung(e));
+      } finally {
+        if (!abgebrochen) {
+          setLaeuft(false);
+          setWiederaufgenommen(null);
+        }
+      }
+    })();
+    return () => {
+      // Verlässt der Mensch den Bereich, hört nur die ANZEIGE auf. Der
+      // Auftrag läuft weiter und bleibt gemerkt — deshalb hier kein
+      // `vergissAuftrag()`.
+      abgebrochen = true;
+    };
+    // Absichtlich nur beim Mount.
   }, []);
 
   const kannStarten =
@@ -201,6 +273,13 @@ export default function Rueckfuehren() {
           <DateiFeld datei={datei} onDatei={setDatei} onFehler={setFehler} deaktiviert={laeuft} />
         )}
       </section>
+
+      {wiederaufgenommen && (
+        <Hinweis ton="info">
+          Ein Auftrag von vorhin läuft noch: <strong>{wiederaufgenommen}</strong>. Sie können
+          das Fenster offen lassen; das Ergebnis erscheint, sobald der Lauf fertig ist.
+        </Hinweis>
+      )}
 
       {fehler && <Hinweis ton="fehler">{fehler}</Hinweis>}
 

@@ -77,3 +77,16 @@ export INFOMANIAK_AI_BASE INFOMANIAK_AI_MODELL
 # und der Dienstprozess saehe die Variable nie. Genau daran ist der
 # Infomaniak-Schluessel schon einmal haengengeblieben.
 export KI_ZWEITMEINUNG
+
+# Die Protokollstufe. Vorgabe INFO — ohne sie faellt `pti.*` auf Pythons
+# `lastResort`-Behandler zurueck, und der gibt nur WARNING und hoeher aus.
+#
+# Am 2026-08-25 auf diesem Knoten nachgemessen: In pythonengine.log standen
+# 20 191 Zeilen, davon 10 388 der Gesundheitscheck des Balancers. Von den
+# INFO-Meldungen der Anwendung stand keine einzige darin — auch nicht die
+# Messwerte zu Ort und Organisation, die eigens dafuer gebaut worden waren.
+#
+# Der Schalter dient dem umgekehrten Fall: Wird das Protokoll je zu laut,
+# genuegt LOG_LEVEL=WARNING im Dashboard (danach Dashboard-Restart) statt
+# eines Deploys. logrotate ist auf dem Knoten eingerichtet.
+export LOG_LEVEL

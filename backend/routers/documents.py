@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import base64
 import json
+import uuid
 from typing import Annotated, Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
@@ -30,6 +31,7 @@ from backend import pipeline
 from backend.adapters import UnsupportedFormatError, supported_formats
 from backend.config import get_settings
 from backend.core.deps import current_actor, current_username, get_session, get_tenant
+from backend.core.kennungen import als_uuid
 from backend.engine import entities as ents
 from backend.vault.models import CustomTerm, UsageEvent, Vault
 
@@ -129,14 +131,12 @@ def _resolve_vault(
     return vault
 
 
-def _as_uuid(value: str):
+def _as_uuid(value: str) -> uuid.UUID:
     """Wandelt einen String in eine UUID und meldet Unsinn als 400, nicht als 500."""
-    import uuid
-
-    try:
-        return uuid.UUID(str(value))
-    except (ValueError, AttributeError, TypeError):
-        raise HTTPException(400, detail="Ungueltige Kennung.") from None
+    kennung = als_uuid(value)
+    if kennung is None:
+        raise HTTPException(400, detail="Ungültige Kennung.")
+    return kennung
 
 
 def _record_usage(
@@ -169,7 +169,7 @@ def _check_size(data: bytes) -> None:
         raise HTTPException(
             413,
             detail=(
-                f"Datei ist groesser als das Limit von {limit // (1024 * 1024)} MiB."
+                f"Datei ist grösser als das Limit von {limit // (1024 * 1024)} MiB."
             ),
         )
 
@@ -187,7 +187,7 @@ def _check_text_size(text: str) -> None:
     if len(text) > limit:
         raise HTTPException(
             413,
-            detail=f"Text ist laenger als das Limit von {limit} Zeichen.",
+            detail=f"Text ist länger als das Limit von {limit} Zeichen.",
         )
 
 
@@ -211,7 +211,7 @@ def parse_selected(value: Optional[str]) -> Optional[list[dict]]:
         parsed = json.loads(value)
     except json.JSONDecodeError as exc:
         raise HTTPException(
-            400, detail="selected_entities ist kein gueltiges JSON."
+            400, detail="selected_entities ist kein gültiges JSON."
         ) from exc
     if not isinstance(parsed, list) or not all(isinstance(e, dict) for e in parsed):
         raise HTTPException(
@@ -239,7 +239,7 @@ def parse_entities(value: list[str] | str | None) -> Optional[list[str]]:
         value = [v.strip() for v in value.split(",") if v.strip()]
 
     if not value:
-        raise HTTPException(400, detail="Mindestens eine Kategorie waehlen.")
+        raise HTTPException(400, detail="Mindestens eine Kategorie wählen.")
     unbekannt = [v for v in value if v not in ents.ALL_ENTITIES]
     if unbekannt:
         raise HTTPException(
@@ -365,7 +365,13 @@ async def anonymize_file(
                 tenant=get_tenant(session, request),
                 aktor=current_actor(request),
                 mode="anonymize",
-                dateiname=file.filename or "dokument",
+                # Derselbe Rueckfall wie der synchrone Pfad unten
+                # (``file.filename or "unbenannt.txt"``). Frueher stand hier
+                # "dokument", ohne Endung — mit der Formatpruefung in
+                # ``lege_an`` haette eine Datei ohne Namen jetzt 415 bekommen,
+                # waehrend dieselbe Datei unterhalb der Schwelle als Text
+                # durchgeht.
+                dateiname=file.filename or "unbenannt.txt",
                 daten=data,
                 parameter={
                     "modus": mode,
@@ -383,6 +389,14 @@ async def anonymize_file(
                     "ki_pruefung": ki_pruefung,
                 },
             )
+        except UnsupportedFormatError as exc:
+            # Dieselbe 415 wie unten im synchronen Zweig — der Punkt der
+            # Pruefung in ``lege_an`` ist, dass die Absage NICHT von der
+            # Dateigroesse abhaengt.
+            raise HTTPException(
+                415,
+                detail=f"{exc} Unterstützt werden: {', '.join(supported_formats())}.",
+            ) from exc
         except warteschlange.AuftragNichtMoeglichError as exc:
             # 503, nicht 500: es liegt nicht an der Anfrage, sondern daran,
             # dass diese Installation keinen Hintergrundarbeiter faehrt. Ohne
@@ -417,7 +431,7 @@ async def anonymize_file(
     except UnsupportedFormatError as exc:
         raise HTTPException(
             415,
-            detail=f"{exc} Unterstuetzt werden: {', '.join(supported_formats())}.",
+            detail=f"{exc} Unterstützt werden: {', '.join(supported_formats())}.",
         ) from exc
 
     _record_usage(
@@ -496,10 +510,19 @@ async def reverse_file(
                 tenant=get_tenant(session, request),
                 aktor=current_actor(request),
                 mode="reverse",
-                dateiname=file.filename or "dokument",
+                # Derselbe Rueckfall wie der synchrone Pfad unten
+                # (``file.filename or "unbenannt.txt"``). Frueher stand hier
+                # "dokument", ohne Endung — mit der Formatpruefung in
+                # ``lege_an`` haette eine Datei ohne Namen jetzt 415 bekommen,
+                # waehrend dieselbe Datei unterhalb der Schwelle als Text
+                # durchgeht.
+                dateiname=file.filename or "unbenannt.txt",
                 daten=data,
                 parameter={"vault_id": vault_id},
             )
+        except UnsupportedFormatError as exc:
+            # Wie bei anonymize_file — siehe dort.
+            raise HTTPException(415, detail=str(exc)) from exc
         except warteschlange.AuftragNichtMoeglichError as exc:
             # Dieselbe Abweisung wie bei anonymize_file — siehe dort.
             raise HTTPException(503, detail=str(exc)) from exc

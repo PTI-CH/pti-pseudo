@@ -260,7 +260,7 @@ def test_ohne_adminrolle_403(client_standard: TestClient) -> None:
     erzeugt = client_standard.post("/api/v1/api-keys", json={"label": "Verboten"})
     assert erzeugt.status_code == 403, erzeugt.text
     assert erzeugt.json()["detail"] == (
-        "Nur Administratoren duerfen API-Schluessel verwalten."
+        "Nur Administratoren dürfen API-Schlüssel verwalten."
     )
 
     liste = client_standard.get("/api/v1/api-keys")

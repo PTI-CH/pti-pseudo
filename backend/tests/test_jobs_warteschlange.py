@@ -270,7 +270,9 @@ def test_herzschlag_laesst_einen_bereits_beendeten_auftrag_in_ruhe(
         warteschlange.schlage_herz(s, job_id)
         s.commit()
         s.refresh(job)
-        assert as_utc(job.updated_at) == vorher, "ein beendeter Auftrag bleibt unangetastet"
+        assert as_utc(job.updated_at) == vorher, (
+            "ein beendeter Auftrag bleibt unangetastet"
+        )
 
 
 def test_abgelaufener_auftrag_verschwindet(session_factory, mandant):
@@ -288,10 +290,15 @@ def test_abgelaufener_auftrag_verschwindet(session_factory, mandant):
         warteschlange.melde_fertig(s, job, AuftragsErgebnis(daten=b"Ergebnis"))
         job.expires_at = datetime.now(timezone.utc) - timedelta(hours=1)
         s.commit()
+        # Vor dem Abraeumen festhalten: ``raeume_ab`` loescht als Massenbefehl
+        # und meldet der Sitzung die getroffenen Zeilen zurueck, das Objekt ist
+        # danach abgeloest — ein Zugriff auf ``job.id`` laedt dann nach und
+        # scheitert.
+        job_id = job.id
 
         assert warteschlange.raeume_ab(s) == 1
         s.commit()
-        assert s.get(Job, job.id) is None
+        assert s.get(Job, job_id) is None
 
 
 def test_hintergrundverarbeitung_moeglich_nur_auf_postgresql():
@@ -347,3 +354,180 @@ def test_lege_an_weist_ohne_hintergrundverarbeitung_ab():
 
         # Der wichtigere Teil der Zusicherung: keine Muellzeile.
         assert s.query(Job).count() == 0
+
+
+# ── Nachbesserungen 2026-08-26 ──────────────────────────────────────────────
+
+
+def test_verwaisten_abfrage_sperrt_die_zeile_auf_postgres():
+    """Dieselbe Sperre wie bei der Zuteilung, aus einem eigenen Grund.
+
+    Zwei Worker raeumen gleichzeitig auf und finden dieselbe haengende Zeile.
+    Ohne Sperre zaehlt jeder eine Freigabe darauf: Der Auftrag verbraucht
+    seine drei Versuche (``MAX_FREIGABEN``) in der halben Zeit und wird
+    endgueltig als gescheitert gemeldet, obwohl er nur zweimal wirklich
+    unterbrochen wurde. Der Mensch liest dann „mehrfach unterbrochen und
+    aufgegeben" fuer ein Dokument, dem nichts fehlte.
+
+    Wie beim Zuteilungstest wird die kompilierte SQL geprueft, nicht ein
+    Fadenlauf — die Begruendung steht dort.
+    """
+    from datetime import datetime, timezone
+
+    from sqlalchemy.dialects import postgresql
+
+    from backend.jobs.warteschlange import _verwaiste_abfrage
+
+    grenze = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    sql = str(
+        _verwaiste_abfrage(grenze, True).compile(dialect=postgresql.dialect())
+    ).upper()
+    assert "FOR UPDATE" in sql
+    assert "SKIP LOCKED" in sql
+
+    # Und auf SQLite ausdruecklich NICHT: der Dialekt kennt es nicht, ein
+    # ``with_for_update`` dort haette den Aufraeumlauf im Testbetrieb und in
+    # der Ein-Knoten-Rueckfallvariante zum Absturz gebracht.
+    ohne = str(_verwaiste_abfrage(grenze, False).compile()).upper()
+    assert "FOR UPDATE" not in ohne
+
+
+def test_ein_wartender_auftrag_verfaellt_auch_ohne_arbeiter(session_factory, mandant):
+    """Die Verfallszeit gilt ab Anlage, nicht erst ab Abschluss.
+
+    Der Fall, den die 503-Schranke NICHT deckt: Sie prueft den Dialekt, aber
+    der Arbeiterstart im Lifespan kann auch an einem Importfehler oder einer
+    beim Start nicht erreichbaren Datenbank scheitern. Dann nimmt ``lege_an``
+    weiter Auftraege an, und niemand arbeitet sie ab.
+
+    Ohne ``expires_at`` bei der Anlage findet ``raeume_ab`` diese Zeilen nie
+    — es sucht ausschliesslich Zeilen MIT Verfallszeit. Die verschluesselte
+    Eingabedatei laege dann unbegrenzt in der Datenbank.
+    """
+    from backend.jobs import warteschlange
+    from backend.vault.models import as_utc
+
+    with session_factory() as s:
+        job = warteschlange.lege_an(
+            s, tenant=mandant, aktor="tester", mode="anonymize",
+            dateiname="akte.txt", daten=b"Inhalt", parameter={},
+        )
+        s.commit()
+        assert job.status == "wartend"
+        assert job.expires_at is not None, (
+            "ohne Verfallszeit findet raeume_ab diese Zeile nie wieder"
+        )
+        # ``as_utc`` wie ueberall im Baum: SQLite gibt naive Zeitstempel
+        # zurueck, PostgreSQL zeitzonenbehaftete.
+        assert as_utc(job.expires_at) > warteschlange._jetzt()
+
+
+def test_raeume_ab_entfernt_einen_nie_abgeholten_wartenden_auftrag(
+    session_factory, mandant
+):
+    """Die Gegenprobe dazu: abgelaufen heisst weg, samt Eingabedatei.
+
+    Der Statusfilter in ``raeume_ab`` verschont ``laeuft`` — und darf sich
+    nicht bequem auf ``fertig``/``fehler`` verengen. Genau dann naehme er
+    zurueck, wofuer die Verfallszeit ab Anlage eingefuehrt wurde: eine
+    wartende Zeile, die nie jemand abarbeitet. Diese Zeile hier ist deshalb
+    ``wartend``, nicht ``fertig`` (das prueft
+    ``test_abgelaufener_auftrag_verschwindet`` eine Etage hoeher).
+
+    Die Verfallszeit wird nicht gesetzt, sondern nur ZURUECKDATIERT — sonst
+    bliebe der Test gruen, auch wenn ``lege_an`` gar keine mehr vergibt.
+    """
+    from backend.jobs import warteschlange
+    from backend.vault.models import Job
+
+    with session_factory() as s:
+        job = warteschlange.lege_an(
+            s, tenant=mandant, aktor="tester", mode="anonymize",
+            dateiname="akte.txt", daten=b"Inhalt", parameter={},
+        )
+        assert job.status == "wartend"
+        assert job.expires_at is not None, "lege_an vergibt keine Verfallszeit mehr"
+        # Nicht gesetzt, sondern um die volle Aufbewahrung zurueckdatiert:
+        # dieselbe Zeile, nur einen Tag spaeter betrachtet.
+        job.expires_at = job.expires_at - warteschlange.AUFBEWAHRUNG * 2
+        s.commit()
+        job_id = job.id
+
+    with session_factory() as s:
+        assert warteschlange.raeume_ab(s) == 1
+        s.commit()
+
+    with session_factory() as s:
+        assert s.get(Job, job_id) is None
+
+
+def test_raeume_ab_ruehrt_einen_laufenden_auftrag_nicht_an(session_factory, mandant):
+    """Die Regression, die die Verfallszeit ab Anlage erst geschaffen hat.
+
+    Solange ``expires_at`` nur an ``fertig``/``fehler`` haftete, war ein
+    Abraeumen ohne Statusfilter harmlos. Seit ``lege_an`` es bei der ANLAGE
+    setzt, traegt es jede Zeile ab Sekunde eins — auch die gerade bearbeitete.
+    Ein Auftrag, der 24 h nach seiner Anlage noch laeuft, verlor damit seine
+    Zeile mitten im Lauf.
+
+    Der zweite Teil ist der eigentliche Schaden und deshalb mitgeprueft:
+    ``melde_fertig`` schreibt danach per ``UPDATE`` auf eine verschwundene
+    Zeile, und das wirft — anders als ein DELETE, das nur warnt — einen
+    ``StaleDataError``.
+    """
+    from backend.jobs import warteschlange
+    from backend.jobs.ausfuehrung import AuftragsErgebnis
+    from backend.vault.models import Job
+
+    with session_factory() as s:
+        job = warteschlange.lege_an(
+            s, tenant=mandant, aktor="tester", mode="anonymize",
+            dateiname="akte.txt", daten=b"Inhalt", parameter={},
+        )
+        job.status = "laeuft"
+        # Der Herzschlag haelt ``updated_at`` frisch: die Zeile ist NICHT
+        # verwaist, sie laeuft wirklich noch. Nur die Verfallszeit ab Anlage
+        # ist inzwischen verstrichen.
+        job.updated_at = warteschlange._jetzt()
+        job.expires_at = job.expires_at - warteschlange.AUFBEWAHRUNG * 2
+        s.commit()
+        job_id = job.id
+
+        assert warteschlange.raeume_ab(s) == 0, "ein laufender Auftrag bleibt"
+        s.commit()
+        assert s.get(Job, job_id) is not None
+
+        # Und der Arbeiter kann seinen Lauf zu Ende bringen.
+        warteschlange.melde_fertig(s, job, AuftragsErgebnis(daten=b"Ergebnis"))
+        s.commit()
+        assert s.get(Job, job_id).status == "fertig"
+
+
+def test_ein_nicht_unterstuetztes_format_wird_gar_nicht_erst_angelegt(
+    session_factory, mandant
+):
+    """Dieselbe Absage wie unterhalb der Schwelle — und ohne Zeile in der DB.
+
+    Ohne diese Pruefung antwortete dieselbe .pdf je nach GROESSE
+    verschieden: klein sofort 415 mit dem Hinweis „bitte als DOCX
+    exportieren", gross erst Minuten spaeter als gescheiterter Auftrag. Und
+    bis dahin laege die Datei verschluesselt in der Datenbank, fuer eine
+    Verarbeitung, die von vornherein nicht gelingen konnte.
+    """
+    from sqlalchemy import func, select
+
+    from backend.adapters import UnsupportedFormatError
+    from backend.jobs import warteschlange
+    from backend.vault.models import Job
+
+    with session_factory() as s:
+        with pytest.raises(UnsupportedFormatError) as info:
+            warteschlange.lege_an(
+                s, tenant=mandant, aktor="tester", mode="anonymize",
+                dateiname="scan.pdf", daten=b"%PDF-1.4", parameter={},
+            )
+        # Der Text ist der kuratierte deutsche aus ``adapters._PLANNED`` —
+        # er nennt den Ausweg, nicht nur das Problem.
+        assert "DOCX" in str(info.value)
+        s.rollback()
+        assert s.scalar(select(func.count()).select_from(Job)) == 0

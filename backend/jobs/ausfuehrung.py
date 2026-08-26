@@ -9,15 +9,35 @@ eine Datei.
 from __future__ import annotations
 
 import logging
-import uuid
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Callable, Optional
 
+from sqlalchemy.orm import Session
+
+from backend.core.kennungen import als_uuid
 from backend.db import get_sessionmaker
 from backend.pipeline import anonymize_document, reverse_document
-from backend.vault.models import Job, Tenant, Vault
+from backend.vault.models import Job, Tenant, UsageEvent, Vault
 
 logger = logging.getLogger("pti.jobs.ausfuehrung")
+
+
+class NutzermeldungError(ValueError):
+    """Ein Fehler, dessen Text fuer den Menschen in der Oberflaeche bestimmt ist.
+
+    Der Arbeiter schreibt ``job.fehler``, und die Oberflaeche zeigt das Feld
+    unveraendert an. Jede Ausnahme dort ungefiltert hineinzuschreiben hiesse,
+    einem Aufrufer den Wortlaut beliebiger Bibliotheken zu zeigen -- heute
+    harmlos (nachgeprueft: lxml, openpyxl und python-docx melden auf diesem
+    Weg nur Formatfehler ohne Dokumentinhalt), aber niemand kontrolliert
+    diese Texte, und mit dem OCR-Zyklus kommen Bibliotheken dazu, die
+    Dateipfade und Ausschnitte in ihre Meldungen schreiben.
+
+    Diese Klasse ist die Erlaubnis. Wer sie wirft, hat den Text bewusst
+    formuliert; alles andere bekommt vom Arbeiter eine allgemeine Meldung,
+    und der Wortlaut steht nur im Protokoll (siehe
+    ``arbeiter._menschliche_meldung``).
+    """
 
 
 @dataclass
@@ -34,16 +54,61 @@ class AuftragsErgebnis:
 
     ``zusatz`` ist ein Dict statt eigener Felder, weil sich der Umfang je
     Auftragstyp unterscheidet: ``anonymize`` traegt Funde, angewendete Zahl,
-    Modus, Zeichenzahl und KI-Status; ``reverse`` nur die Tresor-Kennung. Ein
-    Tupel mit fester Stellenzahl haette diesen Unterschied nicht sauber
-    abgebildet.
+    Modus, Zeichenzahl, KI-Status sowie die Kategorienwahl und das KI-Haekchen
+    des Laufs; ``reverse`` nur die Tresor-Kennung. Ein Tupel mit fester
+    Stellenzahl haette diesen Unterschied nicht sauber abgebildet.
+
+    Mit den letzten beiden Angaben ist der Umschlag eine **Obermenge** der
+    synchronen Antwort, nicht mehr deckungsgleich mit ihr. Das ist Absicht:
+    Der synchrone Aufrufer hat seine Einstellungen noch, der wiederaufnehmende
+    nicht — er kennt nur die Auftragskennung.
     """
 
     daten: bytes
     zusatz: dict = field(default_factory=dict)
 
 
-def fuehre_aus(job: Job, daten: bytes, melde_fortschritt) -> AuftragsErgebnis:
+def _erfasse_nutzung(
+    session: Session, job: Job, *, action: str, entity_counts, char_count: int
+) -> None:
+    """Schreibt den Nutzungseintrag eines Auftrags.
+
+    **Warum es das braucht.** Die Auswertung ``GET /api/v1/api-keys/usage``
+    zaehlt ``usage_events``. Der synchrone Pfad schreibt dort seit jeher
+    (``documents._record_usage``), der Auftragspfad nicht -- ausgerechnet die
+    grossen Laeufe fehlten damit in jeder Auswertung, und zwar unsichtbar:
+    Die Zahlen sahen vollstaendig aus, waren aber systematisch zu klein, und
+    der Fehler waechst mit der Dateigroesse.
+
+    **Dieselben Aktionsnamen wie synchron** (``anonymize_file``,
+    ``reverse_file``), nicht eigene. Ob eine Datei ueber der Schwelle lag, ist
+    eine Frage des Transportwegs und nicht der Nutzung; eigene Namen wuerden
+    dieselbe Taetigkeit in der Auswertung auf zwei Zeilen aufteilen, die
+    niemand wieder zusammenrechnet.
+
+    **Der Aktor kommt aus ``job.aktor``**, nicht aus einem Request -- der
+    laeuft laengst nicht mehr. ``core.deps.current_username`` gibt genau
+    denselben Wert zurueck wie ``current_actor``, den ``lege_an``
+    gespeichert hat; Menschen stehen dort mit ihrem Hub-Benutzernamen,
+    Maschinen als ``apikey:<id>``.
+
+    Wie im synchronen Pfad: ausschliesslich Metadaten und Zahlen, nie
+    Inhalte, nie Dateinamen (Fachkonzept Abschnitt 9).
+    """
+    session.add(
+        UsageEvent(
+            tenant_id=job.tenant_id,
+            username=job.aktor or "unbekannt",
+            action=action,
+            entity_counts=entity_counts,
+            char_count=char_count,
+        )
+    )
+
+
+def fuehre_aus(
+    job: Job, daten: bytes, melde_fortschritt: Callable[[int, int], None]
+) -> AuftragsErgebnis:
     """Fuehrt einen Auftrag aus und gibt Dokumentbytes plus Zusatzangaben zurueck.
 
     ``melde_fortschritt(erledigt, gesamt)`` wird von Formaten aufgerufen, die
@@ -70,11 +135,18 @@ def fuehre_aus(job: Job, daten: bytes, melde_fortschritt) -> AuftragsErgebnis:
             # mit einem rohen KeyError.
             vault_id = parameter.get("vault_id")
             if not vault_id:
-                raise ValueError(
-                    "Fuer die Rueckfuehrung wird eine vault_id benoetigt."
+                raise NutzermeldungError(
+                    "Für die Rückführung wird eine vault_id benötigt."
                 )
             vault = _lade_bestehenden_vault(session, tenant, vault_id)
             ergebnis = reverse_document(session, vault, daten, dateiname)
+            # Dieselben Werte wie ``documents.reverse_file``: keine
+            # Fundzaehlung (die Rueckfuehrung erkennt nichts neu), als
+            # Umfangsmass die Bytezahl der Eingabe.
+            _erfasse_nutzung(
+                session, job, action="reverse_file",
+                entity_counts=None, char_count=len(daten),
+            )
             session.commit()
             # Dieselbe knappe Form wie ``documents.reverse_file``: dort nur
             # Dateiname, Inhalt und Tresor-Kennung — keine Funde, weil die
@@ -104,10 +176,23 @@ def fuehre_aus(job: Job, daten: bytes, melde_fortschritt) -> AuftragsErgebnis:
                 selected=parameter.get("selected_entities"),
                 ki_pruefung=bool(parameter.get("ki_pruefung")),
             )
+            _erfasse_nutzung(
+                session, job, action="anonymize_file",
+                entity_counts=befund.counts_by_type(),
+                char_count=befund.char_count,
+            )
             session.commit()
             # Dieselben Schluessel wie die Antwort des synchronen Pfads
             # (``documents.anonymize_file``) — die Ergebnisroute uebernimmt
-            # sie woertlich, damit beide Wege dieselbe Form liefern.
+            # sie woertlich. Die letzten beiden hat der synchrone Pfad NICHT:
+            # Der Umschlag ist eine Obermenge seiner Antwort (siehe
+            # ``routers/jobs.py:ergebnis`` und API.md). Sie beantworten die
+            # Frage, die sich nur beim Auftrag stellt: Womit lief dieser Lauf?
+            # Wer die Seite neu laedt und den Auftrag wiederaufnimmt, hat
+            # seine Bedienelemente von damals nicht mehr — ohne diese beiden
+            # Angaben faellt die Oberflaeche beim "Anwenden" auf ihre
+            # Vorgabewerte zurueck und legte fuer einen ``anonymous``-Lauf
+            # einen Tresor an, den niemand bestellt hat.
             zusatz = {
                 "entities": [f.as_dict() for f in befund.findings],
                 "applied": len(gewaehlt),
@@ -115,13 +200,25 @@ def fuehre_aus(job: Job, daten: bytes, melde_fortschritt) -> AuftragsErgebnis:
                 "mode": parameter.get("modus"),
                 "char_count": befund.char_count,
                 "ki_geprueft": befund.ki_geprueft,
+                # Nicht ``entities``: der Schluessel traegt im Umschlag schon
+                # die FUNDLISTE. ``requested_entities`` sagt, wonach gesucht
+                # wurde, ``entities``, was gefunden wurde — zwei Dinge, die
+                # sich unter einem Namen still gegenseitig ueberschrieben
+                # haetten. ``None`` heisst wie ueberall: keine ausdrueckliche
+                # Wahl, es galt die Vorgabe des Servers.
+                "requested_entities": parameter.get("entities"),
+                # Angefordert, nicht gelaufen — ``ki_geprueft`` daneben sagt,
+                # ob die Pruefung tatsaechlich stattfand. Die Oberflaeche
+                # braucht beides: das Haekchen fuer den naechsten Aufruf, den
+                # Status fuer die Warnung "nur lokal geprueft".
+                "ki_pruefung": bool(parameter.get("ki_pruefung")),
             }
             return AuftragsErgebnis(daten=ergebnis, zusatz=zusatz)
 
-    raise ValueError(f"Unbekannter Auftragstyp: {job.mode}")
+    raise NutzermeldungError(f"Unbekannter Auftragstyp: {job.mode}")
 
 
-def _hole_vault(session, tenant, parameter: dict) -> Optional[Vault]:
+def _hole_vault(session: Session, tenant: Tenant, parameter: dict) -> Optional[Vault]:
     """Bestimmt den Vault fuer einen Anonymisierungs-Auftrag.
 
     Bildet nach, was ``documents._resolve_vault`` fuer den synchronen Pfad
@@ -153,7 +250,7 @@ def _hole_vault(session, tenant, parameter: dict) -> Optional[Vault]:
     if modus == "anonymous":
         return None
     if modus != "reversible":
-        raise ValueError(
+        raise NutzermeldungError(
             f"Unbekannter Modus '{modus}'. Erlaubt: reversible, anonymous."
         )
 
@@ -169,7 +266,7 @@ def _hole_vault(session, tenant, parameter: dict) -> Optional[Vault]:
     return vault
 
 
-def _lade_bestehenden_vault(session, tenant, vault_id) -> Vault:
+def _lade_bestehenden_vault(session: Session, tenant: Tenant, vault_id: str) -> Vault:
     """Laedt einen bestehenden Vault und prueft die Mandantenzugehoerigkeit.
 
     Gemeinsam genutzt vom reversiblen Zweig von :func:`_hole_vault`
@@ -183,17 +280,17 @@ def _lade_bestehenden_vault(session, tenant, vault_id) -> Vault:
     ``parameter_json`` ist JSON — eine UUID kommt hier immer als
     Zeichenkette an. ``session.get`` auf einer ``Uuid``-Spalte verlangt
     (jedenfalls auf SQLite, dem Testbackend) ein echtes ``uuid.UUID``-Objekt;
-    dieselbe Umwandlung wie ``documents._as_uuid`` fuer den synchronen Pfad,
-    nur mit ``ValueError`` statt ``HTTPException`` — ein Auftrag laeuft nicht
+    dieselbe Umwandlung wie ``documents._as_uuid`` fuer den synchronen Pfad
+    (beide nutzen :func:`backend.core.kennungen.als_uuid`), nur mit
+    ``NutzermeldungError`` statt ``HTTPException`` — ein Auftrag laeuft nicht
     in einer Anfrage, und der ``Arbeiter`` faengt ``ValueError`` und setzt
     den Auftrag auf ``fehler``; die Meldung landet fuer den Menschen sichtbar
     in ``job.fehler``.
     """
-    try:
-        vault_uuid = uuid.UUID(str(vault_id))
-    except (ValueError, AttributeError, TypeError) as exc:
-        raise ValueError("Ungueltige Zuordnungstabellen-Kennung.") from exc
+    vault_uuid = als_uuid(vault_id)
+    if vault_uuid is None:
+        raise NutzermeldungError("Ungültige Zuordnungstabellen-Kennung.")
     vault = session.get(Vault, vault_uuid)
     if vault is None or vault.tenant_id != tenant.id:
-        raise ValueError("Zuordnungstabelle nicht gefunden.")
+        raise NutzermeldungError("Zuordnungstabelle nicht gefunden.")
     return vault

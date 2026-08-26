@@ -23,6 +23,7 @@ from sqlalchemy.orm import Session
 from backend.core.api_key_auth import has_api_key
 from backend.core.deps import get_session, get_tenant
 from backend.core.hub_access_auth import is_admin
+from backend.core.kennungen import als_uuid
 from backend.engine import entities as ents
 from backend.vault.models import MappingEntry, Vault, iso_utc
 from backend.vault.service import delete_vault, list_entries
@@ -37,10 +38,10 @@ class VaultCreate(BaseModel):
 
 
 def _as_uuid(value: str) -> uuid.UUID:
-    try:
-        return uuid.UUID(str(value))
-    except (ValueError, AttributeError, TypeError):
-        raise HTTPException(400, detail="Ungueltige Kennung.") from None
+    kennung = als_uuid(value)
+    if kennung is None:
+        raise HTTPException(400, detail="Ungültige Kennung.")
+    return kennung
 
 
 def _get_owned(session: Session, tenant, vault_id: str) -> Vault:
@@ -143,15 +144,15 @@ async def remove_vault(
         raise HTTPException(
             403,
             detail=(
-                "Zuordnungstabellen loeschen ist nur Administratoren in der "
-                "Oberflaeche vorbehalten — nicht ueber API-Schluessel."
+                "Zuordnungstabellen löschen ist nur Administratoren in der "
+                "Oberfläche vorbehalten — nicht über API-Schlüssel."
             ),
         )
     if not is_admin(request):
         raise HTTPException(
             403,
             detail=(
-                "Zuordnungstabellen loeschen darf nur, wer im CRM "
+                "Zuordnungstabellen löschen darf nur, wer im CRM "
                 "die Rolle 'admin' hat."
             ),
         )

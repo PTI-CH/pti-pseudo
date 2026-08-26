@@ -11,7 +11,6 @@ einem, der die Eigenheiten einer Organisation kennt.
 
 from __future__ import annotations
 
-import uuid
 from typing import Annotated, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -22,6 +21,7 @@ from sqlalchemy.orm import Session
 from backend.core.api_key_auth import has_api_key
 from backend.core.deps import get_session, get_tenant
 from backend.core.hub_access_auth import is_admin
+from backend.core.kennungen import als_uuid
 from backend.engine import entities as ents
 from backend.vault.models import CustomTerm, iso_utc
 
@@ -192,10 +192,9 @@ async def delete_term(
             ),
         )
     tenant = get_tenant(session, request)
-    try:
-        key = uuid.UUID(str(term_id))
-    except (ValueError, TypeError):
-        raise HTTPException(400, detail="Ungueltige Kennung.") from None
+    key = als_uuid(term_id)
+    if key is None:
+        raise HTTPException(400, detail="Ungültige Kennung.")
 
     row = session.get(CustomTerm, key)
     if row is None or row.tenant_id != tenant.id:

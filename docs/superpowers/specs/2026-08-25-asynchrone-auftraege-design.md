@@ -305,6 +305,16 @@ Dokument geprüft.
 Abfragetakt in der Oberfläche: zwei Sekunden, dieselbe Grössenordnung wie im
 Arbeiter.
 
+**Nachtrag 2026-08-26 — „findet den Auftrag beim nächsten Laden wieder" ist
+eingelöst.** Bis dahin lebte die `job_id` nur in der laufenden Anfrage; ein
+Seitenneuladen verlor sie ersatzlos, und da es keine Liste eigener Aufträge
+gibt, war der Auftrag danach für niemanden mehr auffindbar.
+`frontend/src/core/auftragsspeicher.ts` merkt sie jetzt in `localStorage`
+(Kennung, Art, Dateiname — keine Inhalte), `api.verfolgeAuftrag` merkt und
+vergisst als einziger Weg, und beide Bereiche — „Pseudonymisieren" und
+„Rückführen" — nehmen einen gemerkten Auftrag beim Start ohne Rückfrage
+wieder auf.
+
 ---
 
 ## 9. Datenschutz und die öffentliche Aussage

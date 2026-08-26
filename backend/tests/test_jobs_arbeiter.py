@@ -71,6 +71,45 @@ def test_ein_durchgang_verarbeitet_genau_einen_auftrag(session_factory, mandant)
     assert arbeiter._ein_durchgang() is False, "danach ist nichts mehr da"
 
 
+def test_der_arbeiter_benutzt_denselben_aufraeumlauf(session_factory, monkeypatch):
+    """Eine Fassung der zwei Aufraeumschritte, nicht zwei.
+
+    Der Arbeiter hatte hier eine Inline-Kopie von ``gib_verwaiste_frei`` +
+    ``raeume_ab`` + ``commit``, waehrend der Lifespan dieselben Schritte in
+    einer eigenen Funktion fuehrte — die Begruendung „damit beide nicht
+    auseinanderlaufen" stand da, ohne zu gelten. Besonders teuer waere das
+    Auseinanderlaufen bei der REIHENFOLGE: ``raeume_ab`` verschont laufende
+    Zeilen und verlaesst sich darauf, dass ``gib_verwaiste_frei`` die
+    haengengebliebenen vorher zurueckgesetzt hat.
+
+    Mitgeprueft ist der Takt: nicht in jedem Durchgang, sondern in jedem
+    150. — eine zusaetzliche Abfrage alle zwei Sekunden waere Verschwendung.
+    """
+    from backend.jobs import arbeiter as arbeiter_modul
+    from backend.jobs import warteschlange
+
+    gerufen = []
+
+    def mitschreiben(session) -> int:
+        gerufen.append(session)
+        return 0
+
+    monkeypatch.setattr(warteschlange, "aufraeumlauf", mitschreiben)
+
+    arbeiter = arbeiter_modul.Arbeiter(session_factory, lambda *a: None)
+
+    assert arbeiter._ein_durchgang() is False, "die Warteschlange ist leer"
+    assert len(gerufen) == 1, "der allererste Durchgang raeumt auf"
+
+    for _ in range(arbeiter_modul.AUFRAEUMEN_JEDER - 2):
+        arbeiter._ein_durchgang()
+    assert len(gerufen) == 1, "und dazwischen keiner"
+
+    arbeiter._ein_durchgang()
+    arbeiter._ein_durchgang()
+    assert len(gerufen) == 2, "erst der naechste 150er-Takt wieder"
+
+
 def test_lang_laufender_auftrag_gilt_nicht_als_verwaist(
     session_factory, mandant, monkeypatch
 ):
@@ -218,8 +257,8 @@ def test_entschluesselungsfehler_scheitert_sofort_verstaendlich(
         assert job.freigaben == 0, "er scheitert sofort, nicht erst nach Verwaisungen"
 
 
-def test_ausnahme_im_lauf_wird_zum_fehlerstatus(session_factory, mandant):
-    """Ein Absturz in der Verarbeitung darf den Arbeiter nicht mitnehmen."""
+def _lauf_mit_ausnahme(session_factory, mandant, ausnahme: Exception):
+    """Laesst einen Auftrag an ``ausnahme`` scheitern und gibt die Zeile zurueck."""
     from backend.jobs import warteschlange
     from backend.jobs.arbeiter import Arbeiter
     from backend.vault.models import Job
@@ -233,12 +272,155 @@ def test_ausnahme_im_lauf_wird_zum_fehlerstatus(session_factory, mandant):
         job_id = job.id
 
     def platzt(job, daten, melde_fortschritt):
-        raise RuntimeError("Format nicht unterstuetzt")
+        raise ausnahme
 
     Arbeiter(session_factory, platzt)._ein_durchgang()
 
     with session_factory() as s:
-        job = s.get(Job, job_id)
-        assert job.status == "fehler"
-        assert "Format nicht unterstuetzt" in job.fehler
-        assert job.eingabe_blob is None
+        return s.get(Job, job_id)
+
+
+def test_ausnahme_im_lauf_wird_zum_fehlerstatus(session_factory, mandant):
+    """Ein Absturz in der Verarbeitung darf den Arbeiter nicht mitnehmen."""
+    from backend.jobs.arbeiter import ALLGEMEINE_MELDUNG
+
+    job = _lauf_mit_ausnahme(
+        session_factory, mandant, RuntimeError("Format nicht unterstuetzt")
+    )
+    assert job.status == "fehler"
+    assert job.fehler == ALLGEMEINE_MELDUNG
+    assert job.eingabe_blob is None
+
+
+def test_fremder_ausnahmetext_erreicht_den_nutzer_nicht(session_factory, mandant):
+    """``job.fehler`` geht unveraendert in die Oberflaeche — nichts Fremdes hinein.
+
+    Die Meldung hier ist keine erfundene Schauergeschichte, sondern die Form,
+    in der Bibliotheken schreiben: Dateipfad plus Ausschnitt der Stelle, an
+    der sie steckenblieben. Bei einer OCR-Bibliothek ist dieser Ausschnitt
+    erkannter Text — also genau die Personendaten, deretwegen es dieses
+    Werkzeug gibt. Der ganze Auftragspfad waere damit an seinem letzten Meter
+    undicht, und zwar an einer Stelle, die niemand fuer eine Ausgabe haelt.
+    """
+    from backend.jobs.arbeiter import ALLGEMEINE_MELDUNG
+
+    verraeterisch = (
+        "cannot decode /tmp/upload/akte.docx at offset 41: 'Muster, Hans'"
+    )
+    job = _lauf_mit_ausnahme(session_factory, mandant, RuntimeError(verraeterisch))
+
+    assert job.fehler == ALLGEMEINE_MELDUNG
+    assert "Muster" not in job.fehler
+    assert "/tmp/upload" not in job.fehler
+
+
+def test_eigene_meldung_wird_durchgereicht(session_factory, mandant):
+    """Der Filter darf die eigenen, fuer Menschen formulierten Texte nicht fressen.
+
+    Ohne diese Gegenprobe waere die einfachste Umsetzung des Filters -- immer
+    die allgemeine Meldung -- ebenfalls gruen, und der Nutzer bekaeme bei
+    einem falschen Modus oder einer fremden Zuordnungstabelle statt der
+    genauen Ursache einen Allgemeinplatz.
+    """
+    from backend.jobs.ausfuehrung import NutzermeldungError
+
+    job = _lauf_mit_ausnahme(
+        session_factory, mandant,
+        NutzermeldungError("Zuordnungstabelle nicht gefunden."),
+    )
+    assert job.fehler == "Zuordnungstabelle nicht gefunden."
+
+
+def test_auch_die_formatabsage_wird_durchgereicht(session_factory, mandant):
+    """``UnsupportedFormatError`` traegt den deutschen Hinweis auf den Ausweg."""
+    from backend.adapters import UnsupportedFormatError
+
+    job = _lauf_mit_ausnahme(
+        session_factory, mandant,
+        UnsupportedFormatError("PDF wird noch nicht unterstuetzt."),
+    )
+    assert "PDF" in job.fehler
+
+
+def test_der_herzschlag_endet_vor_dem_schreiben(session_factory, mandant, monkeypatch):
+    """Die Reihenfolge ist kein Aufraeumen — sie loest einen Sperrenkonflikt.
+
+    Der Herzschlag laeuft in einer EIGENEN Sitzung und aktualisiert dieselbe
+    Auftragszeile. Schriebe ``melde_fertig`` die Zeile, waehrend der Takt noch
+    laeuft, haelt die Sitzung des Durchgangs die Zeilensperre bis zu ihrem
+    ``commit`` — und der kommt erst NACH ``herzschlag_stopp()``. Der
+    Herzschlag-Faden liefe derweil in genau diese Sperre, und sein ``join``
+    wartete die vollen fuenf Sekunden auf einen Faden, der auf uns wartet.
+    Nicht gelegentlich: bei jedem Auftrag, dessen Takt gerade faellt.
+
+    Auf SQLite ist der Konflikt selbst nicht nachstellbar (ein Schreiber,
+    geteilte Verbindung). Geprueft wird deshalb die Eigenschaft, die ihn
+    ausschliesst: Der Herzschlag ist gestoppt, bevor irgendetwas geschrieben
+    wird.
+    """
+    from backend.jobs import warteschlange
+    from backend.jobs.arbeiter import Arbeiter
+
+    reihenfolge: list[str] = []
+
+    monkeypatch.setattr(
+        Arbeiter, "_herzschlag_starten",
+        lambda self, job_id: lambda: reihenfolge.append("herzschlag gestoppt"),
+    )
+    echtes_melde_fertig = warteschlange.melde_fertig
+
+    def beobachtet(session, job, ergebnis):
+        reihenfolge.append("melde_fertig")
+        return echtes_melde_fertig(session, job, ergebnis)
+
+    monkeypatch.setattr(warteschlange, "melde_fertig", beobachtet)
+
+    with session_factory() as s:
+        warteschlange.lege_an(
+            s, tenant=mandant, aktor="tester", mode="anonymize",
+            dateiname="akte.txt", daten=b"Inhalt", parameter={},
+        )
+        s.commit()
+
+    from backend.jobs.ausfuehrung import AuftragsErgebnis
+
+    Arbeiter(
+        session_factory, lambda job, daten, melde: AuftragsErgebnis(daten=b"fertig")
+    )._ein_durchgang()
+
+    assert reihenfolge == ["herzschlag gestoppt", "melde_fertig"]
+
+
+def test_der_herzschlag_endet_auch_vor_dem_fehlerschreiben(
+    session_factory, mandant, monkeypatch
+):
+    """Derselbe Sperrenkonflikt gilt fuer ``melde_fehler`` — es schreibt dieselbe Zeile."""
+    from backend.jobs import warteschlange
+    from backend.jobs.arbeiter import Arbeiter
+
+    reihenfolge: list[str] = []
+    monkeypatch.setattr(
+        Arbeiter, "_herzschlag_starten",
+        lambda self, job_id: lambda: reihenfolge.append("herzschlag gestoppt"),
+    )
+    echtes_melde_fehler = warteschlange.melde_fehler
+
+    def beobachtet(session, job, meldung):
+        reihenfolge.append("melde_fehler")
+        return echtes_melde_fehler(session, job, meldung)
+
+    monkeypatch.setattr(warteschlange, "melde_fehler", beobachtet)
+
+    with session_factory() as s:
+        warteschlange.lege_an(
+            s, tenant=mandant, aktor="tester", mode="anonymize",
+            dateiname="akte.txt", daten=b"Inhalt", parameter={},
+        )
+        s.commit()
+
+    def platzt(job, daten, melde):
+        raise RuntimeError("kaputt")
+
+    Arbeiter(session_factory, platzt)._ein_durchgang()
+
+    assert reihenfolge == ["herzschlag gestoppt", "melde_fehler"]

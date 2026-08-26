@@ -9,6 +9,12 @@
 // darf fehlschlagen, und jeder Fehler muss als verständlicher deutscher Satz in
 // der Oberfläche landen — nie als weisse Seite.
 
+import {
+  merkeAuftrag,
+  vergissAuftrag,
+  type Auftragsart,
+} from './auftragsspeicher';
+
 /** Fehlerform, die FastAPI standardmässig liefert (`detail`). */
 interface FastApiFehler {
   detail?: string | { msg?: string }[];
@@ -77,6 +83,21 @@ const MODUS_API: Record<Modus, string> = {
   anonym: 'anonymous',
 };
 
+/**
+ * Rückweg: Servermodus → Modus der Oberfläche.
+ *
+ * Gebraucht beim Abholen eines Auftragsergebnisses. Ein unbekannter oder
+ * fehlender Wert ergibt bewusst `undefined` und wird in `Ergebnis.laufModus`
+ * zu `null` — **nicht** zum Vorgabewert `umkehrbar`. „Unbekannt" und
+ * „umkehrbar" sind zweierlei: Wer aus einem fehlenden Feld `umkehrbar`
+ * machte, legte für einen `anonym`-Lauf beim nächsten Schritt einen Tresor
+ * an, den niemand bestellt hat.
+ */
+const MODUS_VON_API: Record<string, Modus> = {
+  reversible: 'umkehrbar',
+  anonymous: 'anonym',
+};
+
 /** Ein einzelner Fund der Engine. */
 export interface Befund {
   /** Stabile Kennung innerhalb einer Antwort; fehlt sie, vergeben wir eine. */
@@ -132,6 +153,26 @@ export interface Ergebnis {
    * sichtbaren Hinweis: Das Ergebnis ist dann nur lokal geprüft.
    */
   kiGeprueft: boolean;
+  /**
+   * Die Kategorienwahl des Laufs, `null` wenn der Server sie nicht mitliefert.
+   *
+   * Nur der Auftragsweg füllt die drei `lauf…`-Felder (`GET /jobs/{id}/result`
+   * liefert dafür eine Obermenge der synchronen Antwort, siehe API.md). Beim
+   * synchronen Aufruf weiss das Panel seine eigenen Parameter noch und
+   * braucht sie nicht zurück; nach einem Seitenneuladen hat es nur noch die
+   * Auftragskennung, und dann ist dies die einzige Quelle.
+   *
+   * `null` heisst **unbekannt**, nicht „leer" und nicht „Vorgabe": entweder
+   * ein Auftrag aus der Zeit vor diesen Feldern (bis 24 h nach einem Deploy
+   * real möglich) oder ein Lauf ohne ausdrückliche Wahl über die externe API.
+   * Wer daraus einen Vorgabewert machte, verlöre genau die Angabe, für die
+   * das Feld da ist.
+   */
+  laufKategorien: string[] | null;
+  /** Der Modus des Laufs, `null` wenn unbekannt — siehe `laufKategorien`. */
+  laufModus: Modus | null;
+  /** Das KI-Häkchen des Laufs (angefordert, nicht gelaufen), `null` wenn unbekannt. */
+  laufKiPruefung: boolean | null;
 }
 
 /**
@@ -171,6 +212,16 @@ interface RohAntwort {
    */
   filename?: string | null;
   ki_geprueft?: boolean | null;
+  /** Modus des Laufs (`reversible` | `anonymous`). */
+  mode?: string | null;
+  /**
+   * Die **gesuchten** Kategorien — bewusst nicht `entities`, das trägt die
+   * **gefundenen** Stellen. Nur im Auftragsumschlag
+   * (`backend/jobs/ausfuehrung.py`), beim synchronen Pfad fehlt es.
+   */
+  requested_entities?: string[] | null;
+  /** Ob die KI-Prüfung angefordert war — Gegenstück zu `ki_geprueft` (gelaufen). */
+  ki_pruefung?: boolean | null;
 }
 
 /**
@@ -237,6 +288,14 @@ function normalisiereAntwort(roh: RohAntwort): Ergebnis {
       (roh.download_url ?? null),
     dateiname: roh.filename ?? null,
     kiGeprueft: roh.ki_geprueft === true,
+    // Die drei folgenden bleiben `null`, wenn der Server sie nicht mitschickt
+    // — und nur `null`. Ein Vorgabewert an dieser Stelle wäre eine Behauptung
+    // über einen Lauf, den dieser Client nicht gesehen hat.
+    laufKategorien: Array.isArray(roh.requested_entities)
+      ? roh.requested_entities.map(String)
+      : null,
+    laufModus: (roh.mode ? MODUS_VON_API[roh.mode] : undefined) ?? null,
+    laufKiPruefung: typeof roh.ki_pruefung === 'boolean' ? roh.ki_pruefung : null,
   };
 }
 
@@ -292,6 +351,38 @@ export async function warteAufAuftrag(
       throw new Error(stand.fehler ?? 'Der Auftrag ist gescheitert.');
     }
     await new Promise((r) => setTimeout(r, AUFTRAG_TAKT_MS));
+  }
+}
+
+/**
+ * Merkt den Auftrag, wartet ihn ab und vergisst ihn wieder.
+ *
+ * Der einzige Weg, auf dem eine `job_id` in dieser Anwendung verfolgt wird —
+ * beide 202-Zweige unten und die Wiederaufnahme beim Seitenstart gehen hier
+ * durch. Getrennte Fassungen hätten unterschiedlich vergessen, und ein nicht
+ * vergessener Auftrag begrüsst den Nutzer bei jedem Start aufs Neue.
+ *
+ * Das Vergessen steht in `finally` und greift bei Erfolg **und** bei Fehler.
+ * Es greift bewusst NICHT, wenn die Seite währenddessen neu geladen wird —
+ * dann läuft kein `finally`, der Eintrag überlebt, und genau darum geht es.
+ *
+ * **Vergessen wird nur der eigene `art`.** Beide Bereiche sind gleichzeitig
+ * montiert und teilen sich einen Speicherplatz: Startet daneben der andere
+ * Bereich einen Auftrag, steht dessen Eintrag darin, wenn dieser hier fertig
+ * wird. Ein bedingungsloses Vergessen löschte ihn — und die noch laufende
+ * Verarbeitung des anderen Bereichs wäre nach einem Neuladen unauffindbar.
+ */
+export async function verfolgeAuftrag(
+  jobId: string,
+  art: Auftragsart,
+  dateiname: string,
+  onFortschritt: (fortschritt: number | null, gesamt: number | null) => void,
+): Promise<Ergebnis> {
+  merkeAuftrag({ id: jobId, art, dateiname });
+  try {
+    return await warteAufAuftrag(jobId, onFortschritt);
+  } finally {
+    vergissAuftrag(art);
   }
 }
 
@@ -425,7 +516,9 @@ export async function anonymisiereDatei(
   });
   if (res.status === 202) {
     const { job_id } = await alsJson<{ job_id: string }>(res);
-    return warteAufAuftrag(job_id, onFortschritt ?? (() => {}));
+    return verfolgeAuftrag(
+      job_id, 'anonymisieren', datei.name, onFortschritt ?? (() => {}),
+    );
   }
   return normalisiereAntwort(await alsJson<RohAntwort>(res));
 }
@@ -470,7 +563,7 @@ export async function rueckfuehrenDatei(
   });
   if (res.status === 202) {
     const { job_id } = await alsJson<{ job_id: string }>(res);
-    return warteAufAuftrag(job_id, () => {});
+    return verfolgeAuftrag(job_id, 'rueckfuehren', datei.name, () => {});
   }
   return normalisiereAntwort(await alsJson<RohAntwort>(res));
 }

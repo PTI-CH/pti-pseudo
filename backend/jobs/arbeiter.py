@@ -19,7 +19,9 @@ import threading
 from datetime import datetime, timezone
 from typing import Callable
 
+from backend.adapters import UnsupportedFormatError
 from backend.jobs import warteschlange
+from backend.jobs.ausfuehrung import NutzermeldungError
 from backend.vault import crypto
 
 logger = logging.getLogger("pti.jobs.arbeiter")
@@ -38,6 +40,51 @@ AUFRAEUMEN_JEDER = 150  # rund alle fuenf Minuten
 #: bevor die Verwaisungsfrist reisst -- kein einziger verpasster Takt darf
 #: ausreichen, um einen laufenden Auftrag faelschlich zu verwaisen.
 HERZSCHLAG_SEKUNDEN = 60.0
+
+
+#: Ausnahmen, deren Wortlaut in ``job.fehler`` und damit vor die Augen des
+#: Nutzers darf. Beide tragen bewusst formulierte deutsche Texte:
+#: :class:`~backend.jobs.ausfuehrung.NutzermeldungError` von uns selbst,
+#: ``UnsupportedFormatError`` aus dem Formatregister
+#: (``adapters._PLANNED``, mit Hinweis auf den Ausweg).
+DURCHREICHBAR = (NutzermeldungError, UnsupportedFormatError)
+
+#: Was der Nutzer stattdessen liest, wenn eine andere Ausnahme hochkam.
+ALLGEMEINE_MELDUNG = (
+    "Die Datei konnte nicht verarbeitet werden. Bitte prüfen Sie, ob sie "
+    "sich in Ihrem Programm öffnen lässt, und wenden Sie sich sonst an die "
+    "Administration."
+)
+
+
+def _menschliche_meldung(fehler: BaseException) -> str:
+    """Was von einer Ausnahme in ``job.fehler`` stehen darf.
+
+    ``job.fehler`` geht unveraendert in die Oberflaeche. Bis hierher stand
+    dort ``str(fehler)`` jeder beliebigen Ausnahme -- der Wortlaut von
+    lxml, openpyxl, python-docx und kuenftig der OCR-Bibliotheken.
+
+    **Heute ist das nachgeprueft harmlos**: Die genannten Bibliotheken melden
+    auf diesem Weg Formatfehler ohne Dokumentinhalt. Aber niemand
+    kontrolliert diese Texte, sie aendern sich mit jeder Version, und der
+    OCR-Zyklus bringt Bibliotheken mit, die Dateipfade und erkannte
+    Textausschnitte in ihre Meldungen schreiben. Eine Meldung wie
+    ``cannot decode 'Muster, Hans' at offset 41`` stuende dann in einem Feld,
+    das die Oberflaeche anzeigt und die externe API zurueckgibt -- und der
+    ganze Auftragspfad existiert, um genau solche Namen NICHT herauszugeben.
+
+    Die Umkehrung ist bewusst: Durchreichen ist die Ausnahme und muss
+    beantragt werden (:data:`DURCHREICHBAR`), nicht das Filtern. Eine neue
+    Bibliothek ist damit ab dem ersten Tag stumm, statt bis zu ihrer ersten
+    auffaelligen Meldung zu reden.
+
+    Der vollstaendige Wortlaut geht nicht verloren -- er steht mit
+    ``exc_info=True`` im Protokoll, wo ihn der Betreiber sieht und der
+    Aufrufer nicht.
+    """
+    if isinstance(fehler, DURCHREICHBAR):
+        return str(fehler)
+    return ALLGEMEINE_MELDUNG
 
 
 class Arbeiter:
@@ -106,9 +153,14 @@ class Arbeiter:
         self._durchgaenge += 1
         with self._session_factory() as session:
             if self._durchgaenge % AUFRAEUMEN_JEDER == 1:
-                warteschlange.gib_verwaiste_frei(session)
-                warteschlange.raeume_ab(session)
-                session.commit()
+                # Dieselbe Funktion, die der Lifespan beim Prozessstart ruft
+                # (``backend/main.py``) — bewusst keine zweite Fassung
+                # derselben zwei Schritte hier: Die Reihenfolge ist tragend
+                # (``raeume_ab`` verschont laufende Zeilen und verlaesst sich
+                # darauf, dass ``gib_verwaiste_frei`` die haengengebliebenen
+                # vorher zurueckgesetzt hat), und eine Kopie liefe genau
+                # daran irgendwann auseinander.
+                warteschlange.aufraeumlauf(session)
 
             job = warteschlange.hole_naechsten(session)
             if job is None:
@@ -121,7 +173,20 @@ class Arbeiter:
                 job.updated_at = datetime.now(timezone.utc)
                 session.commit()
 
+            # Der Herzschlag umschliesst AUSSCHLIESSLICH die Verarbeitung und
+            # endet, bevor hier irgendetwas an der Auftragszeile geschrieben
+            # wird. Das ist kein Aufraeumen aus Ordnungsliebe, sondern der
+            # Ausweg aus einem Sperrenkonflikt gegen uns selbst: Schriebe
+            # ``melde_fertig`` die Zeile noch waehrend der Takt laeuft, haelte
+            # diese Sitzung die Zeilensperre bis zum ``session.commit()``
+            # unten -- der Herzschlag-Faden liefe in seiner EIGENEN Sitzung in
+            # genau diese Sperre, und ``stoppen()`` wartete die vollen fuenf
+            # Sekunden seines ``join`` auf einen Faden, der auf uns wartet.
+            # Nicht gelegentlich, sondern bei jedem Auftrag, dessen Takt
+            # gerade faellt.
             herzschlag_stopp = self._herzschlag_starten(job.id)
+            gescheitert: Exception | None = None
+            ergebnis = None
             try:
                 # Absichtlich INNERHALB des geschuetzten Bereichs: ein
                 # beschaedigter Blob oder ein gewechselter Hauptschlüssel
@@ -134,16 +199,23 @@ class Arbeiter:
             except Exception as fehler:
                 # Jede Ausnahme, nicht nur die erwarteten: Ein Absturz in der
                 # Verarbeitung darf den Arbeiter nicht mitnehmen — sonst steht
-                # die Warteschlange still, und niemand merkt es.
+                # die Warteschlange still, und niemand merkt es. Der volle
+                # Wortlaut geht ins Protokoll; in ``job.fehler`` kommt nur,
+                # was :func:`_menschliche_meldung` durchlaesst.
                 logger.warning("Auftrag gescheitert", exc_info=True)
-                warteschlange.melde_fehler(session, job, str(fehler))
-            else:
-                warteschlange.melde_fertig(session, job, ergebnis)
+                gescheitert = fehler
             finally:
                 # Muss auch bei einer Ausnahme enden -- sonst tickt der
                 # Herzschlag-Faden gegen einen laengst abgeschlossenen
                 # Auftrag weiter.
                 herzschlag_stopp()
+
+            if gescheitert is not None:
+                warteschlange.melde_fehler(
+                    session, job, _menschliche_meldung(gescheitert)
+                )
+            else:
+                warteschlange.melde_fertig(session, job, ergebnis)
             session.commit()
             return True
 

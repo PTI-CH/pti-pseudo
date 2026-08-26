@@ -26,6 +26,7 @@ from sqlalchemy.orm import Session
 from backend.core.api_key_auth import generate_token, hash_token, key_prefix_of
 from backend.core.deps import current_username, get_session, get_tenant
 from backend.core.hub_access_auth import is_admin
+from backend.core.kennungen import als_uuid
 from backend.vault.models import ApiKey, UsageEvent, as_utc, iso_utc
 
 router = APIRouter(tags=["api-keys"])
@@ -69,15 +70,15 @@ def _require_admin(request: Request) -> None:
     """Gemeinsames Gate aller drei Endpunkte — siehe Modul-Docstring."""
     if not is_admin(request):
         raise HTTPException(
-            403, detail="Nur Administratoren duerfen API-Schluessel verwalten."
+            403, detail="Nur Administratoren dürfen API-Schlüssel verwalten."
         )
 
 
 def _as_uuid(value: str) -> uuid.UUID:
-    try:
-        return uuid.UUID(str(value))
-    except (ValueError, AttributeError, TypeError):
-        raise HTTPException(400, detail="Ungueltige Kennung.") from None
+    kennung = als_uuid(value)
+    if kennung is None:
+        raise HTTPException(400, detail="Ungültige Kennung.")
+    return kennung
 
 
 #: Zeitstempel als ISO-8601 **mit** Zonenangabe. Die Begruendung steht bei
@@ -324,7 +325,7 @@ async def revoke_api_key(
     tenant = get_tenant(session, request)
     row = session.get(ApiKey, _as_uuid(key_id))
     if row is None or row.tenant_id != tenant.id:
-        raise HTTPException(404, detail="API-Schluessel nicht gefunden.")
+        raise HTTPException(404, detail="API-Schlüssel nicht gefunden.")
 
     if row.revoked_at is None:
         row.revoked_at = datetime.now(timezone.utc)

@@ -328,7 +328,8 @@ class Job(Base):
     fortschritt: Mapped[int | None] = mapped_column(Integer, nullable=True)
     gesamt: Mapped[int | None] = mapped_column(Integer, nullable=True)
     fehler: Mapped[str | None] = mapped_column(Text, nullable=True)
-    #: ``benutzer:<username>`` oder ``apikey:<id>`` — siehe ``core.deps.current_actor``.
+    #: Der Hub-Benutzername oder ``apikey:<id>`` — siehe ``core.deps.current_actor``.
+    #: Menschen stehen hier OHNE Praefix; nur Maschinen tragen eines.
     aktor: Mapped[str | None] = mapped_column(String(200), nullable=True, index=True)
     updated_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True

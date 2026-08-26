@@ -385,20 +385,37 @@ Auftrag trotzdem anlegen: `202`, eine `job_id`, und der Auftrag blieb für
 immer auf `wartend` stehen, während die Oberfläche endlos nachfragte, ohne
 dass irgendwo stand, warum — dokumentiert zu haben reicht nicht, wenn
 niemand die Dokumentation liest, während er auf einen Fortschrittsbalken
-starrt. `warteschlange.lege_an` prüft deshalb selbst zuerst
+starrt. `warteschlange.lege_an` prüft deshalb selbst
 `hintergrundverarbeitung_moeglich` und weist ab, statt eine Zeile
 anzulegen; der Router übersetzt die Ablehnung in **`503`** mit einem Text,
 der einen nächsten Schritt nennt (Datei aufteilen oder Administration
 kontaktieren).
 
-**Die Prüfung sitzt bewusst in `lege_an`, nicht im Router davor.**
+**Zwei Prüfungen in `lege_an`, und ihre Reihenfolge ist der Punkt.** Zuerst
+das **Format** (`adapters.get_adapter`), erst danach die Verfügbarkeit: Was
+an der *Anfrage* falsch ist, geht vor dem, was der *Installation* fehlt —
+sonst läse, wer eine `.pdf` an einen Knoten ohne Arbeiter schickt, „bitte
+teilen Sie die Datei auf", und die Hälfte einer `.pdf` ist keine `.pdf`
+weniger. Vorher hing die Formatabsage an der **Dateigrösse**: Dieselbe `.pdf`
+bekam unterhalb der Schwelle sofort `415` mit dem Hinweis „als DOCX
+exportieren", oberhalb erst nach Anlegen, Zuteilen und Ausführen einen
+gescheiterten Auftrag — und lag bis dahin verschlüsselt in der Datenbank.
+Beide Dateirouten übersetzen `UnsupportedFormatError` jetzt in **`415`**,
+unabhängig von der Grösse. Eine Falle daran: Der Rückfall für eine Datei
+ohne Namen heisst in beiden Routen seither `unbenannt.txt` wie im synchronen
+Zweig und nicht mehr `dokument` — ein Name ohne Endung fiele sonst in genau
+diese Formatprüfung.
+
+**Die Prüfungen sitzen bewusst in `lege_an`, nicht im Router davor.**
 `lege_an` ist die einzige Stelle im ganzen Baum, an der überhaupt eine
 Auftragszeile entsteht — eine Prüfung im Router (`documents.py`) hätte ein
 künftiger zweiter Aufrufer (eine weitere Route, ein Skript) versehentlich
 umgehen können, eine Prüfung in `lege_an` nicht. Die Ausnahme
 (`AuftragNichtMoeglichError`) ist bewusst kein `HTTPException`: Das Modul
 bleibt frei von HTTP (siehe Modul-Docstring in `warteschlange.py`); die
-Übersetzung in eine Statuszeile geschieht im Router.
+Übersetzung in eine Statuszeile geschieht im Router — dasselbe gilt für
+`UnsupportedFormatError`, das aus `adapters` kommt und ebenfalls nichts von
+HTTP weiss.
 
 **Ein verwaister Auftrag kommt nach 10 Minuten zurück in die Warteschlange,
 dreimal — danach gilt er als endgültig gescheitert.**
@@ -412,6 +429,151 @@ abgelaufene Aufträge samt Ergebnis) läuft im selben Faden, aber nur jeder
 150. Durchgang — bei einem Zwei-Sekunden-Takt rund alle fünf Minuten;
 abgelaufene Aufträge haben es nicht eilig.
 
+**Auch das Freigeben sperrt die Zeile** (`_verwaiste_abfrage`, dasselbe
+`FOR UPDATE SKIP LOCKED` wie die Zuteilung). Sonst lesen zwei Worker im
+selben Aufräumlauf dieselbe hängende Zeile und zählen beide eine Freigabe
+darauf: Der Auftrag verbrauchte seine drei Versuche in der halben Zeit und
+gälte als endgültig gescheitert, obwohl er nur zweimal wirklich unterbrochen
+wurde. Der Rückgabewert von `gib_verwaiste_frei` fällt dadurch eher zu
+niedrig aus — die richtige Richtung, denn die übersprungene Zeile gibt der
+andere Worker ja gerade selbst frei.
+
+**Die Verfallszeit gilt ab Anlage, und beim Prozessstart wird aufgeräumt.**
+`melde_fertig`/`melde_fehler` schieben `expires_at` beim Ende ohnehin auf
+24 h ab dann; `lege_an` setzt sie **zusätzlich schon bei der Anlage**, weil
+`raeume_ab` ausschliesslich Zeilen **mit** `expires_at` findet. Gemeint ist
+der Fall, in dem es nie zu einem Ende kommt: Scheitert der Arbeiterstart im
+Lifespan — nicht am Dialekt, den fängt die 503-Schranke oben, sondern an
+einem Importfehler oder einer beim Start nicht erreichbaren Datenbank —,
+nimmt `lege_an` weiterhin Aufträge an, und jede Zeile trägt die
+verschlüsselte Eingabedatei mit sich. Dazu ruft der Lifespan
+`warteschlange.aufraeumlauf` **vor und unabhängig vom** Arbeiterstart; der
+Aufräumlauf lebte sonst ausschliesslich im Arbeiterfaden, und ohne Arbeiter
+räumte niemand. Beides zusammen genügt: Jeder Prozessstart räumt nach, und
+ein Neustart kommt spätestens mit dem nächsten Deploy.
+
+**`aufraeumlauf` ist die eine Fassung dieser zwei Schritte** — Arbeiterfaden
+und Lifespan rufen dieselbe Funktion. Sie liegt in `warteschlange.py` und
+nicht in `main.py`, weil der Arbeiter sie von dort nicht importieren könnte,
+ohne einen Zirkel zu riskieren (`main` → Router → …, und der Lifespan
+importiert seinerseits den Arbeiter); umgekehrt kennt `warteschlange` keinen
+von beiden. Sie committet selbst, anders als der Rest des Moduls, der nur
+`flush`t: Ein Aufräumdurchgang hat beim Aufrufer keine Fortsetzung.
+
+**Und die Verdrahtung ist das, was zugesichert gehört, nicht der Helfer.**
+Ein Test, der `aufraeumlauf` direkt aufruft, bleibt grün, während ihn niemand
+ruft — derselbe Fehler wie 2026-08-25 beim Protokoll. Deshalb prüft
+`test_lifespan_aufraeumen.py` mit einem `TestClient` (nur er durchläuft den
+`lifespan`; `create_app()` allein tut es nicht), dass der Start sie ruft, und
+`test_jobs_arbeiter.py`, dass der Arbeiter dieselbe Funktion benutzt.
+
+**`raeume_ab` fasst `laeuft` niemals an** (`UNANTASTBAR`). Solange `expires_at`
+nur an `fertig`/`fehler` haftete, war ein Abräumen ohne Statusfilter harmlos;
+seit `lege_an` die Verfallszeit **bei der Anlage** setzt, trägt jede Zeile ab
+Sekunde eins eine — auch die gerade bearbeitete. Ein Auftrag, der 24 h nach
+seiner Anlage noch läuft, verlöre sonst seine Zeile mitten im Lauf, und das
+`UPDATE` aus `melde_fertig` stürbe mit `StaleDataError` (ein DELETE auf eine
+verschwundene Zeile warnt nur, ein UPDATE wirft). Drei Dinge hängen daran:
+
+- **`wartend` bleibt ausdrücklich löschbar.** Ein Filter auf
+  `fertig`/`fehler` wäre bequem und nähme genau den Zweck zurück, für den die
+  Verfallszeit ab Anlage eingeführt wurde.
+- **Der laufenden Zeile geht nichts verloren**, weil `gib_verwaiste_frei` im
+  Aufräumlauf **davor** steht und eine hängengebliebene `laeuft`-Zeile bis
+  dahin längst auf `wartend` oder `fehler` gesetzt hat. Die Reihenfolge im
+  `aufraeumlauf` ist damit tragend, nicht Geschmack. Umgekehrt heisst das:
+  Ohne den Freigabe-Schritt würde eine hängende Zeile *nie* abräumbar.
+- **Ein Massenlöschen, keine Schleife über gelesene Zeilen** — sonst kann
+  `hole_naechsten` im Fenster zwischen Lesen und Löschen eine `wartend`-Zeile
+  zugeteilt haben. Dabei muss `synchronize_session="fetch"` stehen: Die
+  Vorgabe `auto` wertet die Bedingung zusätzlich in Python aus, und SQLite
+  gibt Zeitstempel **ohne** Zone zurück → `TypeError: can't compare
+  offset-naive and offset-aware datetimes`. `Job` hat keine Beziehungen, es
+  geht also kein ORM-Kaskadieren verloren.
+
+**Der Herzschlag endet vor `melde_fertig`/`melde_fehler`, nicht danach.** Der
+Takt (`schlage_herz`) läuft in einer *eigenen* Sitzung. Schriebe
+`melde_fertig` die Auftragszeile, während er noch läuft, hielte der Durchgang
+die Zeilensperre bis zu seinem `session.commit()` — und `stoppen()` wartete
+die vollen fünf Sekunden seines `join` auf einen Faden, der auf uns wartet.
+In `arbeiter._ein_durchgang` umschliesst der Herzschlag deshalb
+ausschliesslich die Verarbeitung; ob sie gelang, wird erst danach
+geschrieben. Das sieht nach Aufräumen aus Ordnungsliebe aus und ist keines.
+
+**In `job.fehler` steht nur, was jemand bewusst formuliert hat.** Das Feld
+geht unverändert in die Oberfläche und über `GET /jobs/{id}` auch an die
+externe API. Bis zum 2026-08-26 stand dort `str(fehler)` jeder beliebigen
+Ausnahme — der Wortlaut von lxml, openpyxl und python-docx. Nachgeprüft ist
+das heute harmlos (die melden auf diesem Weg Formatfehler ohne
+Dokumentinhalt), aber niemand kontrolliert diese Texte, sie ändern sich mit
+jeder Version, und der OCR-Zyklus bringt Bibliotheken mit, die Dateipfade und
+erkannte Textausschnitte in ihre Meldungen schreiben. Durchgereicht wird
+deshalb nur noch, was in `arbeiter.DURCHREICHBAR` steht
+(`NutzermeldungError`, `UnsupportedFormatError`); alles andere bekommt
+`ALLGEMEINE_MELDUNG`, der volle Wortlaut steht mit `exc_info=True` im
+Protokoll. **Die Umkehrung ist der Punkt:** Durchreichen muss beantragt
+werden, Filtern ist der Normalfall — eine neu hinzugenommene Bibliothek ist
+damit ab dem ersten Tag stumm. Wer im Auftragspfad einen Text für den
+Menschen meint, wirft `NutzermeldungError` (`backend/jobs/ausfuehrung.py`),
+kein nacktes `ValueError`.
+
+**Der Auftragspfad zählt in der Nutzungsauswertung mit — unter denselben
+Aktionsnamen wie der synchrone** (`anonymize_file`, `reverse_file`), nicht
+unter eigenen. Ob eine Datei über der Schwelle lag, ist eine Frage des
+Transportwegs und nicht der Nutzung; eigene Namen teilten dieselbe Tätigkeit
+in `GET /api/v1/api-keys/usage` auf zwei Zeilen auf, die niemand wieder
+zusammenrechnet. Der Aktor kommt aus `job.aktor`, nicht aus einem Request —
+der läuft längst nicht mehr. Bis zum 2026-08-26 schrieb der Auftragspfad gar
+keinen Eintrag: Die Zahlen sahen vollständig aus, es fehlten aber
+ausgerechnet die grossen Läufe, und der Fehler wuchs mit der Dateigrösse.
+
+**Die Auftragskennung überlebt ein Seitenneuladen — im Browser, nicht auf dem
+Server.** Es gibt keine Liste eigener Aufträge, nur `GET /jobs/{id}`. Wer die
+Seite dazwischen neu lud, verlor die Kennung ersatzlos; der Auftrag lief
+weiter, war 24 Stunden abholbar und für niemanden mehr auffindbar.
+`frontend/src/core/auftragsspeicher.ts` legt sie deshalb in `localStorage`
+ab — nicht `sessionStorage`, das stirbt mit dem Tab, und genau der Fall ist
+gemeint —, zusammen mit Art und Dateiname; Dokumentinhalte stehen dort nie.
+Dass der Dateiname dort steht, ist eine **Abwägung** und keine
+Unbedenklichkeit — `usage_events` bekommt ihn aus gutem Grund nicht. Die
+Begründung samt der offenen Flanke (`HOECHSTALTER_MS` wirkt nur beim *Lesen*;
+wer den Bereich nie wieder öffnet, dessen Dateiname bleibt im Browserprofil
+liegen) steht im Modulkopf von `auftragsspeicher.ts`.
+
+Gemerkt wird ausschliesslich in `api.verfolgeAuftrag` — beide Dateirouten und
+beide Wiederaufnahmen gehen da durch, sonst vergässen die Fassungen
+unterschiedlich. **Vergessen wird an zwei Stellen**: dort und im
+„Zurücksetzen" von `Pseudonymisieren.tsx`, das den Eintrag ebenfalls
+wegräumen muss (der Mensch hat den Lauf gerade verworfen). Beide geben dabei
+die **Art** mit: Es gibt einen Speicherplatz, aber zwei gleichzeitig
+montierte Bereiche (`App.tsx`), und ein bedingungsloses `vergissAuftrag()`
+löschte den Auftrag des jeweils anderen — die dortige Verarbeitung liefe
+weiter und wäre nach einem Neuladen unauffindbar, also genau der Verlust,
+gegen den das Ganze gebaut ist. Zwei weitere Dinge: Das Höchstalter des
+Eintrags muss zu `warteschlange.AUFBEWAHRUNG` passen (beide 24 h), sonst
+zeigt er auf einen längst entfernten Auftrag und die Wiederaufnahme endet
+zuverlässig in einer 404. Und die `vault_id` eines wiederaufgenommenen
+Rückführungs-Auftrags steht **nicht** im Speicher: Der Server hat sie bei der
+Anlage in `parameter_json` festgehalten und gibt sie mit dem Ergebnis zurück
+— im Browser hat sie nichts verloren.
+
+**Die Wiederaufnahme darf nichts aus ihrer eigenen Closure lesen.** Der
+Effekt in `Pseudonymisieren.tsx` hat `[]`-Deps und sieht damit den Stand des
+Mounts: Kategorienwahl leer (der Katalog lädt erst danach), Modus auf dem
+Vorgabewert. Übernahm er diese Werte als Stand des Laufs, brach „Anwenden"
+mit „Wählen Sie mindestens eine Kategorie aus" ab, obwohl in der Oberfläche
+eine angehakt war — und ein wiederaufgenommener `anonym`-Lauf legte dabei
+einen Tresor an, also **Klarnamen in einer Zuordnungstabelle**, die niemand
+bestellt hat. Kategorien, Modus und KI-Häkchen kommen deshalb aus dem
+**Auftragsergebnis**: `ausfuehrung.py` legt sie als `requested_entities` und
+`ki_pruefung` in den Umschlag (nicht als `entities` — der Schlüssel trägt
+dort die Fundliste). Das macht die Antwort von `GET /jobs/{id}/result` zu
+einer **Obermenge** der synchronen Antwort; wo im Baum „dieselbe Form" steht,
+ist das seither zu eng. Fehlen die Felder (Auftrag von vor dem Deploy, bis zu
+24 h lang möglich), bleiben sie `null` und „Anwenden" **verweigert mit einem
+Text statt zu raten** — ein geratenes `umkehrbar` wäre wieder der unbestellte
+Tresor.
+
 **Die Eingabe wird bei jedem Ende gelöscht** — bei Erfolg *und* bei Fehler
 (`warteschlange.melde_fertig`/`melde_fehler` setzen `eingabe_blob` beide auf
 `None`). Auch ein gescheiterter Auftrag darf keine Personendaten
@@ -420,7 +582,9 @@ Nebeneffekt.
 
 **Das Auftragsergebnis ist ein verschlüsselter JSON-Umschlag, nicht das nackte
 Dokument.** `ergebnis_blob` trägt Dokument (Base64), Fundliste, `applied` und
-`vault_id` — dieselbe Form wie die Antwort des synchronen Pfads. Ohne die
+`vault_id` — die Form der synchronen Antwort, plus `requested_entities` und
+`ki_pruefung` (siehe „Die Wiederaufnahme darf nichts aus ihrer eigenen
+Closure lesen" oben), also eine Obermenge davon. Ohne die
 Tresor-Kennung könnte ein umkehrbar pseudonymisiertes Dokument nie
 zurückgeführt werden, weil die Zuordnung nur verschlüsselt in der Datenbank
 liegt; ohne die Fundliste entfiele bei einer grossen Datei die menschliche
@@ -449,6 +613,17 @@ eine Erweiterung eines längst produktiven Modells aussieht, nicht wie ein neues
   obwohl ihre Apps Express sind. Eine ältere Projektnotiz behauptete das
   Gegenteil; sie war falsch.
 - Das `venv` liegt **ausserhalb** des Deploy-Roots, damit es VCS-Updates überlebt.
+- **Uvicorn konfiguriert nur seine eigenen Logger.** Ein Logger ohne Behandler
+  fällt auf Pythons `lastResort` zurück, und der gibt **nur WARNING und höher**
+  aus. Am 2026-08-25 gemessen: `logger.info` der Anwendung stand null Mal im
+  Protokoll — die Messreihe zu Ort und Organisation hat deshalb seit ihrem
+  Deploy nichts gesammelt. `richte_protokoll_ein()` in `backend/main.py` hängt
+  darum einen Behandler an den Namensraum `pti` und setzt die Stufe aus
+  `LOG_LEVEL`. Zwei Folgerungen für neuen Code: **jeder Logger heisst `pti.…`**,
+  nie `__name__` (sonst `backend.…`, und die Konfiguration greift nicht) — und
+  `LOG_LEVEL` muss in `deploy/pythonenv` **exportiert** sein, sonst sieht der
+  Dienstprozess die Dashboard-Variable nicht. Beides bewacht
+  `backend/tests/test_protokoll.py`.
 
 ## Schwester-Repos
 

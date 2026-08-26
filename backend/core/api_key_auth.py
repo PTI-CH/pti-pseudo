@@ -38,7 +38,7 @@ from sqlalchemy.orm import Session
 from backend.core.deps import get_session
 from backend.vault.models import ApiKey, as_utc
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("pti.core.api_key_auth")
 
 #: Erkennungszeichen am Tokenanfang. Macht einen versehentlich in einem Log
 #: oder Repository gelandeten Schluessel fuer Secret-Scanner auffindbar.

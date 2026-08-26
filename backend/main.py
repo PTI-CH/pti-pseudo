@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import logging
 import re
+import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -47,7 +48,72 @@ from backend.routers import (
     vaults,
 )
 
-logger = logging.getLogger(__name__)
+#: Gemeinsamer Namensraum aller Logger dieses Baums.
+#:
+#: Eine Konfiguration erreicht nur, was unter ihrem Namen haengt — deshalb
+#: heisst hier JEDER Logger `pti.…`, auch die in `main.py` und
+#: `core/api_key_auth.py`, die frueher `__name__` benutzten und damit
+#: `backend.…` hiessen. `test_protokoll.py` bewacht das.
+PROTOKOLL_NAMENSRAUM = "pti"
+
+#: Kennzeichen des eigenen Behandlers — siehe :func:`richte_protokoll_ein`.
+BEHANDLER_NAME = "pti-protokoll"
+
+#: Stufe und Herkunft in jeder Zeile. Ohne sie ist eine Meldung im gemeinsamen
+#: Protokoll des Knotens nicht von einer des Webservers zu unterscheiden.
+PROTOKOLL_FORMAT = "%(levelname)s [%(name)s] %(message)s"
+
+logger = logging.getLogger("pti.main")
+
+
+def richte_protokoll_ein() -> None:
+    """Sorgt dafuer, dass die Meldungen dieser Anwendung ueberhaupt ankommen.
+
+    **Warum es das braucht.** Bis zum 2026-08-25 konfigurierte die Anwendung
+    ihr Protokoll gar nicht. Uvicorn richtet nur seine eigenen Logger ein und
+    laesst den Wurzel-Logger unberuehrt; `pti.*` fand deshalb keinen Behandler
+    und fiel auf Pythons ``lastResort`` zurueck — und der gibt nur WARNING und
+    hoeher aus. Auf dem Knoten nachgemessen: `logger.warning("Schema
+    ergaenzt…")` stand im Protokoll, `logger.info("Erkennungs-Engine
+    geladen…")` null Mal.
+
+    Das kostete Daten, nicht nur Bequemlichkeit: Die Messung zu Ort und
+    Organisation schreibt mit `logger.info` und sammelte seit ihrem Deploy
+    nichts — obwohl sie ausdruecklich als „erst mitmessen, dann entscheiden"
+    gebaut wurde.
+
+    **Warum auf stdout.** Der Jelastic-Runner faengt die Standardausgabe des
+    Dienstprozesses ein und schreibt sie nach ``/home/jelastic/log/
+    pythonengine.log``; dort liegt bereits die Rotationsregel. Eine eigene
+    Datei waere eine zweite Stelle, die niemand rotiert.
+
+    **Warum der Name in jeder Zeile steht.** Ohne ihn ist eine Meldung nicht
+    zuzuordnen — genau daran waere die Untersuchung am 2026-08-25 fast
+    gescheitert: „Schema ergaenzt" stand nackt da, ohne Stufe und ohne
+    Herkunft, ununterscheidbar von einer Zeile des Webservers.
+
+    Idempotent: Bei zwei uvicorn-Workern laeuft ``create_app`` zweimal im
+    selben Prozessbaum; ein zweiter Behandler stuende sonst jede Zeile
+    doppelt ins Protokoll.
+    """
+    logger_wurzel = logging.getLogger(PROTOKOLL_NAMENSRAUM)
+    stufe = getattr(logging, get_settings().log_level.upper(), logging.INFO)
+    logger_wurzel.setLevel(stufe)
+
+    # Gesucht wird der EIGENE Behandler, nicht irgendeiner: Unter pytest haengt
+    # die Testumgebung ihre eigenen an denselben Logger, und ein blosses
+    # `if handlers:` liesse unseren dann nie entstehen.
+    if any(getattr(h, "name", None) == BEHANDLER_NAME for h in logger_wurzel.handlers):
+        # Schon eingerichtet — die Stufe oben ist aufgefrischt, sonst nichts tun.
+        return
+
+    behandler = logging.StreamHandler(sys.stdout)
+    behandler.set_name(BEHANDLER_NAME)
+    behandler.setFormatter(logging.Formatter(PROTOKOLL_FORMAT))
+    logger_wurzel.addHandler(behandler)
+    # Nicht an die Wurzel weiterreichen: Richtet spaeter jemand dort einen
+    # Behandler ein, stuende sonst jede Zeile zweimal da.
+    logger_wurzel.propagate = False
 
 #: Wurzel des Repositories — von hier aus wird das gebaute Frontend gesucht.
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -115,6 +181,41 @@ async def lifespan(app: FastAPI):
     except Exception:
         logger.exception("Datenbank nicht erreichbar — Vault-Funktionen fallen aus")
 
+    # Einmal aufraeumen — und zwar BEVOR und UNABHAENGIG davon, ob der
+    # Arbeiter gleich startet.
+    #
+    # Der Aufraeumlauf lebt sonst ausschliesslich im Arbeiterfaden (jeder
+    # 150. Durchgang). Startet der Arbeiter nicht, raeumt also niemand: Die
+    # 503-Schranke in ``warteschlange.lege_an`` deckt den HAEUFIGEN Grund ab
+    # (falscher Dialekt — dann entsteht gar keine Zeile), aber nicht den
+    # seltenen, gegen den der ``except`` unten steht: ein Importfehler oder
+    # eine beim Start nicht erreichbare Datenbank. Dann nimmt ``lege_an``
+    # Auftraege weiterhin an, und jede angenommene Zeile traegt die
+    # verschluesselte Eingabedatei mit sich.
+    #
+    # Zusammen mit der Verfallszeit ab Anlage (siehe ``lege_an``) genuegt
+    # das: Jeder Prozessstart raeumt dann nach, und ein Neustart kommt auf
+    # diesem Knoten spaetestens mit dem naechsten Deploy.
+    #
+    # Der Freigabe-Schritt im Aufraeumlauf ist dabei kein Beiwerk: ``raeume_ab``
+    # verschont ``laeuft``-Zeilen grundsaetzlich, eine haengengebliebene Zeile
+    # wird also ueberhaupt erst durch ``gib_verwaiste_frei`` je abraeumbar.
+    try:
+        from backend.db import get_sessionmaker
+        from backend.jobs import warteschlange
+
+        with get_sessionmaker()() as session:
+            warteschlange_aufgeraeumt = warteschlange.aufraeumlauf(session)
+        if warteschlange_aufgeraeumt:
+            logger.info(
+                "Beim Start entfernt: %d abgelaufene Auftraege",
+                warteschlange_aufgeraeumt,
+            )
+    except Exception:
+        # Wie ueberall im Lifespan: nicht fatal. Ein nicht ausgefuehrter
+        # Aufraeumlauf verzoegert nur, er beschaedigt nichts.
+        logger.warning("Aufraeumen beim Start fehlgeschlagen", exc_info=True)
+
     # Der Auftragsarbeiter. Je uvicorn-Worker einer; die Zuteilung regelt die
     # Datenbank, sonst bekaemen beide denselben Auftrag.
     #
@@ -177,6 +278,10 @@ async def lifespan(app: FastAPI):
 
 def create_app() -> FastAPI:
     """Baut die Anwendung zusammen."""
+    # Zuerst das Protokoll: Was hier folgt, soll sichtbar sein — auch die
+    # Meldungen des Lifespans, der gleich unten eingehaengt wird.
+    richte_protokoll_ein()
+
     app = FastAPI(
         title="PTI-Pseudonymisierer",
         version=__version__,

@@ -372,3 +372,49 @@ def test_grosse_reverse_datei_ohne_hintergrundverarbeitung_wird_klar_abgelehnt(
             assert s.query(Job).count() == vorher
     finally:
         get_settings.cache_clear()
+
+
+def test_dieselbe_absage_unabhaengig_von_der_dateigroesse(client, monkeypatch):
+    """Eine .pdf bekommt 415 — klein wie gross, und mit demselben Hinweis.
+
+    Vor dieser Nachbesserung antwortete dieselbe Datei je nach GROESSE
+    verschieden: unterhalb der Schwelle sofort 415 mit „bitte als DOCX
+    exportieren", oberhalb eine 202 mit ``job_id``, und der Formatfehler kam
+    erst Minuten spaeter als gescheiterter Auftrag zurueck — in einem Feld,
+    das der Mensch fuer eine Verarbeitungspanne haelt, nicht fuer eine
+    Formatabsage. Bis dahin laege die Datei verschluesselt in der Datenbank,
+    fuer einen Lauf, der von vornherein nicht gelingen konnte.
+    """
+    from backend.config import get_settings
+    from backend.db import get_sessionmaker
+    from backend.vault.models import Job
+
+    pdf = b"%PDF-1.4\n" + b"x" * 200
+
+    # Klein: der bisherige, unveraenderte Weg.
+    get_settings.cache_clear()
+    klein = client.post(
+        "/api/v1/documents:anonymize-file",
+        files={"file": ("scan.pdf", b"%PDF-1.4", "application/pdf")},
+        data={"mode": "anonymous"},
+    )
+    assert klein.status_code == 415
+
+    # Gross: derselbe Statuscode, derselbe Hinweis, keine Auftragszeile.
+    monkeypatch.setenv("SYNC_THRESHOLD_BYTES", "10")
+    get_settings.cache_clear()
+    with get_sessionmaker()() as s:
+        vorher = s.query(Job).count()
+    try:
+        gross = client.post(
+            "/api/v1/documents:anonymize-file",
+            files={"file": ("scan.pdf", pdf, "application/pdf")},
+            data={"mode": "anonymous"},
+        )
+        assert gross.status_code == 415, "die Groesse darf den Statuscode nicht aendern"
+        assert "DOCX" in gross.json()["detail"]
+        with get_sessionmaker()() as s:
+            assert s.query(Job).count() == vorher
+    finally:
+        monkeypatch.delenv("SYNC_THRESHOLD_BYTES", raising=False)
+        get_settings.cache_clear()

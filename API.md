@@ -96,7 +96,7 @@ Alle anderen Fehler folgen dem Standard-FastAPI-Format `{"detail": "…"}`
 | `404` | Zuordnungstabelle, Begriff oder Auftrag nicht gefunden (auch wenn er existiert, aber einem anderen Aktor/Mandanten gehört) |
 | `409` | Der Begriff steht bereits in der Liste, oder sein festes Pseudonym ist schon einem anderen Begriff zugeordnet (`POST /terms`) — oder ein Auftrag ist noch nicht fertig (`GET /jobs/{id}/result`) |
 | `413` | Datei oder Text über dem Grössenlimit (siehe unten) |
-| `415` | Dateiformat nicht unterstützt |
+| `415` | Dateiformat nicht unterstützt — **unabhängig von der Dateigrösse**, auch oberhalb der Auftragsschwelle (siehe „Grosse Dateien") |
 | `422` | Pydantic-Validierung (z. B. Pflichtfeld fehlt) |
 | `503` | Datei oberhalb der Auftragsschwelle, aber diese Installation fährt keinen Hintergrundarbeiter (`anonymize-file`, `reverse-file`) |
 
@@ -395,6 +395,23 @@ Fassung legte hier trotzdem einen Auftrag an — der blieb dann für immer auf
 in `warteschlange.lege_an` selbst, nicht erst in der Route, damit sie kein
 künftiger zweiter Aufrufer versehentlich umgehen kann.
 
+**Ein nicht unterstütztes Format ergibt `415`, auch hier — und vor dem 503.**
+Das Format wird geprüft, bevor überhaupt eine Auftragszeile entsteht: Eine
+`.pdf` bekommt oberhalb der Schwelle denselben `415` mit demselben Text wie
+unterhalb, und keine `job_id`.
+
+```json
+{"detail": "PDF wird noch nicht unterstützt. Formaterhaltendes Ersetzen in PDF erfordert ein eigenes Textlayout-Verfahren. Bitte das Dokument vorher als DOCX oder TXT exportieren. Unterstützt werden: .docx, .xlsx, .pptx, .csv, .tsv, .txt, .text, .md, .log."}
+```
+
+(Der Zusatz „Unterstützt werden: …" hängt nur `:anonymize-file` an, wie im
+synchronen Pfad; `:reverse-file` liefert den Formattext allein.) Vorher hing
+die Absage an der Dateigrösse: dieselbe Datei bekam unterhalb der Schwelle
+sofort `415`, oberhalb ein `202` und Minuten später einen Auftrag im Status
+`fehler`. Auf einer Installation ohne Hintergrundarbeiter geht der `415`
+zudem dem `503` vor — „bitte teilen Sie die Datei auf" ist für eine `.pdf`
+kein brauchbarer nächster Schritt.
+
 #### `GET /jobs/{id}`
 
 Status des Auftrags, **ohne Dokumentinhalte** — weder Fundtexte noch
@@ -410,7 +427,7 @@ Auszüge:
   "gesamt": null,
   "fehler": null,
   "erstellt": "2026-08-25T09:00:00+00:00",
-  "laeuft_ab": null
+  "laeuft_ab": "2026-08-26T09:00:00+00:00"
 }
 ```
 
@@ -423,8 +440,34 @@ Einheit wäre, ist noch kein unterstütztes Format und liefert stattdessen
 `415` (siehe „Fehlerformat" oben). Vorgesehen sind die Felder für einen
 künftigen Zyklus mit Seitenzahl (OCR); bis dahin bedeutet ein Auftrag ohne
 diese Felder nicht „läuft nicht", nur „kein Fortschritt in Einheiten
-verfügbar". `laeuft_ab` ist erst gesetzt, sobald der Auftrag fertig oder
-gescheitert ist; 24 Stunden danach ist er samt Ergebnis verschwunden.
+verfügbar".
+
+`laeuft_ab` ist **ab der Anlage** gesetzt, nicht erst am Ende: 24 Stunden ab
+jetzt, beim Übergang auf `fertig` oder `fehler` neu auf 24 Stunden ab dann
+geschoben. Danach ist der Auftrag samt Ergebnis verschwunden. (Bis zum
+26.08.2026 stand das Feld während `wartend`/`laeuft` auf `null` — ein
+Aufrufer, der sich darauf verlassen hat, um „schon fertig?" zu erkennen,
+muss `status` fragen.)
+
+`fehler` ist nur bei `status: "fehler"` gefüllt und trägt **einen kuratierten
+deutschen Satz für den Menschen**, keine Ausnahme-Wortlaute aus dem
+Innenleben: entweder die Meldung des Formatregisters (etwa der PDF-Text
+oben), eine der wenigen bewusst formulierten Meldungen des Auftragspfads
+(wörtlich: „Für die Rückführung wird eine vault_id benötigt.",
+„Zuordnungstabelle nicht gefunden.", „Die Verarbeitung wurde mehrfach
+unterbrochen und aufgegeben. Bitte laden Sie die Datei erneut hoch.") — oder
+sonst ein allgemeiner Satz:
+
+```json
+{"status": "fehler", "fehler": "Die Datei konnte nicht verarbeitet werden. Bitte prüfen Sie, ob sie sich in Ihrem Programm öffnen lässt, und wenden Sie sich sonst an die Administration.", "...": "..."}
+```
+
+Bis zum 26.08.2026 stand hier `str()` jeder beliebigen Ausnahme, also auch
+der Wortlaut von lxml, openpyxl oder python-docx. Das war ein Kanal, über den
+irgendwann Dateipfade oder Textausschnitte nach draussen gelangt wären — und
+der ganze Auftragspfad existiert, um genau das nicht zu tun. **Werten Sie
+`fehler` nicht maschinell aus**; die Texte sind für Menschen gedacht und
+ändern sich. Der vollständige Wortlaut steht im Server-Protokoll.
 
 #### `GET /jobs/{id}/result`
 
@@ -435,8 +478,9 @@ Conflict` mit dem aktuellen Status im Rumpf:
 {"detail": {"status": "laeuft", "fehler": null, "meldung": "Der Auftrag ist noch nicht fertig."}}
 ```
 
-Bei Erfolg trägt die Antwort **dieselbe Form wie der synchrone Pfad** — nicht
-nur das Dokument, sondern auch Fundliste, angewendete Zahl und Tresor-Kennung:
+Bei Erfolg trägt die Antwort **die Form des synchronen Pfads und zwei Felder
+mehr** — nicht nur das Dokument, sondern auch Fundliste, angewendete Zahl,
+Tresor-Kennung und die Einstellungen, mit denen der Lauf gestartet wurde:
 
 ```json
 {
@@ -447,7 +491,9 @@ nur das Dokument, sondern auch Fundliste, angewendete Zahl und Tresor-Kennung:
   "vault_id": "7c9e6679-7425-40de-944b-e07fc1f90ae7",
   "mode": "reversible",
   "char_count": 8213,
-  "ki_geprueft": false
+  "ki_geprueft": false,
+  "requested_entities": ["PERSON", "CH_AHV", "LOCATION"],
+  "ki_pruefung": true
 }
 ```
 
@@ -458,6 +504,29 @@ Ohne die Fundliste könnte bei einer grossen Datei niemand einen Fehlalarm
 abwählen; ohne `vault_id` wäre ein umkehrbar pseudonymisiertes Dokument nie
 wieder zurückführbar, weil die Zuordnung nur verschlüsselt in der Datenbank
 liegt.
+
+**`requested_entities` und `ki_pruefung` hat der synchrone Pfad nicht** — die
+Antwort eines Auftrags ist insofern eine *Obermenge* seiner Antwort, keine
+Kopie. Der Grund: Wer synchron aufruft, kennt seine eigenen Parameter noch;
+wer einen Auftrag abholt, hat unter Umständen nur die Kennung — die Oberfläche
+etwa nach einem Seitenneuladen. Beide Felder geben die **Anfrage** wieder, nicht
+das Ergebnis:
+
+| Feld | Bedeutung |
+|---|---|
+| `entities` | die **gefundenen** Stellen (Fundliste) |
+| `requested_entities` | die **gesuchten** Kategorien; `null` = keine ausdrückliche Wahl, es galt die Vorgabe des Servers |
+| `ki_pruefung` | die KI-Prüfung war **angefordert** |
+| `ki_geprueft` | die KI-Prüfung ist **tatsächlich gelaufen** (`false` auch bei Ausfall des Dienstes) |
+
+Der nächste Aufruf mit der geprüften Auswahl (`selected_entities`) muss
+dieselben Werte mitschicken wie der erste — sonst sucht der Server anders, als
+die Fundliste behauptet, und ein `anonymous`-Lauf bekäme beim zweiten Anlauf
+einen Tresor, den niemand bestellt hat.
+
+Ältere Aufträge (bis 24 Stunden nach einem Deploy) tragen die beiden Felder
+noch nicht; sie fehlen dann. Werten Sie ein fehlendes Feld nicht als Vorgabewert
+aus — „unbekannt" und „`reversible`" sind zweierlei.
 
 #### Sichtbarkeit
 
@@ -521,7 +590,7 @@ kommen alle Einträge.
 Aufruf mit API-Schlüssel mit `403` ab:
 
 ```json
-{"detail": "Zuordnungstabellen loeschen ist nur Administratoren in der Oberflaeche vorbehalten — nicht ueber API-Schluessel."}
+{"detail": "Zuordnungstabellen löschen ist nur Administratoren in der Oberfläche vorbehalten — nicht über API-Schlüssel."}
 ```
 
 Das Löschen ist unumkehrbar (siehe „Zugang“ oben) und deshalb einem

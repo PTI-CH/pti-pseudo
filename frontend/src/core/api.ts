@@ -366,11 +366,13 @@ export async function warteAufAuftrag(
  * Es greift bewusst NICHT, wenn die Seite währenddessen neu geladen wird —
  * dann läuft kein `finally`, der Eintrag überlebt, und genau darum geht es.
  *
- * **Vergessen wird nur der eigene `art`.** Beide Bereiche sind gleichzeitig
- * montiert und teilen sich einen Speicherplatz: Startet daneben der andere
- * Bereich einen Auftrag, steht dessen Eintrag darin, wenn dieser hier fertig
- * wird. Ein bedingungsloses Vergessen löschte ihn — und die noch laufende
- * Verarbeitung des anderen Bereichs wäre nach einem Neuladen unauffindbar.
+ * **Vergessen wird nur der eigene Auftrag, erkannt an seiner Kennung.** Es
+ * gibt einen Speicherplatz, und wer daneben einen zweiten Auftrag startet,
+ * überschreibt ihn: Wenn dieser hier fertig wird, steht womöglich längst ein
+ * fremder Eintrag darin. Ein bedingungsloses Vergessen löschte ihn — und die
+ * noch laufende Verarbeitung wäre nach einem Neuladen unauffindbar. Die
+ * Kennung statt der Art, weil der zweite Auftrag auch **derselben** Art sein
+ * kann (siehe `vergissAuftrag`).
  */
 export async function verfolgeAuftrag(
   jobId: string,
@@ -382,7 +384,7 @@ export async function verfolgeAuftrag(
   try {
     return await warteAufAuftrag(jobId, onFortschritt);
   } finally {
-    vergissAuftrag(art);
+    vergissAuftrag(jobId);
   }
 }
 

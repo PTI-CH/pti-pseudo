@@ -368,11 +368,15 @@ export default function Pseudonymisieren() {
     // mit diesem Lauf fertig ist. Bliebe der Eintrag stehen, begrüsste ihn
     // der nächste Seitenaufruf mit einem Auftrag, den er gerade verworfen hat.
     //
-    // Mit der Art, nicht bedingungslos: Läuft daneben im Bereich
-    // „Rückführen" ein Auftrag, steht DESSEN Eintrag auf dem einen
-    // Speicherplatz. Ein Zurücksetzen hier löschte ihn sonst mit, und die
-    // fremde Verarbeitung wäre nach einem Neuladen unauffindbar.
-    vergissAuftrag('anonymisieren');
+    // Vergessen wird nach Kennung (`vergissAuftrag`), und dieser Knopf kennt
+    // keine: Ein Auftrag entsteht tief in `api.anonymisiereDatei`, seine
+    // `job_id` kommt hier nie an. Geholt wird sie deshalb aus dem eigenen
+    // Eintrag — `offenerAuftrag('anonymisieren')` liefert nur einen Eintrag
+    // dieses Bereichs und lässt den des Bereichs „Rückführen" unberührt, der
+    // auf demselben einen Speicherplatz stehen kann. Steht dort nichts oder
+    // Fremdes, gibt es hier nichts zu vergessen.
+    const eigener = offenerAuftrag('anonymisieren');
+    if (eigener) vergissAuftrag(eigener.id);
     setWiederaufgenommen(null);
     gibErgebnisFrei(ergebnis);
     setText('');

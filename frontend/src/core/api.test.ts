@@ -81,6 +81,30 @@ describe('verfolgeAuftrag räumt nur den eigenen Eintrag ab', () => {
     expect(offenerAuftrag('rueckfuehren')?.id).toBe('auftrag-r');
   });
 
+  it('lässt auch einen zweiten Auftrag DERSELBEN Art stehen', async () => {
+    // Die Prüfung nach Art deckte diesen Fall nicht ab: Zwei grosse Läufe im
+    // selben Bereich, der zweite überschreibt den Eintrag des ersten, der
+    // erste wird fertig — und räumte den fremden Eintrag weg, weil die Art
+    // passt. Dass die während eines Laufs gesperrte Oberfläche das heute
+    // verhindert, ist eine Absicherung in einem anderen Modul; sie kann bei
+    // der nächsten Änderung an den Bedienelementen wegfallen, ohne dass
+    // jemand an das Auftragsgedächtnis denkt.
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (url) => {
+      if (String(url).endsWith('/result')) {
+        return new Response(JSON.stringify({ filename: 'gross.docx', content_base64: 'eA==' }));
+      }
+      return new Response(JSON.stringify({ status: 'fertig', fortschritt: 1, gesamt: 1 }));
+    });
+
+    const lauf = verfolgeAuftrag('auftrag-a1', 'anonymisieren', 'erste.docx', () => {});
+    merkeAuftrag({ id: 'auftrag-a2', art: 'anonymisieren', dateiname: 'zweite.docx' });
+
+    await vi.runAllTimersAsync();
+    await lauf;
+
+    expect(offenerAuftrag('anonymisieren')?.id).toBe('auftrag-a2');
+  });
+
   it('vergisst den eigenen Eintrag weiterhin', async () => {
     // Die Gegenrichtung: Wäre das Vergessen ganz entfallen, begrüsste der
     // erledigte Auftrag den Menschen bei jedem Seitenstart aufs Neue — mit

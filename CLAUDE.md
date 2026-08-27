@@ -135,8 +135,10 @@ git check-ignore -v backend/core deploy frontend/src             # muss leer ble
 
 - **UI-Texte, Code-Kommentare und Commit-Messages auf Deutsch.**
   Conventional Commits mit Scope: `feat(pseudonymisierer): AHV-Recognizer mit EAN-13-Prüfziffer`.
-- **Bezeichner englisch:** `pseudonymizer` — Subdomain, Kachel-ID, `AppKey`,
-  DB-Spalte `pseudonymizer_access`. Nur das Repo heisst deutsch.
+- **Bezeichner englisch:** `pseudonymizer` — Kachel-ID, `AppKey`, DB-Spalte
+  `pseudonymizer_access`. Die Subdomain weicht ab: `pseudo.pti-tip-hub.ch`
+  (siehe `LIVE_URL` in `.github/workflows/deploy-prod.yml`). Nur das Repo
+  heisst deutsch.
 - **Vor jedem Push auf `main` und jedem Deploy beim Nutzer nachfragen.**
   `main` löst über die GitHub-Action einen Produktiv-Deploy aus.
 - Umsetzung von Plänen **subagent-getrieben** (`superpowers:subagent-driven-development`).
@@ -535,22 +537,36 @@ weiter, war 24 Stunden abholbar und für niemanden mehr auffindbar.
 ab — nicht `sessionStorage`, das stirbt mit dem Tab, und genau der Fall ist
 gemeint —, zusammen mit Art und Dateiname; Dokumentinhalte stehen dort nie.
 Dass der Dateiname dort steht, ist eine **Abwägung** und keine
-Unbedenklichkeit — `usage_events` bekommt ihn aus gutem Grund nicht. Die
-Begründung samt der offenen Flanke (`HOECHSTALTER_MS` wirkt nur beim *Lesen*;
-wer den Bereich nie wieder öffnet, dessen Dateiname bleibt im Browserprofil
-liegen) steht im Modulkopf von `auftragsspeicher.ts`.
+Unbedenklichkeit — `usage_events` bekommt ihn aus gutem Grund nicht.
+Abgeräumt wird ein abgelaufener Eintrag seit dem 2026-08-26 beim **Start der
+Anwendung** (`App.tsx` ruft `raeumeAbgelaufenenAuftragAb`) und nicht mehr nur
+beim Lesen in einem der beiden Auftragsbereiche; wer das Werkzeug wieder
+öffnet, räumt damit ab, gleich welcher Reiter oben steht. **Ein Rest bleibt
+offen, und zwar unerreichbar:** Wer das Werkzeug nie wieder öffnet, bei dem
+läuft in diesem Browserprofil kein Code von uns mehr. Abdeckung, Rest und die
+geprüfte Alternative — `sessionStorage` für den Dateinamen allein, verworfen,
+weil er am Tab hängt und damit genau in den gemeinten Fällen stürbe, und weil
+Browser ihn beim Sitzungswiederherstellen zurückholen — stehen im Modulkopf
+von `auftragsspeicher.ts`.
 
 Gemerkt wird ausschliesslich in `api.verfolgeAuftrag` — beide Dateirouten und
 beide Wiederaufnahmen gehen da durch, sonst vergässen die Fassungen
 unterschiedlich. **Vergessen wird an zwei Stellen**: dort und im
 „Zurücksetzen" von `Pseudonymisieren.tsx`, das den Eintrag ebenfalls
 wegräumen muss (der Mensch hat den Lauf gerade verworfen). Beide geben dabei
-die **Art** mit: Es gibt einen Speicherplatz, aber zwei gleichzeitig
-montierte Bereiche (`App.tsx`), und ein bedingungsloses `vergissAuftrag()`
-löschte den Auftrag des jeweils anderen — die dortige Verarbeitung liefe
-weiter und wäre nach einem Neuladen unauffindbar, also genau der Verlust,
-gegen den das Ganze gebaut ist. Zwei weitere Dinge: Das Höchstalter des
-Eintrags muss zu `warteschlange.AUFBEWAHRUNG` passen (beide 24 h), sonst
+die **Auftragskennung** mit, nicht die Art: Es gibt einen Speicherplatz, aber
+zwei gleichzeitig montierte Bereiche (`App.tsx`), und ein bedingungsloses
+`vergissAuftrag()` löschte den Auftrag des jeweils anderen — die dortige
+Verarbeitung liefe weiter und wäre nach einem Neuladen unauffindbar, also
+genau der Verlust, gegen den das Ganze gebaut ist. Nach der **Art** zu prüfen
+deckte das ab, aber nicht zwei Läufe derselben Art; dass die während eines
+Laufs gesperrte Oberfläche die heute verhindert, ist eine Absicherung in
+einem anderen Modul und kann bei der nächsten Änderung an den Bedienelementen
+wegfallen. Das „Zurücksetzen" kennt seine Kennung nicht — ein Auftrag
+entsteht tief in `api.anonymisiereDatei` — und holt sie sich deshalb aus
+`offenerAuftrag('anonymisieren')`, das nur den eigenen Bereich liefert. Zwei
+weitere Dinge: Das Höchstalter des Eintrags muss zu
+`warteschlange.AUFBEWAHRUNG` passen (beide 24 h), sonst
 zeigt er auf einen längst entfernten Auftrag und die Wiederaufnahme endet
 zuverlässig in einer 404. Und die `vault_id` eines wiederaufgenommenen
 Rückführungs-Auftrags steht **nicht** im Speicher: Der Server hat sie bei der

@@ -6,6 +6,7 @@ import Rueckfuehren from './panels/Rueckfuehren';
 import Begriffsliste from './panels/Begriffsliste';
 import ApiSchluesselPanel from './panels/ApiSchluessel';
 import { useBenutzer } from './core/me';
+import { raeumeAbgelaufenenAuftragAb } from './core/auftragsspeicher';
 
 type Bereich = 'pseudonymisieren' | 'rueckfuehren' | 'begriffe' | 'api-schluessel';
 
@@ -26,6 +27,17 @@ export default function App() {
   // Admin-Bereichswahl genutzt — ein zweiter `useBenutzer()` in Kopfzeile
   // würde `/api/me` doppelt anfragen.
   const benutzer = useBenutzer();
+
+  // Ein abgelaufener Eintrag des Auftragsgedächtnisses verschwindet beim Start
+  // der Anwendung, nicht erst, wenn jemand einen der beiden Auftragsbereiche
+  // aufsucht. Im Eintrag steht ein Dateiname, und der kann in diesem Umfeld
+  // ein Personendatum sein („Einvernahme_…docx"); seine Aufbewahrung darf
+  // nicht davon abhängen, welchen Reiter der Mensch anklickt. Was damit
+  // abgedeckt ist und was offen bleibt, steht im Modulkopf von
+  // `core/auftragsspeicher.ts`.
+  useEffect(() => {
+    raeumeAbgelaufenenAuftragAb();
+  }, []);
 
   useEffect(() => {
     document.documentElement.classList.toggle('dark', dunkel);

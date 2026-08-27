@@ -1,0 +1,59 @@
+Alembic-Migrationen des PTI-Pseudonymisierers
+=============================================
+
+Die kurze Fassung
+-----------------
+* Die Anwendung ruft Alembic **nicht** auf. Beim Start laufen weiterhin
+  `init_db()` (`create_all`) und `ensure_schema()` — Alembic ist ein
+  Handwerkzeug, kein Startschritt.
+* `migrations/versions/2026-08-26_basis.py` beschreibt den **Ist-Zustand**
+  vom 2026-08-26. Auf einer bestehenden Datenbank wird sie **gestempelt**,
+  nie ausgefuehrt.
+* Wer eine Spalte an ein Modell haengt, braucht beides: einen Eintrag in
+  `backend.db.NACHZUZIEHENDE_SPALTEN` (der wirkt in Produktion) **und** eine
+  Migration (die haelt die Geschichte fest). Warum beides — siehe CLAUDE.md,
+  Abschnitt „Schemaaenderungen".
+
+Bestehende Datenbank auf die Basis stempeln
+-------------------------------------------
+    python scripts/alembic_stempeln.py --pruefen    # nur melden
+    python scripts/alembic_stempeln.py              # stempeln
+    python scripts/alembic_stempeln.py --pruefen    # nachsehen
+
+Das Skript prueft vorher, ob der Zustand ueberhaupt stempelbar ist, und nennt
+die Zieldatenbank ohne Passwort. Der Aufruf in Produktion steht in seinem
+Modul-Docstring — inklusive der Falle, dass eine SSH-Sitzung die
+Dashboard-Variablen des Knotens nicht erbt.
+
+Leere Datenbank aufbauen
+------------------------
+    python -m alembic upgrade head
+
+Nur dort. Gegen eine Datenbank, die die Tabellen schon hat, bricht die
+Basismigration mit einer Erklaerung ab.
+
+Neue Migration schreiben
+------------------------
+    python -m alembic revision --autogenerate -m "Was sich aendert"
+
+Danach die erzeugte Datei **lesen und korrigieren**. `--autogenerate` irrt
+verlaesslich an zwei Stellen, beide am 2026-08-26 an der Basisrevision
+beobachtet:
+
+1. `postgresql.JSONB(astext_type=Text())` — `Text` ohne Praefix und ohne
+   Import. Die Datei ist so nicht einmal importierbar.
+2. `with op.batch_alter_table(...)` um jedes `create_index`, wenn die
+   Autogenerierung gegen SQLite lief. Auf PostgreSQL nur Rauschen.
+
+`backend/tests/test_alembic_basis.py` vergleicht anschliessend die
+PostgreSQL-DDL aus den Migrationen mit der aus den Modellen — ohne Datenbank.
+Reisst er, fehlt in der Migration etwas, das im Modell steht (oder umgekehrt).
+
+Was hier nicht hingehoert
+-------------------------
+`DROP`, `RENAME` und Typaenderungen auf `mapping_entries`. Diese Tabelle ist
+der einzige Datenbestand des Systems, dessen Verlust nicht zu reparieren ist:
+Ohne sie laesst sich kein umkehrbar pseudonymisiertes Dokument mehr
+zurueckfuehren. Ein solcher Schritt gehoert in eine eigene, bewusst gepruefte
+Aenderung mit einem Backup davor — nicht nebenbei in eine Migration, die etwas
+anderes tun sollte.

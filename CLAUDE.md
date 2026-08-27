@@ -319,10 +319,54 @@ will.
 `scripts/schema_nachziehen.py` bleibt als Hand-Werkzeug (`--pruefen` meldet nur)
 für Umzüge und die Ein-Knoten-Variante; es benutzt dieselbe Liste.
 
-Alembic bleibt das richtige Werkzeug für alles jenseits additiver Spalten und
-fehlt bislang. Es auf einer laufenden Produktionsdatenbank einzuführen heisst,
-den Bestand korrekt auf eine Basisversion zu stempeln — ein Schritt, der nicht
-nebenbei mit einer Funktionsänderung ausgeliefert werden sollte.
+### Alembic ist Buchhaltung, nicht Vollzug
+
+Seit dem 2026-08-26 liegt `migrations/` im Baum, mit **einer** Revision:
+`20260826_basis` beschreibt den Ist-Zustand. Sie ändert am Betrieb nichts —
+`init_db()` und `ensure_schema()` laufen unverändert im Lifespan und sind
+weiterhin das, was in Produktion tatsächlich wirkt. Die Anwendung ruft Alembic
+an **keiner** Stelle auf; der Grund gegen einen Autorun beim Start (zwei
+gunicorn-Worker, ein `upgrade head`, ein Wettlauf) gilt unverändert.
+
+Vier Sätze, die zusammen die Regel ergeben:
+
+1. **Die Basisrevision wird auf einer bestehenden Datenbank nie ausgeführt,
+   sondern gestempelt.** `scripts/alembic_stempeln.py` prüft vorher (Tabellen
+   da? Spalten da? schon gestempelt?), nennt die Zieldatenbank ohne Passwort
+   und fasst ausschliesslich `alembic_version` an. `upgrade head` gilt nur für
+   eine **leere** Datenbank; gegen eine bestehende bricht die Migration mit
+   einer Erklärung ab.
+2. **Eine neue Spalte braucht beides.** Den Eintrag in
+   `NACHZUZIEHENDE_SPALTEN` — der wirkt — *und* eine Migration, die die
+   Geschichte festhält; ohne sie reisst `backend/tests/test_alembic_basis.py`.
+   Ein Widerspruch entsteht daraus nicht: In Produktion legt `ensure_schema`
+   die Spalte an, danach wird die Datenbank **neu gestempelt**, denn sie *hat*
+   den Stand ja bereits. Eilig ist das nie — zur Laufzeit liest niemand
+   `alembic_version`.
+3. **Kein `DROP`, kein `RENAME`, keine `server_default`-Änderung** ohne
+   eigenes, bewusst geprüftes Vorhaben mit Backup davor. `downgrade` der
+   Basisrevision **verweigert sich** und wirft: der Rückbau wäre ein
+   `DROP TABLE mapping_entries` und damit der Verlust jeder Zuordnung.
+4. **`--autogenerate` irrt, und zwar reproduzierbar.** An der Basisrevision am
+   2026-08-26 beobachtet: `postgresql.JSONB(astext_type=Text())` ohne Präfix
+   und ohne Import (die Datei war nicht einmal importierbar), und ein
+   `with op.batch_alter_table(…)` um jedes `create_index`, weil der Lauf gegen
+   SQLite ging. Jede erzeugte Datei wird gelesen, nicht nur committet.
+
+Der Wächter dafür ist `backend/tests/test_alembic_basis.py`, und er vergleicht
+bewusst **PostgreSQL-DDL, nicht SQLite**: Die beiden Typen, bei denen
+Autogenerate irrt, sehen auf SQLite gleich aus (`JSON().with_variant(JSONB())`
+rendert dort beidseitig `JSON`, `sa.Uuid` beidseitig `CHAR(32)`) und auf
+PostgreSQL verschieden. Beide Seiten entstehen **ohne Datenbank** — die
+Migration über Alembics Offline-Modus (`upgrade --sql`), die Modelle über
+`create_mock_engine`.
+
+Der Tag, an dem Alembic den Vollzug übernimmt, ist der Tag, an dem
+`NACHZUZIEHENDE_SPALTEN` leergeräumt wird und `ensure_schema` verschwindet.
+Das ist eine eigene Änderung mit eigenem Ausfallfenster — und sie setzt
+voraus, dass `upgrade` in Produktion überhaupt laufen kann, also dass die
+`DATABASE_URL`-Falle des SSH-Gates gelöst ist (siehe oben). Bis dahin ist der
+Stempel ein Handgriff und **kein Deploy-Schritt**.
 
 ## Asynchrone Aufträge
 

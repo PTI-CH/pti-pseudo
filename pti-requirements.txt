@@ -49,6 +49,14 @@ httpx==0.28.1             # SSO-Introspection gegen das CRM
 # ── Datenbank ──────────────────────────────────────────────────────────────
 SQLAlchemy==2.0.52
 psycopg[binary]==3.3.4
+# Schemaverwaltung. Steht seit dem ersten Deploy hier und wird seit dem
+# 2026-08-26 auch benutzt: `migrations/` traegt die Basisrevision, die den
+# Ist-Zustand der Produktionsdatenbank beschreibt.
+#
+# WICHTIG: Die Anwendung ruft Alembic NICHT beim Start auf — `stamp` und
+# `upgrade` sind Handgriffe (scripts/alembic_stempeln.py). Das Paket muss
+# trotzdem auf dem Knoten liegen, sonst steht man mit einer faelligen
+# Migration ohne Werkzeug da. Siehe CLAUDE.md, Abschnitt Schemaaenderungen.
 alembic==1.19.1
 
 # ── Dokument-Adapter ───────────────────────────────────────────────────────

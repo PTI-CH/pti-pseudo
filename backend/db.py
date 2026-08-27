@@ -28,10 +28,31 @@ SSH, hat einen gemessenen Grund: Die Dashboard-Variablen des Knotens (darunter
 Am 2026-08-19 im Deploy nachgemessen — ein Skript ueber den SSH-Gate steht ohne
 Datenbank da.
 
-Alembic bleibt das richtige Werkzeug fuer alles, was ueber additive Spalten
-hinausgeht; es auf einer laufenden Produktionsdatenbank einzufuehren heisst,
-den Bestand korrekt auf eine Basisversion zu stempeln, und das gehoert nicht
-nebenbei in eine Funktionsaenderung.
+Wo Alembic dabei steht (seit 2026-08-26)
+----------------------------------------
+Es gibt seither ``migrations/`` mit einer Basisrevision (``20260826_basis``),
+die den **Ist-Zustand** beschreibt. Sie aendert an diesem Modul nichts, und
+das ist Absicht:
+
+* **Alembic ist Buchhaltung, nicht Vollzug.** Was in Produktion tatsaechlich
+  wirkt, sind weiterhin ``init_db`` und ``ensure_schema`` — beide oben, beide
+  unveraendert. Alembic wird von der Anwendung nirgends aufgerufen; der Grund
+  gegen den Autorun (zwei Worker, ein ``upgrade head``) gilt unveraendert.
+* **Die Basisrevision wird auf der Produktionsdatenbank nie ausgefuehrt,
+  sondern gestempelt** (``scripts/alembic_stempeln.py``). ``upgrade`` gilt nur
+  fuer eine leere Datenbank.
+* **Eine neue Spalte braucht beides**: den Eintrag in
+  :data:`NACHZUZIEHENDE_SPALTEN` (der wirkt) und eine Migration (die haelt die
+  Geschichte fest, und ohne sie faellt
+  ``backend/tests/test_alembic_basis.py``). Ein Widerspruch entsteht daraus
+  nicht: In Produktion legt ``ensure_schema`` die Spalte an, danach wird die
+  Datenbank neu gestempelt — sie *hat* den Stand ja bereits.
+
+Der Tag, an dem Alembic den Vollzug uebernimmt, ist der Tag, an dem
+:data:`NACHZUZIEHENDE_SPALTEN` leergeraeumt wird und ``ensure_schema``
+verschwindet. Das ist eine eigene Aenderung mit eigenem Ausfallfenster — und
+sie setzt voraus, dass ``upgrade`` in Produktion ueberhaupt laufen kann, also
+dass die ``DATABASE_URL``-Falle des SSH-Gates geloest ist.
 """
 
 from __future__ import annotations
@@ -256,7 +277,8 @@ def init_db(engine: Engine | None = None) -> None:
     ``create_all`` prueft je Tabelle auf Existenz und ueberspringt vorhandene.
     Es aendert bestehende Tabellen aber **nicht** — eine neue Spalte in einem
     Modell entsteht dadurch nicht in einer bereits angelegten Tabelle. Dafuer
-    gibt es Alembic; siehe Modulkopf.
+    gibt es :func:`ensure_schema`; Alembic haelt daneben die Geschichte fest,
+    greift aber nicht ein. Siehe Modulkopf.
 
     Wird nicht automatisch beim Import ausgefuehrt. Der Aufruf gehoert in den
     Lifespan-Hook der Anwendung oder in ein Deploy-Skript.

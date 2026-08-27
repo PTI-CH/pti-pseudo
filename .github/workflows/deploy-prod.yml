@@ -171,6 +171,11 @@ jobs:
           # zieht deshalb `backend.db.ensure_schema` im Lifespan nach, also
           # beim Neustart im naechsten Schritt; der Wettlauf zweier Worker ist
           # dort ueber einen Advisory-Lock aufgeloest.
+          #
+          # Aus demselben Grund steht hier auch KEIN Alembic-Schritt. Das
+          # Stempeln der Basisrevision (scripts/alembic_stempeln.py) ist ein
+          # einmaliger Handgriff eines Menschen mit der URL in der Hand, kein
+          # Deploy-Schritt — siehe CLAUDE.md, Abschnitt Schemaaenderungen.
           # Runner-Konfiguration an ihren Platz ausserhalb von ROOT.
           # Steuert APP_MODULE, SSLEnabled und WORKERS — Begruendung in der Datei.
           cp "$ROOT_DIR/deploy/pythonenv" /home/jelastic/pythonenv

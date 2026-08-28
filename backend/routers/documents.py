@@ -174,6 +174,31 @@ def _check_size(data: bytes) -> None:
         )
 
 
+def geschaetzte_dauer(segmente: int, zeichen: int) -> float:
+    """Schaetzt, wie lange die Verarbeitung dauern wird -- in Sekunden.
+
+    **Die Segmentzahl ist der Treiber, nicht die Zeichenzahl.** Je Segment
+    laeuft ein eigener spaCy-Durchgang mit festem Overhead; deshalb kosten
+    100'000 Zeichen als docx (427 Segmente) rund 182 s, dieselben Zeichen
+    als txt (ein Segment) nur 11 s.
+
+    Die beiden Koeffizienten stehen in :class:`~backend.config.Settings`
+    und sind am 2026-08-28 in Produktion gemessen (neun Punkte, vier
+    Formate, Ausgleichsrechnung). Fuer die Office-Formate trifft die
+    Schaetzung auf ±2 %; bei sehr grossen Einzelsegmenten (``.txt``)
+    schaetzt sie zu hoch, und zwar bewusst -- die Abweichung geht in die
+    sichere Richtung.
+
+    Bewusst **kein** Adapterlauf hier drin: Die Funktion bekommt fertige
+    Zahlen und ist damit ohne Datei testbar.
+    """
+    einstellungen = get_settings()
+    return (
+        segmente * einstellungen.sekunden_je_segment
+        + zeichen / 1000.0 * einstellungen.sekunden_je_1000_zeichen
+    )
+
+
 def _laeuft_als_auftrag(data: bytes, dateiname: str) -> bool:
     """Ob diese Datei als Auftrag laufen muss statt im offenen Request.
 
@@ -228,9 +253,19 @@ def _laeuft_als_auftrag(data: bytes, dateiname: str) -> bool:
     einstellungen = get_settings()
     if len(data) > einstellungen.sync_threshold_bytes:
         return True
+
     adapter = get_adapter(dateiname)
-    zeichen = sum(len(s.text) for s in adapter.extract_segments(data))
-    return zeichen > einstellungen.sync_threshold_chars
+    segmente = adapter.extract_segments(data)
+    zeichen = sum(len(s.text) for s in segmente)
+
+    # Harte Obergrenze, unabhaengig von der Schaetzung. Sie faengt den Fall
+    # ab, in dem die Schaetzung selbst danebenliegt -- etwa bei einem
+    # Dokument, dessen Segmente ganz anders geschnitten sind als alles
+    # Gemessene. Ohne sie haenge die einzige Schranke an einer Formel.
+    if zeichen > einstellungen.sync_threshold_chars:
+        return True
+
+    return geschaetzte_dauer(len(segmente), zeichen) > einstellungen.sync_budget_sekunden
 
 
 def _check_text_size(text: str) -> None:

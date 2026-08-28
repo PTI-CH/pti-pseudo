@@ -80,6 +80,11 @@ export SPACY_MODEL LLM_PROVIDER MAX_UPLOAD_BYTES
 # "Asynchrone Auftraege"). Faehrt nur die eine mit, laesst sich die andere
 # im Panel setzen, ohne dass sie je wirkt.
 export SYNC_THRESHOLD_BYTES SYNC_THRESHOLD_CHARS
+# Seit dem 2026-08-28 entscheidet die geschaetzte DAUER, ob eine Datei
+# synchron laeuft — nicht mehr die Zeichenzahl allein. Auch diese drei
+# muessen hier stehen, sonst laesst sich im Dashboard ein Wert setzen, der
+# den Dienstprozess nie erreicht (derselbe Grund wie bei KI_ZWEITMEINUNG).
+export SYNC_BUDGET_SEKUNDEN SEKUNDEN_JE_SEGMENT SEKUNDEN_JE_1000_ZEICHEN
 export HUB_AUTH DEV_ROLE PSEUDONYM_TEMPLATE
 # Phase 3. Steht schon hier, damit die Werte wirken, sobald sie im Panel
 # gesetzt werden — `LLM_PROVIDER` allein nuetzt nichts, wenn Schluessel und

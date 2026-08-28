@@ -259,16 +259,22 @@ class Settings(BaseSettings):
     #     149'000 Zeichen 273 s von 300 s: nur 24 s Reserve, und der Upload
     #     zaehlt mit (die Balancer-Uhr laeuft ab Verbindungsaufbau).
     #
-    # Die Rechnung jetzt, mit dem langsamsten gemessenen Format:
+    # **Seit dem 2026-08-28 ist diese Zahl nur noch eine NOTBREMSE**, nicht
+    # mehr die scharfe Schranke. Die Entscheidung faellt jetzt ueber die
+    # geschaetzte Dauer (``sync_budget_sekunden`` unten) -- die Zeichenzahl
+    # allein konnte nie beide Faelle richtig bedienen: Am langsamsten Format
+    # ausgerichtet bremste sie ``.txt`` um Faktor sechs aus, am schnellsten
+    # ausgerichtet riss sie bei Office-Dateien die Balancer-Grenze. Genau
+    # dieser Zielkonflikt hat an einem Tag zwei falsche Fassungen erzeugt
+    # (400'000 aus txt, dann 150'000 aus xlsx ohne docx zu messen).
     #
-    #   pptx-Durchsatz                     ~543 Zeichen/s
-    #   100'000 Zeichen bei diesem Tempo   ~184 s
-    #   Reserve bis 300 s                  ~116 s
-    #
-    # Die Reserve ist Absicht und keine Aengstlichkeit: Der Auftragspfad ist
-    # der sichere Ausweg, nicht der teure. Zu hoch heisst ein ``504`` mitten
-    # in der Verarbeitung -- zu tief heisst ein Hintergrundauftrag, der
-    # zuverlaessig funktioniert. Die Asymmetrie traegt die niedrige Zahl.
+    # Was sie weiterhin leistet: Sie faengt den Fall ab, in dem die
+    # Schaetzung selbst danebenliegt -- ein Dokument, dessen Segmente ganz
+    # anders geschnitten sind als alles Gemessene. Ohne sie haenge die
+    # einzige Schranke an einer Formel. 800'000 liegt oberhalb dessen, was
+    # die Schaetzung je durchlassen wuerde (ein Einzelsegment dieser Groesse
+    # schaetzt auf 222 s und faellt schon am Budget), und unterhalb von
+    # ``nlp.max_length`` (1'000'000), an dem spaCy roh bricht.
     #
     # **Lokal ist davon NICHTS messbar** -- dort liegt xlsx bei 0.037 s je
     # 1000 Zeichen gegen 0.056 fuer txt, also genau andersherum. Der
@@ -292,7 +298,50 @@ class Settings(BaseSettings):
     # bis 4.9 % der Gesamtdauer, mit fallendem Anteil bei groesseren
     # Dokumenten. Genau bei den Dateien, bei denen die Entscheidung zaehlt,
     # ist das Oeffnen also fast gratis.
-    sync_threshold_chars: int = 100_000
+    sync_threshold_chars: int = 800_000
+
+    # ── Zeitschaetzung statt Zeichenzahl ────────────────────────────────
+    #
+    # Die Zeichenschwelle oben ist ein Stellvertreter fuer das, worum es
+    # wirklich geht: **wie lange die Verarbeitung dauern wird.** Sie muss
+    # deshalb am langsamsten Format ausgerichtet sein und bremst dabei
+    # ``.txt`` unnoetig aus -- eine Textdatei mit 300'000 Zeichen ist in
+    # rund 90 s fertig, laeuft heute aber als Hintergrundauftrag.
+    #
+    # Die beiden Werte hier schaetzen die Dauer direkt. Gemessen am
+    # 2026-08-28 in Produktion (3 Worker), Ausgleichsrechnung ueber neun
+    # Punkte in vier Formaten:
+    #
+    #     Dauer ~= 0.3625 s je Segment + 0.277 s je 1000 Zeichen
+    #
+    # Die Office-Formate trifft das auf ±2 % (docx/xlsx/pptx, 214 bis 637
+    # Segmente). Der Segmentanteil dominiert dort deutlich -- je Segment
+    # laeuft ein eigener spaCy-Durchgang mit festem Overhead, und genau der
+    # macht 100'000 Zeichen als docx sechsmal teurer als dieselben Zeichen
+    # als txt.
+    #
+    # **Bei ``.txt`` schaetzt das Modell zu hoch**, und das ist bewusst so
+    # belassen: Ein einzelnes Segment von 100'000 Zeichen dauert gemessen
+    # 11 s, das Modell sagt 28 s. Die Abweichung geht in die sichere
+    # Richtung (frueher Auftrag statt spaeter 504), und ein Sonderfall fuer
+    # sehr grosse Einzelsegmente waere eine zweite Kurve, die niemand
+    # nachmisst. Trotz Ueberschaetzung darf ``.txt`` damit rund 700'000
+    # Zeichen synchron -- siebenmal mehr als heute.
+    sekunden_je_segment: float = 0.3625
+    sekunden_je_1000_zeichen: float = 0.277
+
+    # Wieviele Sekunden ein synchroner Lauf hoechstens dauern darf.
+    #
+    # Der Balancer schneidet nach **300 s** ab (gemessen, siehe
+    # ``sync_threshold_chars``). 200 s laesst ein Drittel Reserve fuer das,
+    # was diese Schaetzung NICHT sieht: den Upload (die Balancer-Uhr laeuft
+    # ab Verbindungsaufbau), einen zweiten grossen Lauf auf demselben
+    # Worker, und ein Dokument, das dichter ist als die Messreihe.
+    #
+    # Die Asymmetrie traegt diese Zahl: Zu hoch heisst ein ``504`` mitten
+    # in der Verarbeitung -- zu tief heisst ein Hintergrundauftrag, der
+    # zuverlaessig funktioniert.
+    sync_budget_sekunden: float = 200.0
     # Obergrenze fuer den JSON-Textpfad (documents:detect / :anonymize).
     # ``spaCy`` bricht bei ``nlp.max_length`` (Default 1'000'000 Zeichen) mit
     # einem rohen ValueError ab, sobald ein Text laenger ist — anders als beim

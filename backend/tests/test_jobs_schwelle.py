@@ -584,3 +584,127 @@ def test_gescanntes_pdf_ohne_ocr_endet_mit_415_nicht_500(client):
     )
     assert antwort.status_code == 415, antwort.text
     assert "gescannte" in antwort.json()["detail"].lower()
+
+
+# ── Die Entscheidung faellt ueber die geschaetzte DAUER ────────────────────
+#
+# Bis zum 2026-08-28 entschied allein die Zeichenzahl. Sie konnte nie beide
+# Faelle richtig bedienen: am langsamsten Format ausgerichtet bremste sie
+# `.txt` um Faktor sechs aus, am schnellsten ausgerichtet riss sie bei
+# Office-Dateien die 300-s-Grenze des Balancers.
+
+
+def test_geschaetzte_dauer_trifft_die_gemessenen_officewerte():
+    """Der Waechter der Koeffizienten.
+
+    Die Zahlen stammen aus einer Messreihe in Produktion (2026-08-28, drei
+    Worker, vier Formate). Verrutscht einer der beiden Koeffizienten, ist
+    die Schaetzung fuer genau die Formate falsch, die im Betrieb
+    hochgeladen werden -- und das faellt sonst erst auf, wenn jemand einen
+    ``504`` bekommt.
+    """
+    from backend.routers.documents import geschaetzte_dauer
+
+    # (Segmente, Zeichen, in Produktion gemessene Sekunden)
+    gemessen = [
+        (214, 50_000, 91.2),   # docx
+        (427, 100_000, 182.3),  # docx
+        (637, 149_000, 272.1),  # docx
+        (427, 100_000, 180.7),  # xlsx
+        (428, 100_000, 184.1),  # pptx
+    ]
+    for segmente, zeichen, sekunden in gemessen:
+        schaetzung = geschaetzte_dauer(segmente, zeichen)
+        abweichung = abs(schaetzung - sekunden) / sekunden
+        assert abweichung < 0.10, (
+            f"{segmente} Segmente / {zeichen} Zeichen: geschaetzt "
+            f"{schaetzung:.0f}s gegen gemessene {sekunden:.0f}s"
+        )
+
+
+def test_segmentzahl_treibt_die_schaetzung_nicht_die_zeichenzahl():
+    """Der eigentliche Befund, als Zusicherung.
+
+    Dieselbe Zeichenzahl in vielen kurzen Segmenten muss deutlich teurer
+    geschaetzt werden als in einem langen. Genau das unterscheidet eine
+    docx-Datei (427 Segmente, gemessen 182 s) von einer txt-Datei mit
+    gleichem Text (ein Segment, gemessen 11 s).
+    """
+    from backend.routers.documents import geschaetzte_dauer
+
+    ein_stueck = geschaetzte_dauer(1, 100_000)
+    viele_stuecke = geschaetzte_dauer(427, 100_000)
+
+    assert viele_stuecke > ein_stueck * 5, (
+        "die Segmentzahl muss die Schaetzung dominieren -- sonst ist der "
+        "Grund fuer diese ganze Umstellung weg"
+    )
+
+
+def test_grosse_textdatei_laeuft_synchron(client, monkeypatch):
+    """Was die Umstellung gewinnen soll.
+
+    Eine Textdatei mit rund 300'000 Zeichen ist EIN Segment und in
+    gemessenen ~90 s fertig -- sie gehoert nicht in den Auftragspfad. Unter
+    der alten Zeichenschwelle (100'000, am langsamsten Format ausgerichtet)
+    wurde sie zum Hintergrundauftrag.
+    """
+    from backend.config import get_settings
+
+    get_settings.cache_clear()
+    try:
+        inhalt = ("Die Auskunft erteilte Frau Sandra Zbinden. " * 7_000).encode("utf-8")
+        einstellungen = get_settings()
+        assert len(inhalt) < einstellungen.sync_threshold_bytes
+        assert len(inhalt.decode("utf-8")) > 250_000, "Testdatei zu klein"
+
+        antwort = client.post(
+            "/api/v1/documents:anonymize-file",
+            files={"file": ("grosse_notiz.txt", inhalt, "text/plain")},
+            data={"mode": "anonymous"},
+        )
+        assert antwort.status_code == 200, (
+            "eine grosse TEXTdatei ist ein Segment und muss synchron laufen; "
+            f"Status {antwort.status_code}"
+        )
+    finally:
+        get_settings.cache_clear()
+
+
+def test_viele_kurze_segmente_werden_ein_auftrag(client, monkeypatch):
+    """Die Gegenrichtung: gleiche Zeichenzahl, aber zerstueckelt.
+
+    Dieselbe Textmenge, die als `.txt` synchron laeuft, muss als Dokument
+    mit vielen kurzen Segmenten in den Auftragspfad gehen -- dort kostet je
+    Segment ein eigener spaCy-Durchgang.
+    """
+    from backend.config import get_settings
+    from backend.jobs import warteschlange
+    from backend.tests.ooxml_fabrik import baue_xlsx
+
+    monkeypatch.setattr(
+        warteschlange, "hintergrundverarbeitung_moeglich", lambda *_: True
+    )
+    get_settings.cache_clear()
+    try:
+        zeilen = [["Die Auskunft erteilte Frau Sandra Zbinden am Montag."]] * 3_000
+        inhalt = baue_xlsx([("Blatt1", zeilen)])
+        assert len(inhalt) < get_settings().sync_threshold_bytes
+
+        antwort = client.post(
+            "/api/v1/documents:anonymize-file",
+            files={
+                "file": (
+                    "liste.xlsx",
+                    inhalt,
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                )
+            },
+            data={"mode": "anonymous"},
+        )
+        assert antwort.status_code == 202, (
+            "viele kurze Segmente muessen als Auftrag laufen; "
+            f"Status {antwort.status_code}"
+        )
+    finally:
+        get_settings.cache_clear()

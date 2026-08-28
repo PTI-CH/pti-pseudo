@@ -449,10 +449,41 @@ Tabelle `jobs` — sonst schneidet der Balancer eine grosse Verarbeitung ab,
 bevor sie fertig ist. Details und Beispiele stehen in API.md; hier nur, was
 man wissen muss, bevor man am Mechanismus schraubt.
 
-**Zwei Schranken entscheiden das, und ihre Reihenfolge ist tragend.**
+**Drei Schranken entscheiden das, und ihre Reihenfolge ist tragend.**
 `documents._laeuft_als_auftrag` prüft erst `SYNC_THRESHOLD_BYTES` (2 MiB,
-ohne die Datei zu öffnen), dann `SYNC_THRESHOLD_CHARS` (100'000, nach dem
-Adapterlauf). Eine davon reicht zum Auftrag.
+ohne die Datei zu öffnen), dann — nach dem Adapterlauf —
+`SYNC_THRESHOLD_CHARS` (800'000, nur noch **Notbremse**) und zuletzt die
+**geschätzte Dauer** gegen `SYNC_BUDGET_SEKUNDEN` (200 s). Eine davon
+reicht zum Auftrag.
+
+**Seit dem 2026-08-28 entscheidet die geschätzte Dauer, nicht die
+Zeichenzahl.** `geschaetzte_dauer(segmente, zeichen)` rechnet
+`0.3625 s je Segment + 0.277 s je 1000 Zeichen` — gemessen in Produktion
+über neun Punkte in vier Formaten, Treffer auf ±2 % bei den
+Office-Formaten.
+
+**Warum die Zeichenzahl allein nicht reichte:** Sie konnte nie beide Fälle
+richtig bedienen. Am langsamsten Format ausgerichtet bremste sie `.txt` um
+Faktor sechs aus (eine Textdatei mit 300'000 Zeichen ist ein Segment und in
+~90 s fertig, lief aber als Hintergrundauftrag); am schnellsten
+ausgerichtet riss sie bei Office-Dateien die 300-s-Grenze des Balancers.
+Genau dieser Zielkonflikt hat an einem Tag zwei falsche Fassungen erzeugt
+(400'000 aus txt, dann 150'000 aus xlsx ohne docx zu messen).
+
+Drei Dinge, die man dazu wissen muss:
+
+1. **Die Segmentzahl ist der Treiber**, nicht die Zeichenzahl — je Segment
+   ein eigener spaCy-Durchgang mit festem Overhead. Dieselben 100'000
+   Zeichen kosten als docx (427 Segmente) ~182 s, als txt (ein Segment)
+   ~11 s.
+2. **Bei `.txt` schätzt das Modell zu hoch** (28 s statt gemessener 11 s bei
+   100'000 Zeichen) — bewusst so belassen: Die Abweichung geht in die
+   sichere Richtung, und ein Sonderfall für grosse Einzelsegmente wäre eine
+   zweite Kurve, die niemand nachmisst.
+3. **`SYNC_THRESHOLD_CHARS` bleibt als Notbremse**, falls die Schätzung
+   selbst danebenliegt — bei einem Dokument, dessen Segmente ganz anders
+   geschnitten sind als alles Gemessene. Ohne sie hinge die einzige
+   Schranke an einer Formel.
 
 Der Grund für die zweite ist gemessen (2026-08-28,
 `scripts/schwelle_messen.py`): **Die Dauer ist linear im Text** — rund

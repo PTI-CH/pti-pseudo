@@ -75,7 +75,11 @@ Design und Begründungen: `docs/superpowers/specs/2026-08-28-pdf-ocr-design.md`.
   `docs/superpowers/specs/2026-08-25-asynchrone-auftraege-design.md` §12.
 
   **Daraus abgeleitet, entschieden am 2026-08-28:** `SYNC_THRESHOLD_CHARS`
-  steht jetzt auf **100'000**, und `WORKERS` auf **3** statt 2.
+  entscheidet nicht mehr allein: Seit dem 2026-08-28 fällt die
+  Entscheidung über die **geschätzte Dauer**
+  (`0.3625 s/Segment + 0.277 s/1000 Zeichen`, Budget 200 s);
+  `SYNC_THRESHOLD_CHARS` steht auf 800'000 und ist nur noch Notbremse.
+  `WORKERS` steht auf **3** statt 2.
 
   **Die Schwelle hängt an der Segmentzahl.** Über alle vier Formate
   gemessen: txt 395'000 Zeichen in ~123 s (~3'200 Z/s), aber docx 149'000

@@ -91,6 +91,29 @@ export KI_ZWEITMEINUNG
 # /.jelenv per `source`, exportiert aber nicht.
 export OCR_ENABLED
 
+# Wo Tesseract auf diesem Knoten liegt — und warum es hier stehen MUSS.
+#
+# Der Benutzer `python` hat kein `sudo`, ein `yum install` ist also
+# ausgeschlossen. Die RPMs (tesseract, langpack-deu/-eng, leptonica, giflib)
+# sind am 2026-08-28 nach /home/jelastic/opt/tesseract entpackt worden —
+# ausserhalb von ROOT, damit ein VCS-Update sie nicht wegraeumt, aus demselben
+# Grund wie diese Datei selbst.
+#
+# Der Dienst-PATH ist vom Runner gesetzt und enthaelt NUR die Systempfade
+# (nachgemessen: /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin).
+# `backend/ocr/verfuegbarkeit.py` sucht das Binary per `shutil.which` — ohne
+# die folgende Zeile findet es nichts, OCR_ENABLED=true bliebe wirkungslos,
+# und ein Scan wuerde weiterhin (korrekt, aber unnoetig) abgewiesen.
+#
+# LD_LIBRARY_PATH: libtesseract/liblept/libgif liegen mit im Home, nicht in
+# /usr/lib64. TESSDATA_PREFIX: sonst sucht Tesseract die Sprachdaten unter
+# /usr/share und findet `deu` nicht.
+TESSERACT_HOME="/home/jelastic/opt/tesseract"
+PATH="$TESSERACT_HOME/usr/bin:$PATH"
+LD_LIBRARY_PATH="$TESSERACT_HOME/usr/lib64${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+TESSDATA_PREFIX="$TESSERACT_HOME/usr/share/tesseract/tessdata"
+export PATH LD_LIBRARY_PATH TESSDATA_PREFIX
+
 # Die Protokollstufe. Vorgabe INFO — ohne sie faellt `pti.*` auf Pythons
 # `lastResort`-Behandler zurueck, und der gibt nur WARNING und hoeher aus.
 #

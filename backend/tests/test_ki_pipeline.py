@@ -514,3 +514,82 @@ def test_unerwartete_ausnahme_kostet_keinen_lauf(monkeypatch):
     )
     assert [f.text for f in ergebnis.findings], "die lokalen Funde bleiben"
     assert ergebnis.ki_geprueft is False
+
+
+# ── Was von einem Fundtext ins Knotenprotokoll darf ────────────────────────
+
+
+def test_protokolltext_laesst_gattungswoerter_durch():
+    """Die Messung braucht genau diese Klasse — sie muss lesbar bleiben.
+
+    Faellt dieser Test, ist der Filter zu scharf geworden und die Messung
+    misst nichts mehr: Im Protokoll stuenden nur noch Platzhalter, und die
+    Frage, ob die KI ``Fallnummer`` von einem echten Ortsnamen trennt, waere
+    nicht mehr beantwortbar.
+    """
+    for wort in ("Fallnummer", "Kontrollschild", "Intern", "Bern", "Talblick"):
+        assert pipeline.protokolltext(wort) == wort
+
+
+def test_protokolltext_haelt_adressen_aus_dem_protokoll():
+    """Der eigentliche Waechter: eine Adresse darf nie im Klartext erscheinen.
+
+    Ein ``LOCATION``-Fund kann eine Wohnadresse sein. Das Knotenprotokoll
+    faellt nicht unter die Vault-Verschluesselung und wird von logrotate
+    tagelang aufgehoben — ein Personendatum hat dort nichts verloren.
+    """
+    adresse = "Muenzgasse 4, 3011 Bern"
+    ergebnis = pipeline.protokolltext(adresse)
+
+    assert adresse not in ergebnis
+    assert "Muenzgasse" not in ergebnis
+    assert "3011" not in ergebnis
+    assert ergebnis.startswith("<mehrteilig:")
+
+
+def test_protokolltext_meldet_dass_gefiltert_wurde():
+    """Ausgefiltertes verschwindet nicht spurlos.
+
+    Ohne diese Spur saehe eine Auswertung nach lauter kurzen Gattungswoertern
+    aus, und niemand wuesste, dass die mehrteiligen Funde fehlen — die
+    Messung waere still verzerrt.
+    """
+    assert pipeline.protokolltext("A" * 80) == "<lang:80>"
+    assert pipeline.protokolltext("Police cantonale") == "<mehrteilig:16>"
+
+
+def test_messung_protokolliert_keine_adresse(caplog):
+    """Die Verdrahtung, nicht nur der Helfer.
+
+    Ein Test, der nur ``protokolltext`` prueft, bliebe gruen, waehrend die
+    Aufrufstelle in ``_ki_messen_ort_organisation`` weiter ``gefragt.markiert``
+    ungefiltert hineinreicht. Deshalb laeuft hier die echte Messung.
+    """
+    import logging
+
+    adresse = "Muenzgasse 4, 3011 Bern"
+    segmente = [
+        Segment(id="text", text=f"Die Meldung kam von {adresse} her.", location=None)
+    ]
+    findings = [
+        pipeline.Finding(
+            entity_type="LOCATION",
+            start=20,
+            end=20 + len(adresse),
+            score=0.85,
+            text=adresse,
+            segment_id="text",
+        )
+    ]
+
+    class KiMessung:
+        def chat_json(self, nachrichten, schema):
+            return {"funde": [{"nummer": 0, "ist_eigenname": True}]}
+
+    with caplog.at_level(logging.INFO, logger="pti"):
+        pipeline._ki_messen_ort_organisation(segmente, findings, KiMessung())
+
+    protokoll = "\n".join(r.getMessage() for r in caplog.records)
+    assert "KI-Messung" in protokoll, "die Messung muss ueberhaupt gelaufen sein"
+    assert "Muenzgasse" not in protokoll
+    assert "3011" not in protokoll

@@ -295,6 +295,41 @@ Pfad**, nicht im Kopf. Dazu zwei, die am 2026-08-25 dazukamen:
 
 Das Modell ist `Ministral-3`, nicht Apertus: Massenklassifikation, nicht Chat.
 
+### Was von einem Fundtext ins Knotenprotokoll darf
+
+Die Messreihe zu Ort und Organisation (`pipeline._ki_messen_ort_organisation`)
+fragt die KI zu jedem `LOCATION`- und `ORGANIZATION`-Fund und **ändert
+nichts**. Ihr Ergebnis steht im Knotenprotokoll — und damit an einem Ort, der
+**nicht** unter der Vault-Verschlüsselung liegt und den logrotate tagelang
+aufhebt.
+
+Ein `LOCATION`-Fund kann eine Wohnadresse sein. Deshalb geht der Fundtext
+durch `pipeline.protokolltext`: durchgelassen wird nur, was **kurz** (≤ 30
+Zeichen) **und einteilig** (kein Leerzeichen) ist; alles andere wird durch
+`<mehrteilig:N>` bzw. `<lang:N>` ersetzt.
+
+Drei Dinge, die dabei zusammenhängen:
+
+1. **Der Filter nimmt der Messung nichts.** Sie existiert für genau eine
+   Frage: Trennt die KI Gattungswörter (`Fallnummer`, `Kontrollschild`,
+   `Intern`) von echten Eigennamen? Diese Klasse ist immer ein einzelnes
+   kurzes Wort — sie passiert den Filter vollständig. Ein mehrteiliger Fund
+   war für die Frage ohnehin wertlos.
+2. **Beide Bedingungen, nicht eine.** Kurz allein genügt nicht: `Bern,
+   Bahnhof` ist kurz und schon mehrteilig, und gerade die Kombination aus
+   Ort und Detail macht eine Angabe identifizierend.
+3. **Gefiltertes verschwindet nicht spurlos.** Typ und Urteil der KI werden
+   weiter protokolliert, nur der Text wird durch seine Länge ersetzt. Ohne
+   diese Spur sähe eine Auswertung nach lauter kurzen Gattungswörtern aus,
+   und niemand wüsste, dass die mehrteiligen Funde fehlen — die Messung wäre
+   still verzerrt.
+
+Der Wächter ist `test_messung_protokolliert_keine_adresse`; er lässt bewusst
+die **echte** Messung laufen statt nur `protokolltext` zu prüfen — ein Test
+auf den Helfer allein bliebe grün, während die Aufrufstelle den Fundtext
+weiter ungefiltert hineinreicht (derselbe Fehler wie 2026-08-25 beim
+Protokoll).
+
 ## Schemaänderungen
 
 `init_db()` im Lifespan ruft `create_all` — das legt **fehlende Tabellen** an,

@@ -482,6 +482,54 @@ def _ki_zweitmeinung(segments, findings, ki) -> tuple[list[Finding], bool]:
 MESSTYPEN = ("LOCATION", "ORGANIZATION")
 
 
+#: Hoechstlaenge eines Fundtexts, der im Protokoll im Klartext stehen darf.
+#:
+#: Die Messung soll **eine** Frage beantworten: Trennt die KI Gattungswoerter
+#: (``Fallnummer``, ``Kontrollschild``, ``Intern``) von echten Eigennamen?
+#: Dafuer braucht sie kurze, einzelne Woerter — und genau die sind harmlos.
+#:
+#: Ein langer, mehrteiliger LOCATION-Fund ist fuer diese Frage wertlos, aber
+#: datenschutzrechtlich das Gegenteil von harmlos: ``Muenzgasse 4, 3011 Bern``
+#: ist eine Wohnadresse und damit ein Personendatum. Das Knotenprotokoll wird
+#: nicht auf dem Stand des Vault gehalten, es faellt nicht unter dessen
+#: Verschluesselung, und logrotate hebt es tagelang auf.
+#:
+#: Die Grenze ist bewusst **vorsichtig** gezogen: Sie laesst genau das durch,
+#: was die Messung braucht, und nichts darueber hinaus. Faellt ein Fund aus
+#: dem Raster, geht die Messung nicht verloren — Typ und Urteil der KI werden
+#: weiter protokolliert, nur der Text wird durch seine Laenge ersetzt.
+MAX_PROTOKOLL_FUNDTEXT = 30
+
+
+def protokolltext(fundtext: str) -> str:
+    """Gibt zurueck, was von einem Fundtext ins Protokoll darf.
+
+    Ein Fundtext ist protokollierbar, wenn er **kurz** ist und **kein
+    Leerzeichen** enthaelt. Beides zusammen — nicht eines von beidem:
+
+    * Die Laenge allein genuegt nicht. ``Bern, Bahnhof`` ist kurz und schon
+      mehrteilig; die Kombination aus Ort und Detail ist das, was eine
+      Angabe identifizierend macht.
+    * Die Einteiligkeit allein genuegt auch nicht — sie schuetzt nicht vor
+      einem langen zusammengesetzten Namen.
+
+    Ein Gattungswort wie ``Fallnummer`` besteht dagegen immer aus einem
+    einzelnen Wort. Der Filter laesst also genau die Klasse durch, um
+    derentwillen die Messung ueberhaupt existiert.
+
+    Was ausgefiltert wird, verschwindet nicht spurlos: Es wird durch
+    ``<mehrteilig:N>`` bzw. ``<lang:N>`` ersetzt. So bleibt im Protokoll
+    sichtbar, **dass** gemessen wurde und wieviel ausgefiltert wurde — sonst
+    saehe eine Auswertung nach lauter kurzen Woertern aus und niemand wuesste,
+    dass die Haelfte fehlt.
+    """
+    if len(fundtext) > MAX_PROTOKOLL_FUNDTEXT:
+        return f"<lang:{len(fundtext)}>"
+    if any(zeichen.isspace() for zeichen in fundtext):
+        return f"<mehrteilig:{len(fundtext)}>"
+    return fundtext
+
+
 def _ki_messen_ort_organisation(segments, findings, ki) -> None:
     """Fragt die KI zu Ort- und Organisationsfunden und aendert nichts.
 
@@ -520,13 +568,15 @@ def _ki_messen_ort_organisation(segments, findings, ki) -> None:
                 if gefragt is None:
                     continue
                 # Festes Praefix zum Filtern im Protokoll; kein Dokumentbezug
-                # und kein Segmenttext — nur der Fundtext, der ohnehin schon
-                # in der Fundliste vor dem Nutzer steht.
+                # und kein Segmenttext. Der Fundtext geht durch
+                # `protokolltext` — die Fundliste vor dem Nutzer ist fluechtig
+                # und an sein Dokument gebunden, das Knotenprotokoll ist
+                # keines von beidem.
                 logger.info(
                     "KI-Messung typ=%s ist_eigenname=%s text=%r",
                     findings[gefragt.finding_index].entity_type,
                     eintrag.get("ist_eigenname"),
-                    gefragt.markiert,
+                    protokolltext(gefragt.markiert),
                 )
     except Exception:
         logger.warning("KI-Messung zu Ort/Organisation ausgefallen.", exc_info=True)

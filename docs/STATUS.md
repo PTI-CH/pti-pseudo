@@ -1,6 +1,6 @@
 # Stand des PTI-Pseudonymisierers
 
-**Stand: 2026-08-28.** Dieses Dokument ist die Ist-Aufnahme: Was läuft, was
+**Stand: 2026-08-28 (nachmittags).** Dieses Dokument ist die Ist-Aufnahme: Was läuft, was
 ist gebaut aber ausgeschaltet, was ist bewusst zurückgestellt. Es ergänzt
 `CLAUDE.md` (Arbeitsanweisungen) und die Design-Specs unter
 `docs/superpowers/specs/` (das Warum hinter jeder Entscheidung).
@@ -19,7 +19,7 @@ Das Fachkonzept (§1–§15) liegt im Schwester-Repo `landing` unter
 | **3** | KI-Schicht für Personennamen-Grenzen (Variante C, behebt den Namenssplit) | live |
 | **5** | XLSX- und PPTX-Verarbeitung, formaterhaltend | live |
 | **4** | Asynchrone Aufträge für grosse Dateien (Hintergrund-Arbeiter, Fortschritt, Auftragsgedächtnis) | live |
-| **6** | **PDF mit Textebene** (Redaction statt Glyphen-Neusetzen), Metadaten leeren | **im Code, Deploy ausstehend** |
+| **6** | **PDF mit Textebene** (Redaction statt Glyphen-Neusetzen), Metadaten leeren · **OCR für Scans** (Tesseract, lokal) | live |
 
 Ergänzende Details je Bereich stehen in `CLAUDE.md`.
 
@@ -35,11 +35,11 @@ Ergänzende Details je Bereich stehen in `CLAUDE.md`.
    darüber gestempelt; Autor/Titel/XMP werden geleert. Läuft ohne
    Systembinary über PyMuPDF. `.pdf` bekommt kein `415` mehr.
 
-2. **OCR für Scans — gebaut, getestet, ab Werk AUS.** Ein eingescanntes PDF
+2. **OCR für Scans — seit 2026-08-28 in Betrieb.** Ein eingescanntes PDF
    trägt nur Bilder; Texterkennung (Tesseract, lokal) macht daraus lesbaren
-   Text. Der Code ist vollständig und mit einer Fake-Engine getestet, aber
-   der Schalter `OCR_ENABLED` steht auf `false` **und** verlangt zusätzlich
-   das Systembinary `tesseract` + Sprachdaten `deu` auf dem Knoten.
+   Text. `OCR_ENABLED=true` steht im Dashboard, das Systembinary liegt auf
+   dem Knoten (siehe unten), und `ocr_verfuegbar()` meldet in Produktion
+   `True`.
 
 **Die tragende Sicherheitsregel:** Ein Scan, dessen Text niemand lesen kann
 (Bildseite, OCR aus), scheitert **laut** mit klarer Meldung — nie stumm.
@@ -53,12 +53,9 @@ Design und Begründungen: `docs/superpowers/specs/2026-08-28-pdf-ocr-design.md`.
 
 ## Offen — Betriebsschritte (nicht Code)
 
-- **Tesseract auf dem Jelastic-Knoten installieren**, damit OCR nutzbar wird:
-  das Binary `tesseract` und die Sprachdaten `deu`, danach `OCR_ENABLED=true`
-  im Dashboard und ein Knoten-Restart. Der Benutzer `python` hat kein `sudo`,
-  darum ist das eine bewusste Entscheidung des Knotenbetreibers, kein
-  `pip install`. Ohne diesen Schritt läuft der Textebenen-Pfad vollständig;
-  Scans werden mit klarer Meldung abgewiesen.
+- ~~Tesseract auf dem Jelastic-Knoten installieren~~ — **erledigt am
+  2026-08-28** (PR #29). Wie, und was dabei zu beachten ist, steht in
+  `CLAUDE.md` unter „Tesseract auf dem Knoten".
 - **API-Schlüssel in Produktion durchsehen**, falls die Ablösung von PPM und
   Translator auch dort gelten soll: Oberfläche → *API-Schlüssel* →
   gegebenenfalls widerrufen; unter *Nutzung* ist sichtbar, ob einer zuletzt

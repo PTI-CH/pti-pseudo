@@ -295,6 +295,44 @@ Pfad**, nicht im Kopf. Dazu zwei, die am 2026-08-25 dazukamen:
 
 Das Modell ist `Ministral-3`, nicht Apertus: Massenklassifikation, nicht Chat.
 
+### Tesseract auf dem Knoten
+
+OCR (Phase 6, Stufe 2) braucht das **Systembinary** `tesseract`. Der Benutzer
+`python` hat kein `sudo`, `yum install` ist also ausgeschlossen. Seit dem
+2026-08-28 liegen die RPMs aus AlmaLinux-AppStream entpackt unter
+`/home/jelastic/opt/tesseract` (tesseract 4.1.1, langpack-deu/-eng,
+leptonica, giflib) — **ausserhalb von `ROOT`**, damit ein VCS-Update sie
+nicht wegräumt, aus demselben Grund wie `pythonenv` selbst.
+
+**Der Punkt, an dem es beinahe still gescheitert wäre:** Der Dienst-`PATH`
+enthält nur die Systempfade. `backend/ocr/verfuegbarkeit.py` sucht per
+`shutil.which` — ohne die drei Exporte in `deploy/pythonenv` (`PATH`,
+`LD_LIBRARY_PATH`, `TESSDATA_PREFIX`) findet es nichts, `OCR_ENABLED=true`
+bliebe **wirkungslos**, und jeder Scan würde weiter abgewiesen, ohne dass
+irgendwo steht warum. Die Prüfung ist absichtlich zweistufig (`which`, dann
+`get_tesseract_version()`), fällt aber genauso still aus.
+
+Vier Dinge, die daran hängen:
+
+1. **Ein Knotenumzug bringt Tesseract nicht mit.** Die Dateien liegen im
+   Home, nicht im Repository — eine neue Umgebung hat sie nicht. Das
+   Verfahren: RPMs mit `yum download` holen (`--disablerepo='*'
+   --enablerepo='appstream,baseos,crb,epel,extras'`, sonst bricht ein
+   kaputtes PostgreSQL-Repo den Lauf ab) und ohne Root entpacken.
+2. **`cpio` fehlt auf dem Knoten.** `rpm2cpio` allein nützt deshalb nichts;
+   entpackt wurde mit `rpmfile` + `zstandard` (die RPMs sind zstd-komprimiert)
+   über `pip install --user`.
+3. **RPM-Symlinks kommen als Textdateien an.** `libtesseract.so.4` enthält
+   dann den Namen des Ziels statt darauf zu zeigen, und das Binary startet
+   mit „file too short". Sie müssen nachträglich zu echten Symlinks gemacht
+   werden — **anhand des Inhalts, nicht der Dateigrösse**: Ein Test auf
+   „kleiner als N Bytes" trifft auch echte Bibliotheken und zerstört sie.
+4. **Tesseract 4.1.1, nicht 5.x.** Mehr gibt AppStream für AlmaLinux 9 nicht
+   her; EPEL 9 führt weder `tesseract` noch `leptonica` (nachgesehen).
+
+Nachgemessen nach dem Deploy: `ocr_verfuegbar()` meldet in Produktion `True`,
+ein deutscher Testsatz wurde zeichengenau erkannt.
+
 ### Was von einem Fundtext ins Knotenprotokoll darf
 
 Die Messreihe zu Ort und Organisation (`pipeline._ki_messen_ort_organisation`)

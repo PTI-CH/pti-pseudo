@@ -524,7 +524,35 @@ unterschätzt. Beide Vorbehalte ändern die Grössenordnung nicht.
 > `scripts/schwelle_messen.py`. Wer die Schwelle anheben will, hat damit
 > jetzt die Grundlage — als eigene Entscheidung mit eigener Lastmessung.
 >
-> Der Abschnitt darunter bleibt als Beleg stehen, wie die Frage entstand.
+> Der Abschnitt darunter bleibt als Beleg stehen, wie die Frage entstand.>
+> ### Nachtrag vom selben Tag: die Schwelle haengt am FORMAT
+>
+> Nach der Erhoehung auf 3 Worker nachgemessen — und dabei fiel die erste
+> Auslegung (400'000) durch:
+>
+> | Format | Zeichen | Dauer |
+> |---|---|---|
+> | txt | 270'000 | 61–64 s (fuenf Laeufe) |
+> | txt | 395'000 | 121–124 s (vier Laeufe) |
+> | xlsx | 50'000 | 94 s |
+> | xlsx | 100'000 | 181 s |
+> | xlsx | 200'000 | **`504` nach 300 s** |
+>
+> **Faktor sechs zwischen den Formaten bei gleicher Zeichenzahl.** Ein
+> `.txt` ist EIN Segment; dieselben 100'000 Zeichen als xlsx sind 427
+> Segmente à 234 Zeichen, und je Segment faellt ein spaCy-Lauf mit eigenem
+> Overhead an. Die Schwelle steht deshalb auf **150'000**, abgeleitet aus
+> dem langsamsten Format (~550 Zeichen/s → ~273 s von 300 s).
+>
+> **Lokal ist das nicht messbar.** `scripts/schwelle_messen.py` gibt auf
+> dem Entwicklungsrechner 0.037 s/1000 Zeichen fuer xlsx gegen 0.056 fuer
+> txt — also den umgekehrten Befund. Der Unterschied entsteht erst auf dem
+> schwaecheren Knoten. Wer diese Zahl neu ableitet: **auf dem Knoten, und
+> mit xlsx.**
+>
+> **Die drei Worker haben unabhaengig davon gewirkt:** Dieselben 270'000
+> Zeichen streuten mit zwei Workern zwischen 63 s und 127 s (Faktor zwei),
+> mit dreien zwischen 61 s und 64 s (4 %).
 
 ---
 

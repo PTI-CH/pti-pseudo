@@ -75,11 +75,18 @@ Design und Begründungen: `docs/superpowers/specs/2026-08-28-pdf-ocr-design.md`.
   `docs/superpowers/specs/2026-08-25-asynchrone-auftraege-design.md` §12.
 
   **Daraus abgeleitet, entschieden am 2026-08-28:** `SYNC_THRESHOLD_CHARS`
-  steht jetzt auf **400'000** (gerechnet mit dem langsamsten gemessenen
-  Durchsatz: ~188 s, also ~112 s Reserve bis zur 300-s-Grenze), und
-  `WORKERS` auf **3** statt 2 — die Streuung um Faktor zwei kam aus der
-  Konkurrenz gleichzeitiger Läufe um nur zwei Worker. Beide Zahlen hängen
-  zusammen: Wird `WORKERS` gesenkt, gehört die Schwelle mitgesenkt.
+  steht jetzt auf **150'000**, und `WORKERS` auf **3** statt 2.
+
+  **Die Schwelle hängt am Format.** Eine erste Fassung (400'000) wurde am
+  selben Tag durch eine Nachmessung widerlegt: 200'000 Zeichen als xlsx
+  rissen die 300-s-Grenze mit einem `504`, während 395'000 Zeichen als txt
+  in ~123 s durchliefen. Faktor sechs — ein `.txt` ist ein Segment,
+  dieselbe Menge als xlsx sind 427 (je Segment ein spaCy-Lauf). Lokal ist
+  das nicht sichtbar; wer die Zahl neu ableitet, misst auf dem Knoten und
+  mit xlsx.
+
+  **Die drei Worker haben gewirkt:** Mit zwei streuten dieselben 270'000
+  Zeichen zwischen 63 s und 127 s, mit dreien zwischen 61 s und 64 s.
 - **KI-Zweitmeinung (Stufe D) bleibt ab Werk aus.** Gemessen zu teuer für das
   Infomaniak-Kontingent; zuschalten lohnt erst, wenn die Anfragezahl gesenkt
   oder das Kontingent angehoben ist. Rechtlich getragen (AVV, 2026-08-25).

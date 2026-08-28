@@ -231,37 +231,58 @@ class Settings(BaseSettings):
     # glatt durch. Der Wert ist also rund fuenfmal so gross wie die frueher
     # hier angenommene ``proxy_read_timeout``-Vorgabe.
     #
-    # Daraus abgeleitet, am 2026-08-28: **400'000 Zeichen**.
+    # Daraus abgeleitet, am 2026-08-28 in Produktion gemessen: **150'000**.
     #
-    # Die Rechnung, bewusst mit dem SCHLECHTESTEN gemessenen Durchsatz und
-    # nicht mit dem Mittelwert:
+    # **Die Zahl haengt am FORMAT, nicht nur an der Zeichenzahl** -- das ist
+    # der Befund, der eine erste Fassung dieser Konstante (400'000) wieder
+    # kassiert hat. Gemessen auf dem Knoten mit drei Workern:
     #
-    #   langsamster Lauf   270'000 Zeichen in 127 s  ->  ~2'130 Zeichen/s
-    #   400'000 Zeichen    bei diesem Tempo          ->  ~188 s
-    #   Abstand zur Grenze 300 s - 188 s             ->  ~112 s Reserve
+    #   txt    270'000 Zeichen ->  ~62 s   (~4'350 Zeichen/s)
+    #   txt    395'000 Zeichen -> ~123 s   (~3'200 Zeichen/s)
+    #   xlsx   100'000 Zeichen -> ~181 s   (~550 Zeichen/s)
+    #   xlsx   200'000 Zeichen -> 504 nach 300 s  -- Grenze gerissen
     #
-    # Warum nicht mehr: Bei 500'000 waeren es im langsamsten Fall rund 235 s
-    # und die Reserve schruempfte auf gut eine Minute -- zu wenig, sobald ein
-    # zweiter grosser Lauf danebenlaeuft oder der Upload selbst Zeit kostet
-    # (der zaehlt mit, die Balancer-Uhr laeuft ab Verbindungsaufbau).
+    # **Faktor sechs zwischen den Formaten bei gleicher Zeichenzahl.** Der
+    # Grund steht in den Adaptern: Ein ``.txt`` ist EIN Segment, dieselben
+    # 100'000 Zeichen als xlsx sind 427 Segmente à 234 Zeichen (eine Zeile
+    # je Segment). Je Segment faellt ein spaCy-Lauf mit eigenem Overhead an;
+    # viele kurze Segmente kosten deshalb ein Vielfaches weniger Zeichen
+    # gleicher Menge in einem Stueck.
     #
-    # Diese Zahl haengt an ``WORKERS`` in ``deploy/pythonenv``: Die Streuung
-    # um Faktor zwei kommt aus der Konkurrenz gleichzeitiger Laeufe um die
-    # Worker. Wird ``WORKERS`` gesenkt, gehoert diese Schwelle mitgesenkt.
+    # **Lokal ist der Unterschied NICHT sichtbar** (0.037 vs. 0.056 s je
+    # 1000 Zeichen, also andersherum) -- er entsteht erst auf dem
+    # schwaecheren Knoten. Wer diese Schwelle je neu ableitet, misst sie
+    # deshalb dort und mit xlsx, nicht lokal und nicht mit txt.
+    #
+    # Die Rechnung, mit dem langsamsten gemessenen Format:
+    #
+    #   xlsx-Durchsatz                     ~550 Zeichen/s
+    #   150'000 Zeichen bei diesem Tempo   ~273 s
+    #
+    # Das ist knapp unter 300 s und traegt bewusst KEINE dicke Reserve: Der
+    # Auftragspfad ist der sichere Ausweg, nicht der teure. Wer hier zu hoch
+    # geht, riskiert einen ``504`` mitten in der Verarbeitung -- wer zu tief
+    # geht, verschiebt ein Dokument in einen Hintergrundauftrag, der
+    # zuverlaessig funktioniert. Die Asymmetrie ist der ganze Grund fuer die
+    # niedrige Zahl.
+    #
+    # Sie haengt zusaetzlich an ``WORKERS`` in ``deploy/pythonenv`` (heute 3):
+    # Mit zwei Workern streuten dieselben 270'000 Zeichen zwischen 63 s und
+    # 127 s, mit dreien nur noch zwischen 61 s und 64 s. Wird ``WORKERS``
+    # gesenkt, gehoert diese Schwelle mitgesenkt.
     #
     # **Sie faellt nicht mehr mit ``max_text_chars`` zusammen.** Das war
     # frueher der Fall und als "eine einzige Zahl im ganzen Werkzeug"
     # begruendet. Der Zusammenfall war aber ein Nebeneffekt, kein Zweck: Die
     # beiden Zahlen beantworten verschiedene Fragen -- diese hier, wieviel
     # Text der Balancer zeitlich durchlaesst, jene, ab wann spaCy an
-    # ``nlp.max_length`` bricht. Sie muessen nicht gleich sein und sind es
-    # seit dieser Messung nicht mehr.
+    # ``nlp.max_length`` bricht.
     #
     # Der Adapterlauf, den diese Pruefung kostet, ist gemessen billig: 0.0
     # bis 4.9 % der Gesamtdauer, mit fallendem Anteil bei groesseren
     # Dokumenten. Genau bei den Dateien, bei denen die Entscheidung zaehlt,
     # ist das Oeffnen also fast gratis.
-    sync_threshold_chars: int = 400_000
+    sync_threshold_chars: int = 150_000
     # Obergrenze fuer den JSON-Textpfad (documents:detect / :anonymize).
     # ``spaCy`` bricht bei ``nlp.max_length`` (Default 1'000'000 Zeichen) mit
     # einem rohen ValueError ab, sobald ein Text laenger ist — anders als beim

@@ -451,7 +451,7 @@ man wissen muss, bevor man am Mechanismus schraubt.
 
 **Zwei Schranken entscheiden das, und ihre Reihenfolge ist tragend.**
 `documents._laeuft_als_auftrag` prüft erst `SYNC_THRESHOLD_BYTES` (2 MiB,
-ohne die Datei zu öffnen), dann `SYNC_THRESHOLD_CHARS` (400'000, nach dem
+ohne die Datei zu öffnen), dann `SYNC_THRESHOLD_CHARS` (150'000, nach dem
 Adapterlauf). Eine davon reicht zum Auftrag.
 
 Der Grund für die zweite ist gemessen (2026-08-28,
@@ -485,13 +485,37 @@ Drei Dinge, die man daraus mitnehmen muss:
    Zeichen/s statt der früher gerechneten 20'000/s. Die beiden Irrtümer
    haben sich teilweise aufgehoben: Budget fünfmal grösser, Durchsatz rund
    fünfmal kleiner. **`SYNC_THRESHOLD_CHARS` steht seit dem 2026-08-28 auf
-   400'000**, gerechnet mit dem *langsamsten* gemessenen Durchsatz
-   (~2'130 Zeichen/s → ~188 s, also ~112 s Reserve). Nicht mehr: Bei
-   500'000 schrumpfte die Reserve auf gut eine Minute, und der Upload zählt
-   mit — die Balancer-Uhr läuft ab Verbindungsaufbau.
-   **Die Schwelle hängt an `WORKERS`** (seit heute 3 statt 2): Die Streuung
-   kommt aus der Konkurrenz gleichzeitiger Läufe um die Worker. Wird
-   `WORKERS` gesenkt, gehört die Schwelle mitgesenkt.
+   150'000**, gerechnet mit dem *langsamsten gemessenen Format*.
+
+   **Die Schwelle hängt am Format, nicht nur an der Zeichenzahl.** Eine
+   erste Fassung stand auf 400'000 und wurde am selben Tag wieder
+   kassiert — die Nachmessung mit xlsx riss die Grenze:
+
+   | Format | Zeichen | Dauer |
+   |---|---|---|
+   | txt | 395'000 | ~123 s |
+   | xlsx | 100'000 | ~181 s |
+   | xlsx | 200'000 | **`504` nach 300 s** |
+
+   Faktor sechs bei gleicher Zeichenzahl. Der Grund steht in den Adaptern:
+   Ein `.txt` ist **ein** Segment, dieselben 100'000 Zeichen als xlsx sind
+   **427** Segmente à 234 Zeichen (eine Zeile je Segment), und je Segment
+   fällt ein spaCy-Lauf mit eigenem Overhead an.
+
+   **Lokal ist der Unterschied nicht sichtbar** — dort misst man 0.037
+   (xlsx) gegen 0.056 (txt) s je 1000 Zeichen, also andersherum. Er
+   entsteht erst auf dem schwächeren Knoten. Wer diese Schwelle neu
+   ableitet, misst **auf dem Knoten und mit xlsx**.
+
+   Die Zahl trägt bewusst keine dicke Reserve (150'000 × ~550 Zeichen/s
+   ≈ 273 s von 300 s): Der Auftragspfad ist der sichere Ausweg, nicht der
+   teure. Zu hoch heisst `504` mitten in der Verarbeitung, zu tief heisst
+   ein Hintergrundauftrag, der zuverlässig läuft.
+
+   **Sie hängt zusätzlich an `WORKERS`** (heute 3 statt 2): Mit zwei
+   Workern streuten dieselben 270'000 Zeichen zwischen 63 s und 127 s, mit
+   dreien nur noch zwischen 61 s und 64 s. Wird `WORKERS` gesenkt, gehört
+   die Schwelle mitgesenkt.
    Sie fällt seither **nicht mehr** mit `max_text_chars` (300'000)
    zusammen; der Gleichstand war ein Nebeneffekt, kein Zweck — die beiden
    beantworten verschiedene Fragen.

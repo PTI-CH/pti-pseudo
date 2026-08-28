@@ -74,12 +74,12 @@ Design und Begründungen: `docs/superpowers/specs/2026-08-28-pdf-ocr-design.md`.
   Zahlen und Auslegung in
   `docs/superpowers/specs/2026-08-25-asynchrone-auftraege-design.md` §12.
 
-  **Daraus folgt eine offene Entscheidung:** `SYNC_THRESHOLD_CHARS` steht
-  weiterhin auf 300'000 und wurde bewusst nicht angehoben — die
-  Verarbeitungsdauer streut um Faktor zwei (dieselben 270'000 Zeichen in
-  63 s, 124 s und 127 s), und gemessen wurde mit einem einzelnen Aufrufer.
-  Wer die Schwelle anheben will, hat mit den 300 s jetzt die Grundlage;
-  das ist eine eigene Entscheidung mit eigener Lastmessung.
+  **Daraus abgeleitet, entschieden am 2026-08-28:** `SYNC_THRESHOLD_CHARS`
+  steht jetzt auf **400'000** (gerechnet mit dem langsamsten gemessenen
+  Durchsatz: ~188 s, also ~112 s Reserve bis zur 300-s-Grenze), und
+  `WORKERS` auf **3** statt 2 — die Streuung um Faktor zwei kam aus der
+  Konkurrenz gleichzeitiger Läufe um nur zwei Worker. Beide Zahlen hängen
+  zusammen: Wird `WORKERS` gesenkt, gehört die Schwelle mitgesenkt.
 - **KI-Zweitmeinung (Stufe D) bleibt ab Werk aus.** Gemessen zu teuer für das
   Infomaniak-Kontingent; zuschalten lohnt erst, wenn die Anfragezahl gesenkt
   oder das Kontingent angehoben ist. Rechtlich getragen (AVV, 2026-08-25).

@@ -451,7 +451,7 @@ man wissen muss, bevor man am Mechanismus schraubt.
 
 **Zwei Schranken entscheiden das, und ihre Reihenfolge ist tragend.**
 `documents._laeuft_als_auftrag` prüft erst `SYNC_THRESHOLD_BYTES` (2 MiB,
-ohne die Datei zu öffnen), dann `SYNC_THRESHOLD_CHARS` (300'000, nach dem
+ohne die Datei zu öffnen), dann `SYNC_THRESHOLD_CHARS` (400'000, nach dem
 Adapterlauf). Eine davon reicht zum Auftrag.
 
 Der Grund für die zweite ist gemessen (2026-08-28,
@@ -484,9 +484,17 @@ Drei Dinge, die man daraus mitnehmen muss:
 2. **Der Durchsatz ist viel niedriger als gedacht** — rund 2'100 bis 4'300
    Zeichen/s statt der früher gerechneten 20'000/s. Die beiden Irrtümer
    haben sich teilweise aufgehoben: Budget fünfmal grösser, Durchsatz rund
-   fünfmal kleiner. **Deshalb ist `SYNC_THRESHOLD_CHARS` unverändert bei
-   300'000** — anheben wäre eine eigene Entscheidung mit eigener
-   Lastmessung, nicht eine Folge dieser Messung.
+   fünfmal kleiner. **`SYNC_THRESHOLD_CHARS` steht seit dem 2026-08-28 auf
+   400'000**, gerechnet mit dem *langsamsten* gemessenen Durchsatz
+   (~2'130 Zeichen/s → ~188 s, also ~112 s Reserve). Nicht mehr: Bei
+   500'000 schrumpfte die Reserve auf gut eine Minute, und der Upload zählt
+   mit — die Balancer-Uhr läuft ab Verbindungsaufbau.
+   **Die Schwelle hängt an `WORKERS`** (seit heute 3 statt 2): Die Streuung
+   kommt aus der Konkurrenz gleichzeitiger Läufe um die Worker. Wird
+   `WORKERS` gesenkt, gehört die Schwelle mitgesenkt.
+   Sie fällt seither **nicht mehr** mit `max_text_chars` (300'000)
+   zusammen; der Gleichstand war ein Nebeneffekt, kein Zweck — die beiden
+   beantworten verschiedene Fragen.
 3. **Gemessen wurde mit einem einzelnen Aufrufer.** Zwei gleichzeitige
    grosse Läufe teilen sich dieselben zwei Worker.
 

@@ -231,27 +231,37 @@ class Settings(BaseSettings):
     # glatt durch. Der Wert ist also rund fuenfmal so gross wie die frueher
     # hier angenommene ``proxy_read_timeout``-Vorgabe.
     #
-    # Die Zahl unten wurde trotzdem NICHT angehoben, und das ist Absicht:
+    # Daraus abgeleitet, am 2026-08-28: **400'000 Zeichen**.
     #
-    # * Die Verarbeitungsdauer streut auf diesem Knoten stark. Dieselben
-    #   270'000 Zeichen brauchten in drei Laeufen 63 s, 124 s und 127 s --
-    #   Faktor zwei, allein durch die Konkurrenz um die zwei uvicorn-Worker.
-    #   Eine Schwelle, die den Mittelwert ausreizt, reisst unter Last.
-    # * Gemessen wurde mit einem einzelnen Aufrufer. Zwei gleichzeitige
-    #   grosse Laeufe teilen sich dieselben zwei Worker.
-    # * 300'000 faellt mit ``max_text_chars`` unten zusammen -- eine einzige
-    #   Zahl im ganzen Werkzeug dafuer, wieviel Text synchron laeuft.
+    # Die Rechnung, bewusst mit dem SCHLECHTESTEN gemessenen Durchsatz und
+    # nicht mit dem Mittelwert:
     #
-    # Wer sie anheben will, hat mit den 300 s jetzt die Grundlage dafuer --
-    # ``scripts/schwelle_messen.py --budget 300`` rechnet den Vorschlag aus.
-    # Das ist eine eigene Entscheidung mit eigener Lastmessung, kein
-    # Nebenschritt.
+    #   langsamster Lauf   270'000 Zeichen in 127 s  ->  ~2'130 Zeichen/s
+    #   400'000 Zeichen    bei diesem Tempo          ->  ~188 s
+    #   Abstand zur Grenze 300 s - 188 s             ->  ~112 s Reserve
+    #
+    # Warum nicht mehr: Bei 500'000 waeren es im langsamsten Fall rund 235 s
+    # und die Reserve schruempfte auf gut eine Minute -- zu wenig, sobald ein
+    # zweiter grosser Lauf danebenlaeuft oder der Upload selbst Zeit kostet
+    # (der zaehlt mit, die Balancer-Uhr laeuft ab Verbindungsaufbau).
+    #
+    # Diese Zahl haengt an ``WORKERS`` in ``deploy/pythonenv``: Die Streuung
+    # um Faktor zwei kommt aus der Konkurrenz gleichzeitiger Laeufe um die
+    # Worker. Wird ``WORKERS`` gesenkt, gehoert diese Schwelle mitgesenkt.
+    #
+    # **Sie faellt nicht mehr mit ``max_text_chars`` zusammen.** Das war
+    # frueher der Fall und als "eine einzige Zahl im ganzen Werkzeug"
+    # begruendet. Der Zusammenfall war aber ein Nebeneffekt, kein Zweck: Die
+    # beiden Zahlen beantworten verschiedene Fragen -- diese hier, wieviel
+    # Text der Balancer zeitlich durchlaesst, jene, ab wann spaCy an
+    # ``nlp.max_length`` bricht. Sie muessen nicht gleich sein und sind es
+    # seit dieser Messung nicht mehr.
     #
     # Der Adapterlauf, den diese Pruefung kostet, ist gemessen billig: 0.0
     # bis 4.9 % der Gesamtdauer, mit fallendem Anteil bei groesseren
     # Dokumenten. Genau bei den Dateien, bei denen die Entscheidung zaehlt,
     # ist das Oeffnen also fast gratis.
-    sync_threshold_chars: int = 300_000
+    sync_threshold_chars: int = 400_000
     # Obergrenze fuer den JSON-Textpfad (documents:detect / :anonymize).
     # ``spaCy`` bricht bei ``nlp.max_length`` (Default 1'000'000 Zeichen) mit
     # einem rohen ValueError ab, sobald ein Text laenger ist — anders als beim

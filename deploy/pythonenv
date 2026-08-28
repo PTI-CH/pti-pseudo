@@ -28,14 +28,35 @@ SSLEnabled="off"
 
 # Anzahl uvicorn-Worker.
 #
-# Der Default ist `nproc`, auf diesem Knoten 5. Das waere hier fatal: jeder
-# Worker laedt sein eigenes spaCy-Modell mit gemessenen 411 MB. Uvicorn startet
-# Worker per multiprocessing-*spawn*, nicht per fork — es gibt also KEIN
-# Copy-on-Write, das die Modellseiten teilen wuerde. 5 Worker waeren rund 2 GB
-# allein fuer das Modell, bei 3 GB Knotenlimit.
+# Der Default ist `nproc`, auf diesem Knoten 5. Das waere zu viel: jeder
+# Worker laedt sein eigenes spaCy-Modell. Uvicorn startet Worker per
+# multiprocessing-*spawn*, nicht per fork — es gibt also KEIN Copy-on-Write,
+# das die Modellseiten teilen wuerde.
 #
-# 2 Worker: rund 900 MB bis 1 GB inklusive lxml-Spitzen bei grossen DOCX.
-WORKERS="2"
+# **Am 2026-08-28 am laufenden Knoten nachgemessen** (`ps -eo rss`), nicht
+# geschaetzt:
+#
+#   je Worker      525 MB   (nicht 411 MB — das war die Modellgroesse allein)
+#   2 Worker      1093 MB   inkl. Elternprozess
+#   Knotenspeicher 8192 MB  davon ~7200 MB verfuegbar
+#
+# **Die frueher hier genannten "3 GB Knotenlimit" stimmen nicht mehr.** Der
+# Knoten hat 8 GB; die Zahl stammte aus der Anfangszeit und ist beim
+# Tesseract-Einbau aufgefallen.
+#
+# 3 Worker: rund 1620 MB Grundlast. Der Grund fuer die Erhoehung ist
+# gemessen, nicht kosmetisch: Am 2026-08-28 brauchten dieselben 270'000
+# Zeichen je nach Lauf 63 s, 124 s und 127 s — Faktor zwei bei identischer
+# Eingabe, allein durch die Konkurrenz zweier gleichzeitiger Laeufe um zwei
+# Worker. Ein dritter macht die Dauer berechenbarer, und darauf stuetzt sich
+# `sync_threshold_chars`.
+#
+# **Die Obergrenze setzt OCR, nicht der Normalbetrieb.** Eine gescannte
+# Seite braucht kurzzeitig rund 1.1 GB (Design-Spec Phase 6 §4.4). Drei
+# Worker gleichzeitig in OCR waeren rund 4.9 GB — mit Abstand tragbar. Bei
+# vier wuerde der Abstand schmal; wer weiter erhoehen will, misst das vorher
+# unter echter OCR-Last nach.
+WORKERS="3"
 
 # ── Panel-Variablen an die Anwendung durchreichen ──────────────────────────
 # Der Runner laedt /.jelenv per `source`. Die im Jelastic-Panel gesetzten Werte

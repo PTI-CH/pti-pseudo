@@ -198,13 +198,16 @@ def _laeuft_als_auftrag(data: bytes, dateiname: str) -> bool:
     jenseits dessen, was der Balancer offen haelt: Die Schwelle schuetzte
     nicht, wovor sie schuetzen sollte.
 
-    **Der genaue Wert von ``sync_threshold_chars`` haengt an einer
-    Annahme.** Er ist aus einem Zeitbudget von 60 Sekunden abgeleitet, und
-    diese 60 Sekunden sind ``proxy_read_timeout``s NGINX-Vorgabe und keine
-    Messung -- niemand hat nachgesehen, wie lange der Balancer wirklich
-    wartet (Verfahren dafuer: Design-Spec zu den asynchronen Auftraegen,
-    §12). Die Grundaussage haengt nicht daran: 15 Minuten sind unter jeder
-    denkbaren Zeitgrenze zu lang.
+    **Der Wert von ``sync_threshold_chars`` ist seit dem 2026-08-28
+    gemessen abgeleitet**, nicht mehr angenommen. Das Zeitbudget des
+    Balancers betraegt 300 Sekunden (ein Lauf ueber 280'000 Zeichen bekam
+    nach 300.5 s einen ``504``); frueher stand hier eine aus
+    ``proxy_read_timeout``s NGINX-Vorgabe geratene Minute. Die Schwelle
+    steht auf 400'000 -- gerechnet mit dem langsamsten gemessenen Durchsatz
+    (~2'130 Zeichen/s), was rund 188 s ergibt und etwa 112 s Reserve laesst.
+    Zahlen: Design-Spec zu den asynchronen Auftraegen, §12. Die
+    Grundaussage haengt nicht daran: 15 Minuten sind unter jeder denkbaren
+    Zeitgrenze zu lang.
 
     **Der Preis ist gemessen und klein.** Der Adapterlauf kostet 0.0 bis
     4.9 % der Gesamtdauer, mit fallendem Anteil bei groesseren Dokumenten --

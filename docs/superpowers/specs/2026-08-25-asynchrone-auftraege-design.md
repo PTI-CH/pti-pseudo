@@ -491,11 +491,46 @@ unterschätzt. Beide Vorbehalte ändern die Grössenordnung nicht.
 
 ---
 
-## 12. Weiterhin offen: das Zeitbudget selbst nachmessen
+## 12. Das Zeitbudget — GEMESSEN am 2026-08-28
 
-**Der einzige Punkt aus §11, der nicht geschlossen ist** — bewusst
+> **Erledigt.** Der Balancer wartet **300 Sekunden**, nicht 60. Gemessen aus
+> VS Code gegen die Produktion, mit einem auf sechs Stunden befristeten
+> API-Schlüssel (inzwischen widerrufen) und synthetischen Dokumenten — also
+> nach Variante 2 unten, **ohne** die Produktion umzukonfigurieren.
+>
+> | Zeichen | Ergebnis |
+> |---|---|
+> | 150'000 | `200` nach 81 s |
+> | 200'000 | `200` nach 36 s |
+> | 250'000 | `200` nach 57 s |
+> | 270'000 | `200` nach 63 s / 124 s / 127 s (drei Läufe) |
+> | 280'000 | **`504` nach 300.5 s** |
+> | 280'000 | `200` nach 67 s (Wiederholung) |
+>
+> **Der `504` ist eine Zeit-, keine Grössengrenze.** Derselbe Umfang lief
+> beim zweiten Versuch in 67 s durch. Was streut, ist die Verarbeitungsdauer
+> — Faktor zwei bei identischer Eingabe, durch die Konkurrenz um die zwei
+> uvicorn-Worker.
+>
+> **Der Durchsatz ist viel niedriger als angenommen:** rund 2'100–4'300
+> Zeichen/s statt der hier gerechneten 20'000/s. Die beiden Fehler haben
+> sich teilweise aufgehoben — das Budget ist fünfmal grösser, der Durchsatz
+> rund fünfmal kleiner.
+>
+> **`SYNC_THRESHOLD_CHARS` wurde NICHT angehoben.** Bei dieser Streuung
+> würde eine Schwelle, die den Mittelwert ausreizt, unter Last reissen; und
+> gemessen wurde mit einem einzelnen Aufrufer. Nachgetragen sind die 300 s
+> in `backend/config.py` und als `BUDGET_SEKUNDEN` in
+> `scripts/schwelle_messen.py`. Wer die Schwelle anheben will, hat damit
+> jetzt die Grundlage — als eigene Entscheidung mit eigener Lastmessung.
+>
+> Der Abschnitt darunter bleibt als Beleg stehen, wie die Frage entstand.
+
+---
+
+**Der einzige Punkt aus §11, der nicht geschlossen war** — bewusst
 zurückgestellt am 2026-08-28, weil er aus einer Web-Session heraus nicht zu
-klären ist. Zu erledigen aus **VS Code**, also von einer Maschine mit
+klären war. Zu erledigen aus **VS Code**, also von einer Maschine mit
 echtem Netzweg auf die Produktion.
 
 ### Was offen ist

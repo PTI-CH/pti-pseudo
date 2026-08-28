@@ -223,17 +223,29 @@ class Settings(BaseSettings):
     # eine beschaedigte Datei ist sie die einzige Schranke, die ueberhaupt
     # greift.
     sync_threshold_bytes: int = 2_097_152
-    # Scharfe Pruefung, nach dem Adapterlauf. Gemessen tragbar waeren rund
-    # 360'000 Zeichen -- bei einem Budget von 60 s und dreifacher
-    # Sicherheit. ACHTUNG: Diese 60 s sind ``proxy_read_timeout``s
-    # NGINX-Vorgabe und KEINE Messung; wie lange der Balancer wirklich auf
-    # eine Antwort wartet, ist offen (Design-Spec zu den asynchronen
-    # Auftraegen, §12 -- nachzumessen aus VS Code). Faellt der Wert deutlich
-    # anders aus, gehoert diese Zahl neu abgeleitet:
-    # ``scripts/schwelle_messen.py --budget <gemessen>``. Gewaehlt sind
-    # 300'000, weil das zusaetzliche Luft laesst UND mit ``max_text_chars``
-    # unten zusammenfaellt -- damit gibt es im ganzen Werkzeug eine einzige
-    # Zahl dafuer, wie viel Text synchron verarbeitet wird.
+    # Scharfe Pruefung, nach dem Adapterlauf.
+    #
+    # Das Zeitbudget ist seit dem 2026-08-28 GEMESSEN und betraegt **300 s**,
+    # nicht 60. Ein Lauf ueber 280'000 Zeichen bekam nach exakt 300.5 s einen
+    # sauberen ``504`` vom Balancer; Laeufe von 63 bis 127 s gingen mehrfach
+    # glatt durch. Der Wert ist also rund fuenfmal so gross wie die frueher
+    # hier angenommene ``proxy_read_timeout``-Vorgabe.
+    #
+    # Die Zahl unten wurde trotzdem NICHT angehoben, und das ist Absicht:
+    #
+    # * Die Verarbeitungsdauer streut auf diesem Knoten stark. Dieselben
+    #   270'000 Zeichen brauchten in drei Laeufen 63 s, 124 s und 127 s --
+    #   Faktor zwei, allein durch die Konkurrenz um die zwei uvicorn-Worker.
+    #   Eine Schwelle, die den Mittelwert ausreizt, reisst unter Last.
+    # * Gemessen wurde mit einem einzelnen Aufrufer. Zwei gleichzeitige
+    #   grosse Laeufe teilen sich dieselben zwei Worker.
+    # * 300'000 faellt mit ``max_text_chars`` unten zusammen -- eine einzige
+    #   Zahl im ganzen Werkzeug dafuer, wieviel Text synchron laeuft.
+    #
+    # Wer sie anheben will, hat mit den 300 s jetzt die Grundlage dafuer --
+    # ``scripts/schwelle_messen.py --budget 300`` rechnet den Vorschlag aus.
+    # Das ist eine eigene Entscheidung mit eigener Lastmessung, kein
+    # Nebenschritt.
     #
     # Der Adapterlauf, den diese Pruefung kostet, ist gemessen billig: 0.0
     # bis 4.9 % der Gesamtdauer, mit fallendem Anteil bei groesseren

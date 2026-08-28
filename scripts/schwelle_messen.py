@@ -114,23 +114,32 @@ ZEICHENMENGEN = [
 
 #: Zeitbudget des synchronen Pfads in Sekunden.
 #:
-#: **Eine Annahme, keine Messung** — und die einzige, die dieses Skript nicht
-#: selbst schliessen kann. Der NGINX-Balancer vor dem Anwendungsserver ist der
-#: Eintrittspunkt (siehe CLAUDE.md); wie lange er auf eine Antwort wartet,
-#: steht in seiner Konfiguration, an die wir über den methoden-beschränkten
-#: Jelastic-Token nicht herankommen. 60 Sekunden ist die NGINX-Vorgabe für
-#: ``proxy_read_timeout`` und damit die plausibelste Annahme.
+#: **Seit dem 2026-08-28 gemessen, nicht mehr angenommen.** Hier stand vorher
+#: 60.0 — ``proxy_read_timeout``s NGINX-Vorgabe und die plausibelste Annahme,
+#: aber eben eine Annahme. Gemessen wurde gegen die Produktion über
+#: ``/api/ext/v1`` mit einem befristeten Schlüssel und synthetischen
+#: Dokumenten (Verfahren: Design-Spec §12, Variante ohne Umkonfiguration):
 #:
-#: **Zu erledigen, aus VS Code:** den Wert nachmessen. Verfahren, Fallen und
-#: die Liste der Stellen, an denen er danach nachzutragen ist, stehen in
-#: ``docs/superpowers/specs/2026-08-25-asynchrone-auftraege-design.md`` §12.
-#: Bis dahin: ``--budget <sekunden>`` rechnet mit einem anderen Wert, ohne
-#: dass hier etwas geaendert werden muss.
+#: * 280'000 Zeichen → sauberer ``504`` nach **300.5 s**
+#: * 270'000 Zeichen → ``200`` nach 63 s / 124 s / 127 s (drei Läufe)
+#: * 150'000–250'000 Zeichen → ``200`` nach 36 s bis 81 s
+#:
+#: Der Balancer wartet also **300 Sekunden**, das Fünffache der Annahme.
+#:
+#: Zwei Dinge, die man beim Rechnen damit wissen muss:
+#:
+#: 1. **Die Streuung ist gross.** Dieselben 270'000 Zeichen brauchten je nach
+#:    Lauf 63 bis 127 Sekunden — Faktor zwei, allein durch die Konkurrenz um
+#:    die zwei uvicorn-Worker. Der Durchsatz lag bei rund 2'100 bis 4'300
+#:    Zeichen/s und damit deutlich unter den 20'000/s, mit denen die Spec
+#:    gerechnet hatte.
+#: 2. **Gemessen wurde mit einem einzelnen Aufrufer.** Zwei gleichzeitige
+#:    grosse Läufe teilen sich dieselben zwei Worker.
 #:
 #: Der Sicherheitsfaktor darauf ist kein Zierrat: Der Upload zählt mit, der
 #: Knoten teilt sich die CPU mit einem zweiten uvicorn-Worker, und ein
 #: Dokument kann dichter sein als das gemessene.
-BUDGET_SEKUNDEN = 60.0
+BUDGET_SEKUNDEN = 300.0
 SICHERHEITSFAKTOR = 3.0
 
 

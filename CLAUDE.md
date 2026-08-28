@@ -466,16 +466,31 @@ allein war eine dichte Arbeitsmappe von 2 MiB über 17 Millionen Zeichen und
 rund 15 Minuten unterwegs — weit jenseits dessen, was der Balancer offen
 hält. Die Schwelle schützte nicht, wovor sie schützen sollte.
 
-**Offen und bewusst zurückgestellt: das Zeitbudget selbst ist ungemessen.**
-Wie lange der Balancer auf eine Antwort wartet, weiss niemand — überall im
-Baum steht dafür „eine Minute", und das ist `proxy_read_timeout`s
-NGINX-Vorgabe, nicht eine Messung. Von hier aus ist es nicht zu klären: Der
-Jelastic-Token kommt an die Balancer-Konfiguration nicht heran, und eine
-Messung von aussen braucht eine Maschine mit echtem Netzweg und Anmeldung.
-**Zu erledigen aus VS Code, in einer eigenen Sitzung** — Verfahren, Fallen
-und die Liste der Stellen, an denen der Wert danach nachzutragen ist, stehen
-in `docs/superpowers/specs/2026-08-25-asynchrone-auftraege-design.md` §12.
-Bis dahin gilt: **Wo „60 s" oder „eine Minute" steht, steht eine Annahme.**
+**Das Zeitbudget ist gemessen: der Balancer wartet 300 Sekunden.** Bis zum
+2026-08-28 stand überall im Baum „eine Minute" — `proxy_read_timeout`s
+NGINX-Vorgabe, keine Messung. Der echte Wert ist das **Fünffache**: Ein Lauf
+über 280'000 Zeichen bekam nach exakt 300.5 s einen sauberen `504`, Läufe
+von 63 bis 127 s gingen mehrfach durch. Gemessen über `/api/ext/v1` mit
+einem auf sechs Stunden befristeten Schlüssel (danach widerrufen) und
+synthetischen Dokumenten — ohne die Produktion umzukonfigurieren.
+
+Drei Dinge, die man daraus mitnehmen muss:
+
+1. **Der `504` ist eine Zeit-, keine Grössengrenze.** Derselbe Umfang lief
+   beim zweiten Versuch in 67 s durch. Was streut, ist die
+   Verarbeitungsdauer: dieselben 270'000 Zeichen brauchten 63 s, 124 s und
+   127 s — Faktor zwei, allein durch die Konkurrenz um die zwei
+   uvicorn-Worker.
+2. **Der Durchsatz ist viel niedriger als gedacht** — rund 2'100 bis 4'300
+   Zeichen/s statt der früher gerechneten 20'000/s. Die beiden Irrtümer
+   haben sich teilweise aufgehoben: Budget fünfmal grösser, Durchsatz rund
+   fünfmal kleiner. **Deshalb ist `SYNC_THRESHOLD_CHARS` unverändert bei
+   300'000** — anheben wäre eine eigene Entscheidung mit eigener
+   Lastmessung, nicht eine Folge dieser Messung.
+3. **Gemessen wurde mit einem einzelnen Aufrufer.** Zwei gleichzeitige
+   grosse Läufe teilen sich dieselben zwei Worker.
+
+Zahlen und Auslegung: `docs/superpowers/specs/2026-08-25-asynchrone-auftraege-design.md` §12.
 
 Der Grund für die Reihenfolge ist ein anderer: Die Byte-Prüfung ist die
 einzige, die auch bei einer **beschädigten** Datei greift. `extract_segments`

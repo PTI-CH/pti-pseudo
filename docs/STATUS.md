@@ -1,6 +1,6 @@
 # Stand des PTI-Pseudonymisierers
 
-**Stand: 2026-08-28 (nachmittags).** Dieses Dokument ist die Ist-Aufnahme: Was läuft, was
+**Stand: 2026-08-28 (spätnachmittags).** Dieses Dokument ist die Ist-Aufnahme: Was läuft, was
 ist gebaut aber ausgeschaltet, was ist bewusst zurückgestellt. Es ergänzt
 `CLAUDE.md` (Arbeitsanweisungen) und die Design-Specs unter
 `docs/superpowers/specs/` (das Warum hinter jeder Entscheidung).
@@ -66,10 +66,20 @@ Design und Begründungen: `docs/superpowers/specs/2026-08-28-pdf-ocr-design.md`.
 
 ## Offen — Messung und Entscheidung
 
-- **Das Zeitbudget des Balancers ist ungemessen.** Die Schwelle, ab der eine
-  Datei als Hintergrund-Auftrag läuft, hängt an der Annahme „60 Sekunden"
-  (NGINX-Vorgabe, nicht gemessen). Nachzumessen aus VS Code — Verfahren in
+- ~~Das Zeitbudget des Balancers ist ungemessen.~~ — **gemessen am
+  2026-08-28: 300 Sekunden**, nicht 60. Ein Lauf über 280'000 Zeichen bekam
+  nach exakt 300.5 s einen `504`; Läufe bis 127 s gingen durch. Gemessen
+  über `/api/ext/v1` mit einem befristeten Schlüssel (widerrufen) und
+  synthetischen Dokumenten, ohne die Produktion umzukonfigurieren.
+  Zahlen und Auslegung in
   `docs/superpowers/specs/2026-08-25-asynchrone-auftraege-design.md` §12.
+
+  **Daraus folgt eine offene Entscheidung:** `SYNC_THRESHOLD_CHARS` steht
+  weiterhin auf 300'000 und wurde bewusst nicht angehoben — die
+  Verarbeitungsdauer streut um Faktor zwei (dieselben 270'000 Zeichen in
+  63 s, 124 s und 127 s), und gemessen wurde mit einem einzelnen Aufrufer.
+  Wer die Schwelle anheben will, hat mit den 300 s jetzt die Grundlage;
+  das ist eine eigene Entscheidung mit eigener Lastmessung.
 - **KI-Zweitmeinung (Stufe D) bleibt ab Werk aus.** Gemessen zu teuer für das
   Infomaniak-Kontingent; zuschalten lohnt erst, wenn die Anfragezahl gesenkt
   oder das Kontingent angehoben ist. Rechtlich getragen (AVV, 2026-08-25).

@@ -11,12 +11,8 @@ und ein ``curl``-Upload liefert oft gar keinen Typ. Der Dateiname ist im Zweifel
 das verlässlichere Signal, deshalb wird er zuerst probiert, wenn die Eingabe wie
 ein Dateiname aussieht.
 
-Unterstützt werden DOCX, XLSX, PPTX, TXT und CSV. **PDF bleibt ausdrücklich
-offen** — ein PDF formaterhaltend zu verändern heisst, Glyphenpositionen und
-eingebettete Schriften neu zu setzen; das ist ein eigenes Teilprojekt und keine
-Variante des hier implementierten Segment-Modells. Ein PDF-Upload bekommt
-deshalb eine eigene, klare Fehlermeldung statt eines generischen „nicht
-unterstützt".
+Unterstützt werden DOCX, XLSX, PPTX, PDF (nur Textebene — gescannte Seiten
+scheitern laut statt still, siehe ``pdf_adapter``), TXT und CSV.
 """
 
 from __future__ import annotations
@@ -26,6 +22,7 @@ from typing import Dict, List, Tuple, Type
 
 from backend.adapters.base import DocumentAdapter, Replacement, Segment
 from backend.adapters.docx_adapter import DocxAdapter, DocxLocation
+from backend.adapters.pdf_adapter import PdfAdapter, PdfLocation
 from backend.adapters.pptx_adapter import PptxAdapter, PptxLocation
 from backend.adapters.text_adapter import CsvAdapter, TextAdapter
 from backend.adapters.xlsx_adapter import XlsxAdapter, XlsxLocation
@@ -40,6 +37,8 @@ __all__ = [
     "XlsxLocation",
     "PptxAdapter",
     "PptxLocation",
+    "PdfAdapter",
+    "PdfLocation",
     "TextAdapter",
     "CsvAdapter",
     "get_adapter",
@@ -62,6 +61,7 @@ _ADAPTERS: Tuple[Type[DocumentAdapter], ...] = (
     DocxAdapter,
     XlsxAdapter,
     PptxAdapter,
+    PdfAdapter,
     CsvAdapter,
     TextAdapter,
 )
@@ -78,11 +78,6 @@ _MIME_ALIASES: Dict[str, Type[DocumentAdapter]] = {
 
 #: Formate, die bewusst später kommen — mit Begründung für die Fehlermeldung.
 _PLANNED: Dict[str, str] = {
-    ".pdf": (
-        "PDF wird noch nicht unterstützt. Formaterhaltendes Ersetzen in PDF "
-        "erfordert ein eigenes Textlayout-Verfahren. Bitte das Dokument vorher "
-        "als DOCX oder TXT exportieren."
-    ),
     ".doc": (
         "Das alte Word-Format (.doc) wird nicht unterstützt. Bitte in Word "
         "einmal als .docx speichern."
@@ -99,7 +94,6 @@ _PLANNED: Dict[str, str] = {
 }
 
 _PLANNED_MIME: Dict[str, str] = {
-    "application/pdf": _PLANNED[".pdf"],
     "application/msword-doc": _PLANNED[".doc"],
     "application/vnd.ms-powerpoint": _PLANNED[".ppt"],
     "application/rtf": _PLANNED[".rtf"],
@@ -199,5 +193,5 @@ def get_adapter(content_type_or_filename: str) -> DocumentAdapter:
 
     raise UnsupportedFormatError(
         f"Nicht unterstütztes Format: {raw!r}. "
-        f"Unterstützt werden: {', '.join(supported_formats())}. PDF folgt später."
+        f"Unterstützt werden: {', '.join(supported_formats())}."
     )

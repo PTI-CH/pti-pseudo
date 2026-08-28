@@ -63,5 +63,15 @@ alembic==1.19.1
 python-docx==1.2.0
 lxml==6.1.1               # Fussnoten/Kommentare/Textboxen, die python-docx nicht exponiert
 
+# ── Dokument-Adapter (PDF/OCR) ─────────────────────────────────────────────
+# PyMuPDF fuer PDF-Textebene (Phase 6): Extraktion mit Boxen, Redaction,
+# Rasterung. AGPL-Lizenz — bei intern betriebener Installation ohne
+# Weitergabe ohne Weiteres unbedenklich, siehe Spec 2026-08-28-pdf-ocr-design.md.
+pymupdf==1.28.2
+# Nur die Python-Anbindung an das Systembinary `tesseract`. Das Binary selbst
+# und die Sprachdaten `deu` sind NICHT ueber pip installierbar und muessen auf
+# dem Knoten liegen — OCR ist deshalb ab Werk aus (Deploy-Entscheidung).
+pytesseract==0.3.13
+
 # ── Krypto (Vault) ─────────────────────────────────────────────────────────
 cryptography==48.0.1

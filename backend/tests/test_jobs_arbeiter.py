@@ -82,8 +82,12 @@ def test_der_arbeiter_benutzt_denselben_aufraeumlauf(session_factory, monkeypatc
     Zeilen und verlaesst sich darauf, dass ``gib_verwaiste_frei`` die
     haengengebliebenen vorher zurueckgesetzt hat.
 
-    Mitgeprueft ist der Takt: nicht in jedem Durchgang, sondern in jedem
-    150. — eine zusaetzliche Abfrage alle zwei Sekunden waere Verschwendung.
+    Mitgeprueft ist der Takt, und der haengt seit dem 2026-08-28 an der UHR
+    und nicht mehr an einer Durchgangszahl. Der Unterschied ist nicht
+    kosmetisch: Ein Durchgang wartet ``TAKT_SEKUNDEN`` nur, wenn er NICHTS
+    gefunden hat. Unter Last zaehlte die alte Fassung ihre 150 Durchgaenge in
+    der Zeit, die 150 Auftraege brauchen — sie raeumte also ausgerechnet dann
+    am haeufigsten auf, wenn die Datenbank ohnehin zu tun hat.
     """
     from backend.jobs import arbeiter as arbeiter_modul
     from backend.jobs import warteschlange
@@ -99,15 +103,24 @@ def test_der_arbeiter_benutzt_denselben_aufraeumlauf(session_factory, monkeypatc
     arbeiter = arbeiter_modul.Arbeiter(session_factory, lambda *a: None)
 
     assert arbeiter._ein_durchgang() is False, "die Warteschlange ist leer"
-    assert len(gerufen) == 1, "der allererste Durchgang raeumt auf"
+    assert gerufen == [], (
+        "der erste Durchgang raeumt NICHT auf — der Lifespan hat das beim "
+        "Prozessstart gerade getan"
+    )
 
-    for _ in range(arbeiter_modul.AUFRAEUMEN_JEDER - 2):
+    # Beliebig viele Durchgaenge, solange keine fuenf Minuten vergangen sind.
+    for _ in range(50):
         arbeiter._ein_durchgang()
-    assert len(gerufen) == 1, "und dazwischen keiner"
+    assert gerufen == [], "und innerhalb des Intervalls auch keiner"
+
+    # Die Uhr vorstellen, statt fuenf Minuten zu warten: Das Intervall selbst
+    # ist die Zusicherung, nicht die Faehigkeit dieses Tests, zu schlafen.
+    arbeiter._zuletzt_aufgeraeumt -= arbeiter_modul.AUFRAEUMEN_ALLE.total_seconds()
+    arbeiter._ein_durchgang()
+    assert len(gerufen) == 1, "nach dem Intervall genau einmal"
 
     arbeiter._ein_durchgang()
-    arbeiter._ein_durchgang()
-    assert len(gerufen) == 2, "erst der naechste 150er-Takt wieder"
+    assert len(gerufen) == 1, "und danach wieder eine Weile nicht"
 
 
 def test_lang_laufender_auftrag_gilt_nicht_als_verwaist(

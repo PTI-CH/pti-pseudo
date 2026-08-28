@@ -56,6 +56,20 @@ export default function Rueckfuehren() {
    * gesperrt. Der Hinweis sagt, WELCHE Datei da noch läuft.
    */
   const [wiederaufgenommen, setWiederaufgenommen] = useState<string | null>(null);
+  /**
+   * Stand eines im Hintergrund laufenden Auftrags — `null` ausserhalb dieses
+   * Wartezustands.
+   *
+   * Wie im Bereich „Pseudonymisieren" und aus demselben Grund: Eine grosse
+   * Datei läuft hier genauso als Auftrag (dieselbe Schwelle, siehe
+   * `api.rueckfuehrenDatei`), und ohne Zähler ist ein langer Lauf von einem
+   * hängenden nicht zu unterscheiden. Gezählt werden Abschnitte, nicht
+   * Seiten — siehe `backend/jobs/ausfuehrung.py`.
+   */
+  const [auftrag, setAuftrag] = useState<{
+    fortschritt: number | null;
+    gesamt: number | null;
+  } | null>(null);
 
   async function vaultsLaden_() {
     setVaultsLaden(true);
@@ -104,10 +118,14 @@ export default function Rueckfuehren() {
     setWiederaufgenommen(offen.dateiname);
     (async () => {
       try {
-        // Kein Fortschrittsempfänger: Dieses Panel zeigt keine Seitenzahl,
-        // und einer nur für die Wiederaufnahme wäre ein Anzeigeweg, den der
-        // normale Lauf daneben nicht hat.
-        const neu = await verfolgeAuftrag(offen.id, 'rueckfuehren', offen.dateiname, () => {});
+        const neu = await verfolgeAuftrag(
+          offen.id,
+          'rueckfuehren',
+          offen.dateiname,
+          (fortschritt, gesamt) => {
+            if (!abgebrochen) setAuftrag({ fortschritt, gesamt });
+          },
+        );
         if (abgebrochen) return;
         setErgebnis(neu);
         // Siehe oben: nur für einen nächsten Lauf, nicht für dieses Ergebnis.
@@ -123,6 +141,7 @@ export default function Rueckfuehren() {
         if (!abgebrochen) {
           setLaeuft(false);
           setWiederaufgenommen(null);
+          setAuftrag(null);
         }
       }
     })();
@@ -144,7 +163,9 @@ export default function Rueckfuehren() {
     try {
       const neu =
         quelle === 'datei' && datei
-          ? await rueckfuehrenDatei(datei, vaultId)
+          ? await rueckfuehrenDatei(datei, vaultId, undefined, (fortschritt, gesamt) =>
+              setAuftrag({ fortschritt, gesamt }),
+            )
           : await rueckfuehrenText(text, vaultId);
       // Eine alte Blob-URL (Dateiergebnis) lebt nur im Browser-Speicher — wird
       // sie hier durch ein neues Ergebnis ersetzt, muss sie freigegeben werden.
@@ -159,6 +180,9 @@ export default function Rueckfuehren() {
       setErgebnis(null);
     } finally {
       setLaeuft(false);
+      // Auch bei Erfolg und bei Fehler: Der Hinweis gehört zum Wartezustand
+      // und wäre daneben ein Überbleibsel.
+      setAuftrag(null);
     }
   }
 
@@ -274,10 +298,18 @@ export default function Rueckfuehren() {
         )}
       </section>
 
-      {wiederaufgenommen && (
+      {(wiederaufgenommen || auftrag) && (
         <Hinweis ton="info">
-          Ein Auftrag von vorhin läuft noch: <strong>{wiederaufgenommen}</strong>. Sie können
-          das Fenster offen lassen; das Ergebnis erscheint, sobald der Lauf fertig ist.
+          {wiederaufgenommen ? (
+            <>
+              Ein Auftrag von vorhin läuft noch: <strong>{wiederaufgenommen}</strong>
+            </>
+          ) : (
+            'Die Datei wird im Hintergrund zurückgeführt'
+          )}
+          {auftrag?.gesamt ? ` — Abschnitt ${auftrag.fortschritt} von ${auftrag.gesamt}` : ''}.
+          Sie können das Fenster offen lassen; das Ergebnis erscheint, sobald der Lauf fertig
+          ist.
         </Hinweis>
       )}
 

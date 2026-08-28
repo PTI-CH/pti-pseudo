@@ -199,13 +199,18 @@ export default function ApiSchluesselPanel() {
             >
               Bezeichnung *
             </label>
+            {/*
+              Der Platzhalter nennt bewusst KEINE andere PTI-Anwendung: Der
+              Pseudonymisierer ist ein eigenständiges Modul und hat keinen
+              gesetzten Abnehmer (siehe CLAUDE.md, „Nachbar-Repos“).
+            */}
             <input
               id="schluessel-bezeichnung"
               type="text"
               value={neueBezeichnung}
               onChange={(e) => setNeueBezeichnung(e.target.value)}
               maxLength={BEZEICHNUNG_MAX}
-              placeholder="z.B. Translator"
+              placeholder="z.B. Archivimport"
               className="w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
           </div>

@@ -1,9 +1,15 @@
 # Externe API des PTI-Pseudonymisierers
 
-Diese Datei richtet sich an Entwickler anderer PTI-Anwendungen (Translator,
-PPM, HIKA, …), die Texte und Dokumente über den Maschinenpfad des
-Pseudonymisierers verarbeiten wollen — dieselbe Funktionalität wie die
-Oberfläche, ohne Anmeldung am TIP-Hub.
+Diese Datei richtet sich an alle, die Texte und Dokumente über den
+Maschinenpfad des Pseudonymisierers verarbeiten wollen — dieselbe
+Funktionalität wie die Oberfläche, ohne Anmeldung am TIP-Hub.
+
+**Der Pseudonymisierer ist ein eigenständiges Werkzeug.** Diese Schnittstelle
+ist ein Angebot nach aussen, keine Verabredung mit einer bestimmten
+Anwendung: Es gibt keinen gesetzten Abnehmer, keine Anwendung, mit der das
+Werkzeug zusammenarbeiten *muss*, und nichts hier setzt voraus, dass die
+aufrufende Seite überhaupt zum PTI-Umfeld gehört. Wer einen gültigen
+Schlüssel hat, ruft auf; wer keinen hat, nicht.
 
 ## Zugang
 
@@ -263,9 +269,10 @@ JSON, weil eine Datei mitgeschickt wird. Die Antwort trägt das Ergebnis als
 Base64, nicht als Datei-Download — daneben steht in derselben Antwort auch der
 Befund.
 
-**Oberhalb von `SYNC_THRESHOLD_BYTES` (Default 2 MiB) liefert dieser Endpunkt
-`202` statt des Ergebnisses** — siehe „Grosse Dateien: asynchrone Aufträge"
-weiter unten.
+**Bei einer grossen oder textreichen Datei liefert dieser Endpunkt `202` statt
+des Ergebnisses** — massgeblich sind `SYNC_THRESHOLD_BYTES` (2 MiB) **und**
+`SYNC_THRESHOLD_CHARS` (300'000 Zeichen); siehe „Grosse Dateien: asynchrone
+Aufträge" weiter unten.
 
 ```bash
 curl -X POST https://pseudo.pti-tip-hub.ch/api/ext/v1/documents:anonymize-file \
@@ -358,12 +365,36 @@ curl -X POST https://pseudo.pti-tip-hub.ch/api/ext/v1/documents:reverse-file \
 
 ### Grosse Dateien: asynchrone Aufträge
 
-`documents:anonymize-file` und `documents:reverse-file` verarbeiten eine Datei
-oberhalb von `SYNC_THRESHOLD_BYTES` (Default 2 MiB — eine Server-Einstellung,
-nicht über die API abfragbar, nur an ihrer Wirkung erkennbar) nicht mehr im
-laufenden Request, sondern als Auftrag im Hintergrund. Ohne diesen Umweg liefe
-die Verarbeitung einer grossen Datei in den Gateway-Timeout, lange bevor sie
-fertig ist.
+`documents:anonymize-file` und `documents:reverse-file` verarbeiten eine grosse
+Datei nicht mehr im laufenden Request, sondern als Auftrag im Hintergrund.
+Ohne diesen Umweg liefe die Verarbeitung in den Gateway-Timeout, lange bevor
+sie fertig ist.
+
+**Zwei Schranken entscheiden das, seit dem 28.08.2026** (beides
+Server-Einstellungen, nicht über die API abfragbar, nur an ihrer Wirkung
+erkennbar):
+
+| Einstellung | Default | Geprüft |
+|---|---|---|
+| `SYNC_THRESHOLD_BYTES` | 2 MiB | an der Dateigrösse, ohne die Datei zu öffnen |
+| `SYNC_THRESHOLD_CHARS` | 300'000 | an der Textmenge, nach dem Adapterlauf |
+
+Überschreitet eine Datei **eine** davon, wird sie zum Auftrag.
+
+**Warum zwei.** Die Verarbeitungsdauer hängt am Text, nicht an der
+Dateigrösse — gemessen rund 20'000 Zeichen je Sekunde über alle Formate.
+Zwischen beidem liegt der Formatanteil, und der ist gewaltig: Dieselben
+64'107 Zeichen wiegen als `.txt` 64 KiB, als `.docx` 39 KiB und als `.xlsx`
+8 KiB. Eine Byte-Schranke allein liess dadurch genau die teuren Dateien
+durch: Eine dichte Arbeitsmappe von 2 MiB trug über 17 Millionen Zeichen und
+war rund 15 Minuten unterwegs.
+
+**Was das für einen Aufrufer bedeutet.** Eine kleine, aber textreiche Datei
+kann jetzt `202` bekommen, wo sie vorher `200` bekam — die Dateigrösse allein
+sagt nicht mehr voraus, welche der beiden Antworten kommt. Wer `:anonymize-file`
+oder `:reverse-file` aufruft, muss **beide** Antwortformen behandeln, und zwar
+unabhängig davon, wie gross die Datei ist. Das war schon vorher so; seit dem
+28.08.2026 trifft es nur mehr Dateien.
 
 **Betroffen sind ausschliesslich diese beiden Dateirouten.** Die drei
 Textrouten (`:detect`, `:anonymize`, `:reverse`) bleiben in jedem Fall
@@ -423,24 +454,44 @@ Auszüge:
   "status": "laeuft",
   "mode": "anonymize",
   "dateiname": "protokoll.docx",
-  "fortschritt": null,
-  "gesamt": null,
+  "fortschritt": 42,
+  "gesamt": 130,
   "fehler": null,
   "erstellt": "2026-08-25T09:00:00+00:00",
   "laeuft_ab": "2026-08-26T09:00:00+00:00"
 }
 ```
 
-`status` durchläuft `wartend` → `laeuft` → `fertig` oder `fehler`. Die
-Felder `fortschritt` und `gesamt` existieren, sind aber **für jedes heute
-unterstützte Format immer `null`**: Der Rückruf, der sie befüllen würde, wird
-von keinem der aktuellen Format-Adapter aufgerufen — es gibt heute nichts, an
-dem sich Fortschritt zählen liesse. PDF, wo eine Seite eine natürliche
-Einheit wäre, ist noch kein unterstütztes Format und liefert stattdessen
-`415` (siehe „Fehlerformat" oben). Vorgesehen sind die Felder für einen
-künftigen Zyklus mit Seitenzahl (OCR); bis dahin bedeutet ein Auftrag ohne
-diese Felder nicht „läuft nicht", nur „kein Fortschritt in Einheiten
-verfügbar".
+`status` durchläuft `wartend` → `laeuft` → `fertig` oder `fehler`.
+
+`fortschritt` und `gesamt` zählen **Segmente**, seit dem 28.08.2026. Ein
+Segment ist die Einheit, die der Format-Adapter liefert — ein Absatz im
+DOCX, eine Zeile im XLSX, ein Textrahmen im PPTX — und die Einheit, an der
+die Arbeit hängt: je Segment ein Lauf des Sprachmodells.
+
+Drei Dinge, auf die sich ein Aufrufer verlassen darf, und zwei, auf die
+nicht:
+
+* Der Zähler ist **monoton** und erreicht am Ende `gesamt`. Auch ein leeres
+  Segment wird mitgezählt — sonst bliebe er in einem Dokument mit vielen
+  Leerabsätzen ohne Grund stehen.
+* Er wird **höchstens alle zwei Sekunden** neu geschrieben; der letzte Stand
+  geht immer durch. Öfter zu fragen bringt nichts.
+* Während `wartend` sind beide `null` — es ist noch nichts gezählt.
+* **`fortschritt == gesamt` heisst nicht „gleich fertig".** Gezählt wird nur
+  der Erkennungsdurchlauf. Was danach kommt (KI-Schicht, Übertragung
+  gleichlautender Stellen, formaterhaltendes Zurückschreiben) läuft nicht je
+  Segment und wird nicht gezählt. Der Zähler steht also eine Weile auf
+  `gesamt`, bevor `status` auf `fertig` springt. Wer den Abschluss braucht,
+  fragt `status` — nie den Zähler.
+* **Segmente sind zwischen Formaten und Dokumenten nicht vergleichbar.** Ein
+  DOCX-Absatz ist keine XLSX-Zeile; 500 Segmente sagen für sich genommen
+  nichts über die Dauer. Vergleichbar ist ein Lauf nur mit sich selbst.
+
+Eine Seitenzahl gibt es weiterhin nicht, und sie wird auch für DOCX und XLSX
+nie kommen: Seiten entstehen dort erst beim Setzen und stehen gar nicht in
+der Datei. Bis zum 28.08.2026 warteten die beiden Felder auf genau diese
+Zahl und standen deshalb für jedes Format dauerhaft auf `null`.
 
 `laeuft_ab` ist **ab der Anlage** gesetzt, nicht erst am Ende: 24 Stunden ab
 jetzt, beim Übergang auf `fertig` oder `fehler` neu auf 24 Stunden ab dann

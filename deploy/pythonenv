@@ -53,7 +53,12 @@ WORKERS="2"
 # enthalten, als im Panel gepflegt ist.
 export ENV DATABASE_URL VAULT_MASTER_KEY RELAY_SECRET
 export CRM_BASE_URL HUB_BASE_URL HUB_APP_KEY PUBLIC_BASE_URL
-export SPACY_MODEL LLM_PROVIDER MAX_UPLOAD_BYTES SYNC_THRESHOLD_BYTES
+export SPACY_MODEL LLM_PROVIDER MAX_UPLOAD_BYTES
+# Beide Auftragsschwellen, und beide muessen hier stehen: Seit dem
+# 2026-08-28 entscheidet die Zeichenzahl mit (siehe CLAUDE.md, Abschnitt
+# "Asynchrone Auftraege"). Faehrt nur die eine mit, laesst sich die andere
+# im Panel setzen, ohne dass sie je wirkt.
+export SYNC_THRESHOLD_BYTES SYNC_THRESHOLD_CHARS
 export HUB_AUTH DEV_ROLE PSEUDONYM_TEMPLATE
 # Phase 3. Steht schon hier, damit die Werte wirken, sobald sie im Panel
 # gesetzt werden — `LLM_PROVIDER` allein nuetzt nichts, wenn Schluessel und

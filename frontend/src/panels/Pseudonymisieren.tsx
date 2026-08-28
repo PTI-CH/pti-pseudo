@@ -540,7 +540,15 @@ export default function Pseudonymisieren() {
           ) : (
             'Die Datei wird im Hintergrund verarbeitet'
           )}
-          {auftrag.gesamt ? ` — Seite ${auftrag.fortschritt} von ${auftrag.gesamt}` : ''}.
+          {/*
+            „Abschnitt" und nicht „Seite": Gezählt werden Segmente des
+            Adapters (Absatz, Zelle, Folientext) — Seiten gibt es in einer
+            docx- oder xlsx-Datei gar nicht, die entstehen erst beim Setzen.
+            Der Zähler steht am Ende eine Weile auf `gesamt`, während die
+            Nacharbeit läuft; deshalb bleibt der Satz davor stehen und sagt
+            weiterhin, dass verarbeitet wird.
+          */}
+          {auftrag.gesamt ? ` — Abschnitt ${auftrag.fortschritt} von ${auftrag.gesamt}` : ''}.
           Sie können das Fenster offen lassen; die Fundliste erscheint, sobald der Lauf fertig
           ist.
         </Hinweis>

@@ -16,7 +16,8 @@ from __future__ import annotations
 
 import logging
 import threading
-from datetime import datetime, timezone
+import time
+from datetime import datetime, timedelta, timezone
 from typing import Callable
 
 from backend.adapters import UnsupportedFormatError
@@ -29,9 +30,32 @@ logger = logging.getLogger("pti.jobs.arbeiter")
 #: Abstand zwischen zwei Blicken in die Warteschlange.
 TAKT_SEKUNDEN = 2.0
 
-#: Nur jeder n-te Durchgang raeumt auf. Abgelaufene Auftraege haben es nicht
+#: Abstand zwischen zwei Aufraeumlaeufen. Abgelaufene Auftraege haben es nicht
 #: eilig, und eine zusaetzliche Abfrage alle zwei Sekunden waere Verschwendung.
-AUFRAEUMEN_JEDER = 150  # rund alle fuenf Minuten
+#:
+#: **Eine Zeitspanne und keine Durchgangszahl**, seit dem 2026-08-28. Vorher
+#: raeumte jeder 150. Durchgang auf, mit „rund alle fuenf Minuten" daneben --
+#: was nur im Leerlauf stimmte. Ein Durchgang wartet naemlich
+#: :data:`TAKT_SEKUNDEN` **nur, wenn er nichts gefunden hat** (siehe
+#: ``_schleife``): Wer eine volle Warteschlange abarbeitet, zaehlt 150
+#: Durchgaenge in der Zeit, die 150 Auftraege brauchen -- und raeumt damit
+#: ausgerechnet unter Last am oeftesten auf, wo die Abfrage am teuersten ist
+#: und der Nutzen am kleinsten. Die Uhr entkoppelt den Aufraeumtakt von der
+#: Last: fuenf Minuten sind fuenf Minuten, ob Auftraege laufen oder nicht.
+AUFRAEUMEN_ALLE = timedelta(minutes=5)
+
+#: Mindestabstand zwischen zwei geschriebenen Fortschrittsmeldungen.
+#:
+#: Der Rueckruf aus der Pipeline kommt je Segment -- bei einer grossen Tabelle
+#: zehntausendfach, und jede Meldung waere sonst ein eigenes ``UPDATE`` samt
+#: ``COMMIT``. Gedrosselt wird HIER und nicht in der Pipeline: Wer den
+#: Rueckruf billig beantwortet, soll ihn vollstaendig bekommen; teuer ist er
+#: nur fuer uns.
+#:
+#: Zwei Sekunden, weil die Oberflaeche in genau diesem Takt nachfragt
+#: (``AUFTRAG_TAKT_MS`` in ``frontend/src/core/api.ts``) -- oefter zu
+#: schreiben, als jemand liest, brauchte niemand.
+FORTSCHRITT_TAKT_SEKUNDEN = 2.0
 
 #: Abstand zwischen zwei Herzschlaegen waehrend eine Verarbeitung laeuft.
 #:
@@ -96,18 +120,34 @@ class Arbeiter:
         self._ausfuehren = ausfuehren
         self._stopp = threading.Event()
         self._faden: threading.Thread | None = None
-        self._durchgaenge = 0
+        #: Wann zuletzt aufgeraeumt wurde, auf der **monotonen** Uhr: Eine
+        #: Zeitumstellung oder ein NTP-Sprung darf den Aufraeumtakt nicht
+        #: aussetzen lassen oder verdoppeln.
+        #:
+        #: Startwert „jetzt" und nicht „nie", damit der erste Durchgang NICHT
+        #: aufraeumt: Der Lifespan hat das beim Prozessstart gerade getan
+        #: (``backend/main.py``, vor und unabhaengig vom Arbeiterstart) --
+        #: derselbe Lauf zwei Sekunden spaeter noch einmal findet
+        #: zuverlaessig nichts.
+        self._zuletzt_aufgeraeumt = time.monotonic()
 
     def _herzschlag_starten(self, job_id) -> Callable[[], None]:
         """Startet einen Faden, der ``updated_at`` periodisch auffrischt.
 
-        Noetig, weil die eigentliche Verarbeitung ein einziger blockierender
-        Aufruf ist (``self._ausfuehren``), aus dem heute kein Format
-        zwischendurch zurueckkehrt (``melde_fortschritt`` bleibt fuer jedes
-        Format ungerufen -- siehe ``API.md``). Ohne einen nebenlaeufigen Takt
-        gaebe es also keine Gelegenheit, ``updated_at`` waehrend eines langen
-        Laufs aufzufrischen, und :func:`warteschlange.gib_verwaiste_frei`
-        erklaerte jeden Auftrag ueber zehn Minuten faelschlich fuer verwaist.
+        Ohne einen nebenlaeufigen Takt gaebe es waehrend eines langen Laufs
+        keine Gelegenheit, ``updated_at`` aufzufrischen, und
+        :func:`warteschlange.gib_verwaiste_frei` erklaerte jeden Auftrag ueber
+        zehn Minuten faelschlich fuer verwaist -- ein zweiter Worker finge
+        dasselbe Dokument dann von vorn an, gegen denselben Tresor.
+
+        **Seit der Segmentzaehlung (2026-08-28) ist er nicht ueberfluessig
+        geworden**, obwohl ``melde_fortschritt`` jetzt tatsaechlich gerufen
+        wird und dabei ebenfalls ``updated_at`` schreibt. Der Rueckruf deckt
+        naemlich nur den Segmentdurchlauf ab. Stumm bleiben: die KI-Schicht,
+        die Uebertragung, das Zurueckschreiben und das Metadaten-Streichen --
+        zusammen der ganze Rest des Laufs, und bei einem grossen Dokument
+        durchaus mehr als zehn Minuten. Ein Auftrag darf nicht deshalb als
+        verwaist gelten, weil er die Zaehlphase hinter sich hat.
 
         Eigene Sitzung je Takt (``self._session_factory()``), nicht die des
         aufrufenden Durchgangs: Diese laeuft in einem anderen Faden waehrend
@@ -150,9 +190,12 @@ class Arbeiter:
         Die Schleife ist absichtlich NICHT Teil davon: Ein Test, der einen
         Faden startet und auf ihn wartet, wird irgendwann grundlos rot.
         """
-        self._durchgaenge += 1
         with self._session_factory() as session:
-            if self._durchgaenge % AUFRAEUMEN_JEDER == 1:
+            if (
+                time.monotonic() - self._zuletzt_aufgeraeumt
+                >= AUFRAEUMEN_ALLE.total_seconds()
+            ):
+                self._zuletzt_aufgeraeumt = time.monotonic()
                 # Dieselbe Funktion, die der Lifespan beim Prozessstart ruft
                 # (``backend/main.py``) — bewusst keine zweite Fassung
                 # derselben zwei Schritte hier: Die Reihenfolge ist tragend
@@ -160,6 +203,10 @@ class Arbeiter:
                 # darauf, dass ``gib_verwaiste_frei`` die haengengebliebenen
                 # vorher zurueckgesetzt hat), und eine Kopie liefe genau
                 # daran irgendwann auseinander.
+                #
+                # Die Uhr wird VOR dem Lauf gestellt, nicht danach: Wirft er,
+                # faengt ihn ``_schleife``, und der naechste Versuch soll in
+                # fuenf Minuten kommen und nicht im Zwei-Sekunden-Takt.
                 warteschlange.aufraeumlauf(session)
 
             job = warteschlange.hole_naechsten(session)
@@ -167,7 +214,29 @@ class Arbeiter:
                 return False
             session.commit()
 
+            zuletzt_gemeldet = 0.0
+
             def melde_fortschritt(erledigt: int, gesamt: int) -> None:
+                """Schreibt den Fortschritt — gedrosselt, aber nie den letzten.
+
+                Der Rueckruf kommt je Segment (``pipeline.detect_in_segments``);
+                jede Meldung zu schreiben hiesse, eine grosse Tabelle mit
+                zehntausend ``UPDATE … COMMIT`` zu begleiten, waehrend die
+                Oberflaeche ohnehin nur alle zwei Sekunden nachfragt.
+
+                ``erledigt >= gesamt`` geht immer durch: Sonst endete der
+                Zaehler auf einem beliebigen Zwischenstand, und in der
+                Oberflaeche stuende bis zum Statuswechsel „Abschnitt 9'860 von
+                10'000" — als haenge der Lauf kurz vor dem Ziel.
+                """
+                nonlocal zuletzt_gemeldet
+                jetzt = time.monotonic()
+                if (
+                    erledigt < gesamt
+                    and jetzt - zuletzt_gemeldet < FORTSCHRITT_TAKT_SEKUNDEN
+                ):
+                    return
+                zuletzt_gemeldet = jetzt
                 job.fortschritt = erledigt
                 job.gesamt = gesamt
                 job.updated_at = datetime.now(timezone.utc)

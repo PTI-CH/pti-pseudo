@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
-"""Einmaliger Import der Begriffsliste aus den Schwestersystemen.
+"""Einmaliger Import der Begriffsliste aus einer vorbereiteten Datei.
 
-Speist Projekt-, Produkt- und Organisationsnamen aus dem CRM/PPM und dem
-Translator-Glossar in die Begriffsliste (Tabelle ``custom_terms``) ein. Die
+Speist Projekt-, Produkt- und Organisationsnamen aus einer JSON-Datei in die
+Begriffsliste (Tabelle ``custom_terms``) ein — woher diese Datei stammt, ist
+dem Skript gleich und ausdruecklich nicht vorgegeben (siehe CLAUDE.md,
+„Nachbar-Repos"). Die
 Begriffsliste ist Ebene 0 der Erkennung (siehe ``backend/routers/terms.py``):
 was dort steht, wird mit voller Konfidenz ersetzt und schlägt jede Heuristik
 — darum die vergleichsweise strenge Validierung hier.
@@ -420,8 +422,8 @@ def baue_parser() -> argparse.ArgumentParser:
     """Baut den Argumentparser des Skripts."""
     parser = argparse.ArgumentParser(
         description=(
-            "Importiert Projekt-, Produkt- und Organisationsnamen aus dem "
-            "CRM/PPM und dem Translator-Glossar in die Begriffsliste."
+            "Importiert Projekt-, Produkt- und Organisationsnamen aus einer "
+            "vorbereiteten JSON-Datei in die Begriffsliste."
         )
     )
     parser.add_argument(

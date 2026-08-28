@@ -30,7 +30,7 @@ from __future__ import annotations
 import logging
 import re
 from dataclasses import dataclass, field
-from typing import Iterable, Optional, Sequence
+from typing import Callable, Iterable, Optional, Sequence
 
 from presidio_analyzer import RecognizerResult
 from sqlalchemy.orm import Session
@@ -134,6 +134,14 @@ class DetectionResult:
         return counts
 
 
+#: Rueckruf ``(erledigt, gesamt) -> None`` fuer den Fortschritt eines Laufs.
+#:
+#: Ausschliesslich Zaehlwerte, nie ein Text: Was hier durchgeht, landet ueber
+#: ``job.fortschritt``/``job.gesamt`` in einer unverschluesselten Spalte und
+#: geht ueber ``GET /jobs/{id}`` auch an die externe API.
+Fortschrittsmelder = Callable[[int, int], None]
+
+
 def detect_in_segments(
     segments: Sequence[Segment],
     *,
@@ -142,6 +150,7 @@ def detect_in_segments(
     propagate: bool = True,
     ki_pruefung: bool = False,
     ki=None,
+    melde_fortschritt: Optional[Fortschrittsmelder] = None,
 ) -> DetectionResult:
     """Laesst die Engine ueber alle Segmente laufen.
 
@@ -174,6 +183,23 @@ def detect_in_segments(
     **aus**: Wer nicht ausdruecklich fragt, schickt keinen Text hinaus.
     ``ki`` ist der Einstiegspunkt fuer Tests; ohne ihn entsteht bei Bedarf ein
     :class:`~backend.ki.infomaniak.InfomaniakKi`.
+
+    ``melde_fortschritt`` bekommt nach jedem Segment ``(erledigt, gesamt)``.
+    **Gezaehlt wird der Segmentdurchlauf und nur er** — nicht der ganze Lauf.
+    Das ist Absicht und keine Nachlaessigkeit: Der Durchlauf ist der Teil, der
+    mit der Dokumentgroesse waechst (je Segment ein spaCy-Lauf), und er ist der
+    einzige, der ueberhaupt eine natuerliche Einheit hat. Was danach kommt --
+    KI-Schicht, Uebertragung, Zurueckschreiben -- laeuft nicht je Segment und
+    liesse sich nur mit einem erfundenen Nenner in denselben Balken pressen.
+    Der Zaehler steht deshalb eine Weile auf ``gesamt``, bevor der Auftrag auf
+    ``fertig`` springt; die Oberflaeche sagt in dieser Zeit weiterhin „wird
+    verarbeitet". Ein Balken, der bei 60 % stehen bleibt, weil jemand den
+    Nenner geschaetzt hat, waere die schlechtere Luege.
+
+    Der Rueckruf wird ungedrosselt gerufen -- einmal je Segment, bei einer
+    grossen Tabelle also tausendfach. Wer ihn teuer beantwortet (der Arbeiter
+    schreibt in die Datenbank), drosselt selbst; hier zu drosseln hiesse, jedem
+    Aufrufer denselben Takt aufzuzwingen.
     """
     result = DetectionResult(segments=list(segments))
 
@@ -182,7 +208,14 @@ def detect_in_segments(
         if not entities:
             return result
 
-    for segment in segments:
+    gesamt = len(segments)
+    for nummer, segment in enumerate(segments, start=1):
+        # Der Fortschritt wird auch fuer ein leeres Segment gemeldet, und zwar
+        # VOR dem `continue`: Sonst bliebe der Zaehler in einem Dokument mit
+        # vielen Leerabsaetzen stehen, obwohl der Lauf vorankommt -- und im
+        # Extremfall (alle restlichen Segmente leer) erreichte er nie `gesamt`.
+        if melde_fortschritt is not None:
+            melde_fortschritt(nummer, gesamt)
         if not segment.text.strip():
             continue
         for r in engine.analyze(
@@ -884,12 +917,17 @@ def anonymize_document(
     selected: Optional[Sequence[dict]] = None,
     strip_metadata: bool = True,
     ki_pruefung: bool = False,
+    melde_fortschritt: Optional[Fortschrittsmelder] = None,
 ) -> tuple[bytes, DetectionResult, list[Finding]]:
     """Pseudonymisiert ein Dokument formaterhaltend.
 
     ``strip_metadata`` ist standardmaessig an: Autor und Firma in den
     Dokumenteigenschaften sind Personendaten wie jede andere auch, stehen aber
     ausserhalb des Fliesstextes und wuerden von der Erkennung nie erfasst.
+
+    ``melde_fortschritt`` reicht bis in den Segmentdurchlauf durch (siehe
+    :func:`detect_in_segments`) — im synchronen Pfad ungenutzt, im
+    Auftragspfad die Quelle von ``job.fortschritt``.
     """
     adapter: DocumentAdapter = get_adapter(filename)
     segments = adapter.extract_segments(data)
@@ -898,6 +936,7 @@ def anonymize_document(
         entities=entities,
         custom_terms=custom_terms,
         ki_pruefung=ki_pruefung,
+        melde_fortschritt=melde_fortschritt,
     )
     applied = _select(detection.findings, selected, entities=entities)
     per_segment, _ = build_replacements(session, vault, applied, custom_terms)
@@ -914,19 +953,33 @@ def reverse_text(session: Session, vault: Vault, text: str) -> str:
 
 
 def reverse_document(
-    session: Session, vault: Vault, data: bytes, filename: str
+    session: Session,
+    vault: Vault,
+    data: bytes,
+    filename: str,
+    *,
+    melde_fortschritt: Optional[Fortschrittsmelder] = None,
 ) -> bytes:
     """Fuehrt ein pseudonymisiertes Dokument formaterhaltend zurueck.
 
     Gegenstueck zu :func:`anonymize_document`: statt Entitaeten zu suchen,
     werden die Pseudonyme im Text durch die entschluesselten Originale ersetzt.
     Die Ersetzung selbst macht der Vault-Dienst in einem einzigen Durchlauf.
+
+    ``melde_fortschritt`` zaehlt hier dieselbe Einheit wie beim
+    Pseudonymisieren — das Segment —, damit die Oberflaeche fuer beide
+    Auftragsarten denselben Satz anzeigen kann. Der Durchlauf ist hier
+    deutlich billiger (kein NER, nur ein Nachschlagen je Segment); die
+    Meldung kostet trotzdem nichts, weil der Aufrufer drosselt.
     """
     adapter: DocumentAdapter = get_adapter(filename)
     segments = adapter.extract_segments(data)
 
     per_segment: dict[str, list[Replacement]] = {}
-    for segment in segments:
+    gesamt = len(segments)
+    for nummer, segment in enumerate(segments, start=1):
+        if melde_fortschritt is not None:
+            melde_fortschritt(nummer, gesamt)
         restored = vault_service.reverse(session, vault, segment.text)
         if restored != segment.text:
             # Das ganze Segment auf einmal ersetzen. Feiner geht es nicht, weil

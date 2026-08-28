@@ -28,7 +28,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from backend import pipeline
-from backend.adapters import UnsupportedFormatError, supported_formats
+from backend.adapters import UnsupportedFormatError, get_adapter, supported_formats
 from backend.config import get_settings
 from backend.core.deps import current_actor, current_username, get_session, get_tenant
 from backend.core.kennungen import als_uuid
@@ -172,6 +172,57 @@ def _check_size(data: bytes) -> None:
                 f"Datei ist grösser als das Limit von {limit // (1024 * 1024)} MiB."
             ),
         )
+
+
+def _laeuft_als_auftrag(data: bytes, dateiname: str) -> bool:
+    """Ob diese Datei als Auftrag laufen muss statt im offenen Request.
+
+    **Zwei Schranken, und ihre Reihenfolge ist tragend.**
+
+    1. **Bytes** (:attr:`Settings.sync_threshold_bytes`), ohne die Datei zu
+       oeffnen. Grob, aber unverzichtbar: Eine sehr grosse Datei soll gar
+       nicht erst durch den Adapter, und fuer eine beschaedigte Datei ist
+       das die einzige Schranke, die ueberhaupt greift -- ``extract_segments``
+       wuerde daran werfen, und der Auftragspfad ist genau der Ort, an dem
+       ein solcher Fehler sauber als gescheiterter Auftrag endet statt als
+       500 mitten in einer Anfrage.
+    2. **Zeichen** (:attr:`Settings.sync_threshold_chars`), nach dem
+       Adapterlauf. Die scharfe Schranke.
+
+    **Warum es die zweite ueberhaupt braucht.** Am 2026-08-28 gemessen
+    (``scripts/schwelle_messen.py``): Die Dauer ist linear im TEXT, rund
+    20'000 Zeichen je Sekunde ueber alle Formate. Die Dateigroesse sagt
+    darueber fast nichts -- dieselben 64'107 Zeichen wiegen als txt 64 KiB,
+    als docx 39 KiB und als xlsx 8 KiB. Mit der Byte-Schranke allein war
+    eine dichte Arbeitsmappe von 2 MiB rund 15 Minuten unterwegs -- weit
+    jenseits dessen, was der Balancer offen haelt: Die Schwelle schuetzte
+    nicht, wovor sie schuetzen sollte.
+
+    **Der genaue Wert von ``sync_threshold_chars`` haengt an einer
+    Annahme.** Er ist aus einem Zeitbudget von 60 Sekunden abgeleitet, und
+    diese 60 Sekunden sind ``proxy_read_timeout``s NGINX-Vorgabe und keine
+    Messung -- niemand hat nachgesehen, wie lange der Balancer wirklich
+    wartet (Verfahren dafuer: Design-Spec zu den asynchronen Auftraegen,
+    §12). Die Grundaussage haengt nicht daran: 15 Minuten sind unter jeder
+    denkbaren Zeitgrenze zu lang.
+
+    **Der Preis ist gemessen und klein.** Der Adapterlauf kostet 0.0 bis
+    4.9 % der Gesamtdauer, mit fallendem Anteil bei groesseren Dokumenten --
+    genau bei den Dateien, bei denen die Entscheidung zaehlt, ist das
+    Oeffnen fast gratis. Im synchronen Zweig laeuft er dadurch zweimal
+    (hier und in der Pipeline); ihn durchzureichen haette die Signatur von
+    ``anonymize_document`` fuer wenige Prozent verbogen.
+
+    ``UnsupportedFormatError`` wird **nicht** gefangen: Der Aufrufer
+    uebersetzt sie in dieselbe 415 wie bisher, unabhaengig von der
+    Dateigroesse.
+    """
+    einstellungen = get_settings()
+    if len(data) > einstellungen.sync_threshold_bytes:
+        return True
+    adapter = get_adapter(dateiname)
+    zeichen = sum(len(s.text) for s in adapter.extract_segments(data))
+    return zeichen > einstellungen.sync_threshold_chars
 
 
 def _check_text_size(text: str) -> None:
@@ -348,15 +399,28 @@ async def anonymize_file(
     parsed_entities = parse_entities(entities)
     parsed_selected = parse_selected(selected_entities)
 
-    # Oberhalb der Schwelle wird daraus ein Auftrag. Der Grund steht in
-    # `sync_threshold_bytes`: Ein grosses Dokument sprengt den Request, bevor
-    # der Balancer ihn zu Ende laufen laesst.
+    # Oberhalb der Schwelle wird daraus ein Auftrag: Ein grosses Dokument
+    # sprengt den Request, bevor der Balancer ihn zu Ende laufen laesst.
+    # Welche zwei Schranken das entscheiden und warum es zwei sind, steht in
+    # `_laeuft_als_auftrag`.
     #
     # Die TEXTrouten bleiben davon unberuehrt — sie sind durch `max_text_chars`
     # begrenzt und laufen in Sekundenbruchteilen. Sie einzubeziehen gaebe der
     # haeufigsten Nutzung ohne Not einen Umweg.
-    einstellungen = get_settings()
-    if len(data) > einstellungen.sync_threshold_bytes:
+    #
+    # Die Formatabsage kommt hier schon aus der Entscheidung selbst (sie
+    # oeffnet die Datei) und nicht erst aus `lege_an` bzw. der Pipeline —
+    # dieselbe 415, nur frueher. Der `except`-Zweig unten deckt beide Wege
+    # ab, weil er den ganzen Block umschliesst.
+    try:
+        als_auftrag = _laeuft_als_auftrag(data, file.filename or "unbenannt.txt")
+    except UnsupportedFormatError as exc:
+        raise HTTPException(
+            415,
+            detail=f"{exc} Unterstützt werden: {', '.join(supported_formats())}.",
+        ) from exc
+
+    if als_auftrag:
         from backend.jobs import warteschlange
 
         try:
@@ -498,10 +562,16 @@ async def reverse_file(
     data = await file.read()
     _check_size(data)
 
-    # Dieselbe Schwelle wie bei `anonymize_file` — eine grosse Rueckfuehrung
-    # ist genauso lang unterwegs wie eine grosse Pseudonymisierung.
-    einstellungen = get_settings()
-    if len(data) > einstellungen.sync_threshold_bytes:
+    # Dieselbe Entscheidung wie bei `anonymize_file` — eine grosse
+    # Rueckfuehrung ist genauso lang unterwegs wie eine grosse
+    # Pseudonymisierung. Begruendung der zwei Schranken: `_laeuft_als_auftrag`.
+    try:
+        als_auftrag = _laeuft_als_auftrag(data, file.filename or "unbenannt.txt")
+    except UnsupportedFormatError as exc:
+        # Wie bei anonymize_file — siehe dort.
+        raise HTTPException(415, detail=str(exc)) from exc
+
+    if als_auftrag:
         from backend.jobs import warteschlange
 
         try:

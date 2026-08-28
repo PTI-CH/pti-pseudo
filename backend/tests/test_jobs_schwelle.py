@@ -418,3 +418,112 @@ def test_dieselbe_absage_unabhaengig_von_der_dateigroesse(client, monkeypatch):
     finally:
         monkeypatch.delenv("SYNC_THRESHOLD_BYTES", raising=False)
         get_settings.cache_clear()
+
+
+def test_textreiche_datei_unter_der_bytegrenze_wird_ein_auftrag(client, monkeypatch):
+    """Der Kern der zweiten Schranke: viel Text in wenigen Bytes.
+
+    Genau dieser Fall lief bis zum 2026-08-28 synchron und in den
+    Gateway-Timeout. Gemessen (``scripts/schwelle_messen.py``): Dieselben
+    64'107 Zeichen wiegen als txt 64 KiB, als docx 39 KiB und als xlsx
+    8 KiB -- Faktor acht. Eine Arbeitsmappe von 2 MiB trug bei dieser Dichte
+    ueber 17 Millionen Zeichen und war rund 15 Minuten unterwegs -- weit
+    jenseits dessen, was der Balancer offen haelt.
+
+    Die Datei hier bleibt bewusst weit UNTER ``SYNC_THRESHOLD_BYTES`` und
+    ueberschreitet nur ``SYNC_THRESHOLD_CHARS``. Faellt die Zeichenpruefung
+    aus dem Router heraus, wird dieser Test rot -- die Byte-Pruefung allein
+    liesse die Datei durch.
+    """
+    from backend.config import get_settings
+    from backend.jobs import warteschlange
+
+    monkeypatch.setenv("SYNC_THRESHOLD_CHARS", "200")
+    get_settings.cache_clear()
+    monkeypatch.setattr(
+        warteschlange, "hintergrundverarbeitung_moeglich", lambda *_: True
+    )
+    try:
+        inhalt = ("Frau Sandra Zbinden war da. " * 40).encode("utf-8")
+        assert len(inhalt) < get_settings().sync_threshold_bytes, (
+            "die Datei muss unter der BYTE-Grenze bleiben, sonst prueft dieser "
+            "Test die alte Schranke"
+        )
+        antwort = client.post(
+            "/api/v1/documents:anonymize-file",
+            files={"file": ("notiz.txt", inhalt, "text/plain")},
+            data={"mode": "anonymous"},
+        )
+        assert antwort.status_code == 202, antwort.text
+        assert antwort.json()["job_id"]
+    finally:
+        monkeypatch.delenv("SYNC_THRESHOLD_CHARS", raising=False)
+        get_settings.cache_clear()
+
+
+def test_bytearme_datei_mit_wenig_text_bleibt_synchron(client, monkeypatch):
+    """Die Gegenprobe — sonst waere die Schranke nur eine teurere Absage.
+
+    Eine Datei, die knapp unter beiden Schranken liegt, muss weiterhin
+    synchron laufen. Ohne diesen Test koennte die Zeichenpruefung
+    versehentlich mit ``>=`` statt ``>`` oder auf der Bytezahl statt auf der
+    Zeichenzahl arbeiten, und die haeufigste Nutzung -- ein normales,
+    kleines Dokument -- bekaeme ohne Not den Auftragsumweg.
+    """
+    from backend.config import get_settings
+
+    monkeypatch.setenv("SYNC_THRESHOLD_CHARS", "200")
+    get_settings.cache_clear()
+    try:
+        antwort = client.post(
+            "/api/v1/documents:anonymize-file",
+            files={"file": ("notiz.txt", b"Frau Sandra Zbinden war da.", "text/plain")},
+            data={"mode": "anonymous"},
+        )
+        assert antwort.status_code == 200
+        assert "content_base64" in antwort.json()
+    finally:
+        monkeypatch.delenv("SYNC_THRESHOLD_CHARS", raising=False)
+        get_settings.cache_clear()
+
+
+def test_die_bytegrenze_greift_weiterhin_ohne_die_datei_zu_oeffnen(client, monkeypatch):
+    """Die grobe Vorpruefung bleibt die erste — und das ist kein Schoenheitsfehler.
+
+    Eine sehr grosse Datei soll gar nicht erst durch den Adapter, und eine
+    BESCHAEDIGTE Datei kann er ueberhaupt nicht oeffnen: ``extract_segments``
+    wirft daran. Griffe die Zeichenpruefung zuerst, endete eine beschaedigte
+    grosse Datei mit einem rohen 500 mitten in der Anfrage, statt als
+    sauber gescheiterter Auftrag.
+
+    Geprueft wird mit einem kaputten ZIP unter einem .docx-Namen: Der
+    Adapter kaeme daran nicht vorbei, die Byte-Schranke schon.
+    """
+    from backend.config import get_settings
+    from backend.jobs import warteschlange
+
+    monkeypatch.setenv("SYNC_THRESHOLD_BYTES", "10")
+    get_settings.cache_clear()
+    monkeypatch.setattr(
+        warteschlange, "hintergrundverarbeitung_moeglich", lambda *_: True
+    )
+    try:
+        antwort = client.post(
+            "/api/v1/documents:anonymize-file",
+            files={
+                "file": (
+                    "kaputt.docx",
+                    b"PK\x03\x04 das ist kein gueltiges Paket",
+                    "application/vnd.openxmlformats-officedocument"
+                    ".wordprocessingml.document",
+                )
+            },
+            data={"mode": "anonymous"},
+        )
+        assert antwort.status_code == 202, (
+            "die Byte-Schranke muss VOR dem Adapterlauf greifen — sonst wirft "
+            "extract_segments und die Anfrage endet mit 500"
+        )
+    finally:
+        monkeypatch.delenv("SYNC_THRESHOLD_BYTES", raising=False)
+        get_settings.cache_clear()

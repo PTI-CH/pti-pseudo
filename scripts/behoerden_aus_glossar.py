@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-r"""Behoerdennamen aus dem Translator-Glossar zu einer Importdatei aufbereiten.
+r"""Behoerdennamen aus einem Glossar-Export zu einer Importdatei aufbereiten.
 
 Anlass ist ein gemessener Befund des Golden-Sets: ``Meldestelle für
 Geldwäscherei`` wird vom Sprachmodell nicht als ``ORGANIZATION`` erkannt.
@@ -7,11 +7,28 @@ PTI-Behoerdennamen kennt es nicht, und kein statistisches Modell kann sie
 kennen — es gibt an ihnen nichts zu erkennen ausser dem Wissen, dass es
 Behoerden sind. Genau dafuer gibt es die Begriffsliste (Ebene 0).
 
-Das Material liegt im Schwester-Repo ``pti-translator`` unter
-``backend/data/glossaries.json``: 1099 Eintraege, davon 417 mit einer
-ausgeschriebenen Form (``deFull``). Dieses Skript waehlt daraus die Behoerden
-aus und schreibt sie in das Format, das ``scripts/begriffe_importieren.py``
+Eingabe und Ausgabe
+-------------------
+Erwartet wird ueber ``--quelle`` ein JSON-Export: eine **Liste von
+Glossaren**, jedes mit einem Feld ``entries``, deren Eintraege eine
+Kurzform (``de``) und optional eine ausgeschriebene Form (``deFull``)
+tragen. Geschrieben wird das Format, das ``scripts/begriffe_importieren.py``
 erwartet.
+
+**Ein Hand-Werkzeug, kein Betriebsteil.** Es laeuft nie im Dienst, kennt
+keinen festen Ablageort und faellt aus, wenn ``--quelle`` fehlt. Das ist
+Absicht: Der Pseudonymisierer soll kein anderes Projekt anfassen (siehe
+CLAUDE.md, „Nachbar-Repos"). Bis zum 2026-08-28 zeigte die Vorgabe auf
+``../pti-translator/backend/data/glossaries.json`` — die einzige Stelle im
+Baum mit einer echten Kopplung an ein Nachbar-Projekt; sie ist aufgeloest.
+
+Das Ergebnis des damaligen Laufs liegt als ``scripts/data/behoerden.json``
+im Baum. Wer die Begriffsliste befuellen will, braucht dieses Skript also
+gar nicht — nur wer eine **neue** Quelle aufbereiten will.
+
+Die Zahlen unten (1099 Eintraege, davon 417 mit ``deFull``) stammen aus
+genau diesem einen Lauf und sind als Groessenordnung zu lesen, nicht als
+Eigenschaft irgendeiner kuenftigen Eingabe.
 
 Warum die Auswahl nicht trivial ist
 -----------------------------------
@@ -67,8 +84,13 @@ Aufruf
 ------
 ::
 
-    python scripts/behoerden_aus_glossar.py --bericht
-    python scripts/behoerden_aus_glossar.py --ziel scripts/data/behoerden.json
+    python scripts/behoerden_aus_glossar.py --quelle <export.json> --bericht
+    python scripts/behoerden_aus_glossar.py --quelle <export.json> \
+        --quellenname "PTI Glossar" --ziel scripts/data/behoerden.json
+
+``--quelle`` ist Pflicht — das Skript kennt keinen Ablageort. ``--quellenname``
+landet als Herkunftsangabe in jedem Eintrag; ohne Angabe steht dort schlicht
+``Glossar-Export``.
 
 Und danach in Produktion
 ------------------------
@@ -101,12 +123,21 @@ from typing import Any, Iterable
 #: in ``scripts/begriffe_importieren.py``.
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
-#: Der Glossar-Export des Translators. Liegt im Schwester-Repo, nicht hier —
-#: er wird gelesen, nie geschrieben.
-STANDARD_QUELLE = (
-    REPO_ROOT.parent / "pti-translator" / "backend" / "data" / "glossaries.json"
-)
-
+#: Bewusst KEINE Vorgabe fuer die Quelle.
+#:
+#: Bis zum 2026-08-28 stand hier ein fester Pfad in ein Nachbar-Repo
+#: (``../pti-translator/backend/data/glossaries.json``). Das war die einzige
+#: Stelle im ganzen Baum, an der dieses Werkzeug ein anderes PTI-Projekt
+#: tatsaechlich angefasst hat — und damit eine Abhaengigkeit, die der
+#: Pseudonymisierer laut Nutzerentscheid nicht haben soll (siehe CLAUDE.md,
+#: „Nachbar-Repos"). Sie ist aufgeloest: ``--quelle`` ist jetzt ein
+#: Pflichtargument, und das Skript weiss nicht mehr, wo ein Glossar liegen
+#: koennte.
+#:
+#: Verloren geht dabei nichts. Erwartet wird ein JSON-Export im unten
+#: beschriebenen Format, gleich aus welcher Quelle; das fertige Ergebnis des
+#: bisherigen Laufs liegt ohnehin als ``scripts/data/behoerden.json`` im Baum
+#: und braucht dieses Skript nicht mehr.
 STANDARD_ZIEL = REPO_ROOT / "scripts" / "data" / "behoerden.json"
 
 #: Endungen, an denen ein Kopfnomen eine Organisation ausweist.
@@ -361,8 +392,8 @@ def lade_eintraege(pfad: Path) -> list[dict[str, Any]]:
     if not pfad.is_file():
         raise SystemExit(
             f"Glossar nicht gefunden: {pfad}\n"
-            "Erwartet wird das Schwester-Repo pti-translator neben diesem hier. "
-            "Anderer Ort: --quelle <pfad>"
+            "Erwartet wird ein JSON-Export im Format, das der Modulkopf "
+            "beschreibt: eine Liste von Glossaren mit 'entries'."
         )
     try:
         daten = json.loads(pfad.read_text(encoding="utf-8"))
@@ -434,8 +465,15 @@ def baue_importdatei(
     behoerden: list[tuple[str, str]],
     gattungen: list[tuple[str, str]],
     abkuerzungen: list[tuple[str, str]],
+    quellenname: str,
 ) -> dict[str, list[dict[str, Any]]]:
     """Baut die Struktur, die ``begriffe_importieren.py`` erwartet.
+
+    ``quellenname`` landet unveraendert im Feld ``quellen`` jedes Eintrags --
+    die Herkunftsangabe, die ein Administrator spaeter in der Begriffsliste
+    sieht. Sie kommt vom Aufrufer und steht nicht mehr fest im Code: Bis zum
+    2026-08-28 schrieb dieses Skript hier den Namen eines anderen
+    PTI-Projekts hinein, gleich woher die Datei tatsaechlich stammte.
 
     ``match_mode`` ist durchgehend ``normalized``: das Glossar schreibt echte
     Umlaute, Dokumente aus dem Betrieb nicht immer. ``exact`` verfehlte
@@ -456,7 +494,7 @@ def baue_importdatei(
                 "term": voll,
                 "entity_type": "ORGANIZATION",
                 "match_mode": "normalized",
-                "quellen": ["pti-translator/PTI Glossar"],
+                "quellen": [quellenname],
             }
         )
 
@@ -471,7 +509,7 @@ def baue_importdatei(
                 "entity_type": "ORGANIZATION",
                 "match_mode": "normalized",
                 "zu_pruefen": True,
-                "quellen": ["pti-translator/PTI Glossar"],
+                "quellen": [quellenname],
                 "hinweis": "Gattungsbezeichnung ohne Qualifikator — kommt auch "
                 "als gewoehnliches Substantiv vor.",
             }
@@ -490,7 +528,7 @@ def baue_importdatei(
                 # ``normalized`` liesse ``as`` auf ``AS`` passen.
                 "match_mode": "exact",
                 "zu_pruefen": True,
-                "quellen": ["pti-translator/PTI Glossar"],
+                "quellen": [quellenname],
                 "hinweis": f"Abkuerzung von {voll!r}",
             }
         )
@@ -531,11 +569,29 @@ def drucke_bericht(
 def main(argv: list[str] | None = None) -> int:
     """Liest das Glossar, teilt auf und schreibt — oder berichtet nur."""
     parser = argparse.ArgumentParser(
-        description="Behoerdennamen aus dem Translator-Glossar aufbereiten.",
+        description="Behoerdennamen aus einem Glossar-Export aufbereiten.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    parser.add_argument("--quelle", type=Path, default=STANDARD_QUELLE)
+    # Pflichtargument, ohne Vorgabe: Das Skript soll keinen Pfad in ein
+    # anderes Projekt kennen (siehe bei STANDARD_ZIEL oben).
+    parser.add_argument(
+        "--quelle",
+        type=Path,
+        required=True,
+        help="JSON-Export mit den Glossareintraegen (Pflicht).",
+    )
     parser.add_argument("--ziel", type=Path, default=STANDARD_ZIEL)
+    # Die Herkunftsangabe kommt vom Aufrufer, nicht aus dem Code. Vorher
+    # stand hier fest der Name eines anderen PTI-Projekts -- gleich woher
+    # die Datei tatsaechlich stammte.
+    parser.add_argument(
+        "--quellenname",
+        default="Glossar-Export",
+        help=(
+            "Herkunftsangabe im Feld 'quellen' jedes Eintrags; ein "
+            "Administrator sieht sie spaeter in der Begriffsliste."
+        ),
+    )
     parser.add_argument(
         "--bericht",
         action="store_true",
@@ -561,7 +617,9 @@ def main(argv: list[str] | None = None) -> int:
         print("\nNichts geschrieben (--bericht).")
         return 0
 
-    datei = baue_importdatei(behoerden, gattungen, abkuerzungen)
+    datei = baue_importdatei(
+        behoerden, gattungen, abkuerzungen, args.quellenname
+    )
     args.ziel.parent.mkdir(parents=True, exist_ok=True)
     args.ziel.write_text(
         json.dumps(datei, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"

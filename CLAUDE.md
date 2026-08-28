@@ -370,12 +370,56 @@ Stempel ein Handgriff und **kein Deploy-Schritt**.
 
 ## Asynchrone Aufträge
 
-Dateien oberhalb von `SYNC_THRESHOLD_BYTES` (Default 2 MiB) laufen in den
-beiden Dateirouten (`anonymize-file`, `reverse-file`) nicht mehr im offenen
-Request, sondern als Zeile in der Tabelle `jobs` — sonst schneidet der
-Balancer eine grosse Verarbeitung ab, bevor sie fertig ist. Details und
-Beispiele stehen in API.md; hier nur, was man wissen muss, bevor man am
-Mechanismus schraubt.
+Grosse Dateien laufen in den beiden Dateirouten (`anonymize-file`,
+`reverse-file`) nicht mehr im offenen Request, sondern als Zeile in der
+Tabelle `jobs` — sonst schneidet der Balancer eine grosse Verarbeitung ab,
+bevor sie fertig ist. Details und Beispiele stehen in API.md; hier nur, was
+man wissen muss, bevor man am Mechanismus schraubt.
+
+**Zwei Schranken entscheiden das, und ihre Reihenfolge ist tragend.**
+`documents._laeuft_als_auftrag` prüft erst `SYNC_THRESHOLD_BYTES` (2 MiB,
+ohne die Datei zu öffnen), dann `SYNC_THRESHOLD_CHARS` (300'000, nach dem
+Adapterlauf). Eine davon reicht zum Auftrag.
+
+Der Grund für die zweite ist gemessen (2026-08-28,
+`scripts/schwelle_messen.py`): **Die Dauer ist linear im Text** — rund
+20'000 Zeichen je Sekunde über alle Formate, kein Knick, keine
+Superlinearität —, und **die Dateigrösse sagt darüber fast nichts.**
+Dieselben 64'107 Zeichen wiegen als txt 64 KiB, als docx 39 KiB und als xlsx
+8 KiB; Faktor acht, und die Dichte steigt zusätzlich mit der Dokumentgrösse,
+weil sich die Formatgrundlast amortisiert (ein docx trägt rund 36 KiB
+Vorlage, Thema und Schriften ohne ein Zeichen Text). Mit der Byte-Schranke
+allein war eine dichte Arbeitsmappe von 2 MiB über 17 Millionen Zeichen und
+rund 15 Minuten unterwegs — weit jenseits dessen, was der Balancer offen
+hält. Die Schwelle schützte nicht, wovor sie schützen sollte.
+
+**Offen und bewusst zurückgestellt: das Zeitbudget selbst ist ungemessen.**
+Wie lange der Balancer auf eine Antwort wartet, weiss niemand — überall im
+Baum steht dafür „eine Minute", und das ist `proxy_read_timeout`s
+NGINX-Vorgabe, nicht eine Messung. Von hier aus ist es nicht zu klären: Der
+Jelastic-Token kommt an die Balancer-Konfiguration nicht heran, und eine
+Messung von aussen braucht eine Maschine mit echtem Netzweg und Anmeldung.
+**Zu erledigen aus VS Code, in einer eigenen Sitzung** — Verfahren, Fallen
+und die Liste der Stellen, an denen der Wert danach nachzutragen ist, stehen
+in `docs/superpowers/specs/2026-08-25-asynchrone-auftraege-design.md` §12.
+Bis dahin gilt: **Wo „60 s" oder „eine Minute" steht, steht eine Annahme.**
+
+Der Grund für die Reihenfolge ist ein anderer: Die Byte-Prüfung ist die
+einzige, die auch bei einer **beschädigten** Datei greift. `extract_segments`
+wirft daran, und der Auftragspfad ist genau der Ort, an dem so ein Fehler
+sauber als gescheiterter Auftrag endet statt als 500 mitten in der Anfrage.
+Wer die Zeichenprüfung nach vorn zöge, tauschte eine ruhige Absage gegen
+einen Serverfehler. Der Wächter dafür ist
+`test_die_bytegrenze_greift_weiterhin_ohne_die_datei_zu_oeffnen`.
+
+Zwei Zahlen dazu, die nicht offensichtlich sind. **300'000 und nicht die
+gemessenen 360'000**: Das lässt Luft und fällt mit `max_text_chars`
+zusammen, sodass es im ganzen Werkzeug eine einzige Zahl dafür gibt, wie
+viel Text synchron verarbeitet wird. Und **der Adapterlauf, den die zweite
+Prüfung kostet, ist billig** — gemessen 0.0 bis 4.9 % der Gesamtdauer, mit
+fallendem Anteil bei grösseren Dokumenten. Im synchronen Zweig läuft er
+dadurch zweimal; ihn durch `anonymize_document` durchzureichen hätte deren
+Signatur für wenige Prozent verbogen.
 
 **Der Arbeiter lebt im Prozess, nicht im System.** Der Jelastic-Knoten startet
 genau einen Befehl (`python -m uvicorn … --workers 2`); der Benutzer `python`
@@ -471,9 +515,27 @@ Auftrag, der so `MAX_FREIGABEN` (3) mal freigegeben wurde, geht stattdessen
 auf `fehler`. Ohne diese Grenze würde ein Dokument, das den Arbeiter
 zuverlässig zum Absturz bringt, für immer im Kreis wandern und bei jedem
 Durchlauf einen Worker mitnehmen. Der Aufräumlauf (`raeume_ab`, entfernt
-abgelaufene Aufträge samt Ergebnis) läuft im selben Faden, aber nur jeder
-150. Durchgang — bei einem Zwei-Sekunden-Takt rund alle fünf Minuten;
-abgelaufene Aufträge haben es nicht eilig.
+abgelaufene Aufträge samt Ergebnis) läuft im selben Faden, aber nur alle
+fünf Minuten (`AUFRAEUMEN_ALLE`); abgelaufene Aufträge haben es nicht eilig.
+
+**Der Aufräumtakt hängt an der Uhr und nicht an einer Durchgangszahl** —
+seit dem 2026-08-28, vorher war es „jeder 150. Durchgang" mit „rund alle
+fünf Minuten" daneben. Das stimmte nur im Leerlauf: Ein Durchgang wartet
+`TAKT_SEKUNDEN` **nur, wenn er nichts gefunden hat**. Wer eine volle
+Warteschlange abarbeitet, zählt 150 Durchgänge in der Zeit, die 150 Aufträge
+brauchen — und räumte damit ausgerechnet unter Last am häufigsten auf, wo
+die zusätzliche Abfrage am teuersten ist und am wenigsten bringt. Gemessen
+wird auf der **monotonen** Uhr (eine Zeitumstellung darf den Takt nicht
+aussetzen lassen), und sie wird **vor** dem Lauf gestellt: Wirft er, kommt
+der nächste Versuch in fünf Minuten und nicht im Zwei-Sekunden-Takt. Der
+Startwert ist „jetzt" und nicht „nie", damit der erste Durchgang nicht
+aufräumt — der Lifespan hat das beim Prozessstart gerade getan.
+
+Der Takt der Warteschlangen-Abfrage selbst bleibt dagegen bei zwei Sekunden,
+auch im Leerlauf. Ihn zu strecken wäre die naheliegende zweite Sparmassnahme
+und wäre falsch: Er ist die Zeit, die ein Mensch nach dem Hochladen einer
+grossen Datei wartet, bevor überhaupt etwas beginnt. Eine Abfrage je Worker
+und Sekunde gegen einen Index ist der günstigere Teil dieses Tauschs.
 
 **Auch das Freigeben sperrt die Zeile** (`_verwaiste_abfrage`, dasselbe
 `FOR UPDATE SKIP LOCKED` wie die Zuteilung). Sonst lesen zwei Worker im
@@ -572,6 +634,44 @@ zusammenrechnet. Der Aktor kommt aus `job.aktor`, nicht aus einem Request —
 der läuft längst nicht mehr. Bis zum 2026-08-26 schrieb der Auftragspfad gar
 keinen Eintrag: Die Zahlen sahen vollständig aus, es fehlten aber
 ausgerechnet die grossen Läufe, und der Fehler wuchs mit der Dateigrösse.
+
+**Der Fortschritt zählt Segmente, nicht Seiten — und der Rückruf war zwei
+Zyklen lang tot.** `melde_fortschritt` gab es auf dem ganzen Weg vom
+Arbeiter bis in die Pipeline, aber niemand rief ihn: Die erste Fassung
+wartete auf eine Seitenzahl, die kein unterstütztes Format liefert (Seiten
+entstehen in docx und xlsx erst beim Setzen und stehen gar nicht in der
+Datei). `job.fortschritt` und `job.gesamt` standen damit dauerhaft auf
+`null`, und ein grosser Lauf war zehn Minuten lang von einem
+hängengebliebenen nicht zu unterscheiden — genau der Zustand, gegen den der
+Auftragspfad gebaut wurde. Seit dem 2026-08-28 zählt
+`pipeline.detect_in_segments` das **Segment**: die Einheit, die es wirklich
+gibt, und die, an der die Arbeit hängt (je Segment ein spaCy-Lauf).
+
+Vier Dinge, die dabei zusammenhängen:
+
+- **Gezählt wird nur der Erkennungsdurchlauf.** KI-Schicht, Übertragung und
+  Zurückschreiben laufen nicht je Segment; sie in denselben Balken zu
+  pressen ginge nur mit einem geschätzten Nenner. Der Zähler steht deshalb
+  eine Weile auf `gesamt`, bevor der Status auf `fertig` springt — die
+  Oberfläche sagt in dieser Zeit weiter „wird verarbeitet". Ein Balken, der
+  bei 60 % hängt, weil jemand geraten hat, wäre die schlechtere Lüge.
+- **Auch das leere Segment wird gemeldet, vor dem `continue`.** Sonst bliebe
+  der Zähler in einem Dokument mit vielen Leerabsätzen ohne Grund stehen,
+  und ein Dokument, dessen letzte Segmente alle leer sind, erreichte
+  `gesamt` nie.
+- **Gedrosselt wird im Arbeiter, nicht in der Pipeline**
+  (`FORTSCHRITT_TAKT_SEKUNDEN`, zwei Sekunden wie der Abfragetakt der
+  Oberfläche). Der Rückruf kommt je Segment — bei einer grossen Tabelle
+  zehntausendfach, und jede Meldung wäre sonst ein eigenes `UPDATE … COMMIT`.
+  Wer ihn billig beantwortet, soll ihn vollständig bekommen; teuer ist er nur
+  für uns. **`erledigt >= gesamt` geht immer durch**, sonst endete der Zähler
+  auf einem beliebigen Zwischenstand und in der Oberfläche stünde bis zum
+  Statuswechsel „Abschnitt 9'860 von 10'000".
+- **Der Herzschlag bleibt trotzdem nötig.** Er sieht jetzt redundant aus —
+  `melde_fortschritt` schreibt `updated_at` mit —, deckt aber genau die
+  Phasen ab, die der Rückruf nicht kennt (siehe erster Punkt). Ein Auftrag
+  darf nicht deshalb als verwaist gelten, weil er die Zählphase hinter sich
+  hat.
 
 **Die Auftragskennung überlebt ein Seitenneuladen — im Browser, nicht auf dem
 Server.** Es gibt keine Liste eigener Aufträge, nur `GET /jobs/{id}`. Wer die
@@ -685,8 +785,70 @@ eine Erweiterung eines längst produktiven Modells aussieht, nicht wie ein neues
   Dienstprozess die Dashboard-Variable nicht. Beides bewacht
   `backend/tests/test_protokoll.py`.
 
-## Schwester-Repos
+## Nachbar-Repos — Vorbilder, keine Abhängigkeiten
 
-`d:/VS Code Projekte/` — `pti-crm` (Identity-Provider, Schema-Owner),
-`landing` (Hub mit Kachel-Grid), `pti-translator` (nächstes Vorbild für Deploy
-und SSO), `pti-ppm`, `mvp-sandbox`.
+`d:/VS Code Projekte/` — `pti-crm`, `landing`, `pti-translator`, `pti-ppm`,
+`mvp-sandbox`.
+
+**Sie sind Nachbarn, kein Verbund.** Wo im Baum ein anderes Werkzeug
+auftaucht, ist es entweder ein *Vorbild* (`pti-translator` für Deploy, SSO
+und den `X-Api-Key`-Kopf — portiert, nicht aufgerufen) oder eine Angabe zum
+*Betrieb* (alle liegen hinter demselben NGINX-Balancer, siehe
+`JELASTIC_SETUP.md`). Keines davon ist eine Laufzeit-Abhängigkeit, und keine
+Änderung hier braucht eine Absprache mit `pti-ppm` oder `pti-translator`.
+
+Die Datenbank ist ohnehin getrennt: Der Pseudonymisierer hält seine eigene,
+nicht die von CRM und PPM (`JELASTIC_SETUP.md`).
+
+### Die zwei echten Verbindungen nach aussen
+
+Damit „unabhängig" nicht zur Behauptung wird — es gibt genau zwei, und beide
+sind bekannt:
+
+1. **`pti-crm` als Identity-Provider** (Laufzeit, unvermeidbar in der
+   heutigen Bauform). Das SSO-Gate fragt server-zu-server
+   `GET {CRM_BASE_URL}/api/auth/session` und **fail-closed**: CRM nicht
+   erreichbar → niemand kommt in die Oberfläche. Das ist der Preis dafür,
+   *keine* eigene User-DB und kein Token-Secret zu halten — die Alternative
+   wäre ein zweiter Ort für Personendaten und Passwörter, und den will
+   dieses Werkzeug ausdrücklich nicht.
+   **Der Maschinenpfad `/api/ext/v1` hängt nicht daran**: Er prüft
+   gehashte Schlüssel aus der eigenen Datenbank und läuft auch dann, wenn
+   das CRM steht. Wer den Pseudonymisierer wirklich ohne CRM betreiben
+   will, betreibt ihn über diesen Pfad; lokal tut es `HUB_AUTH=off`.
+2. ~~`scripts/behoerden_aus_glossar.py` liest aus einem Nachbar-Repo~~ —
+   **am 2026-08-28 aufgelöst.** Bis dahin zeigte die Vorgabe auf
+   `../pti-translator/backend/data/glossaries.json`; das war die einzige
+   Stelle im ganzen Baum, an der dieses Werkzeug ein anderes PTI-Projekt
+   tatsächlich angefasst hat. `--quelle` ist jetzt ein **Pflichtargument**,
+   und das Skript kennt keinen Ablageort mehr. Die Herkunftsangabe, die es
+   in jeden Eintrag schreibt, kommt über `--quellenname` ebenfalls vom
+   Aufrufer statt aus dem Code.
+
+Damit bleibt **`pti-crm` die einzige Verbindung.** Alles andere, was danach
+aussieht, ist keine:
+
+| Stelle | Was es ist |
+|---|---|
+| `core/api_key_auth.py`, `hub_access_auth.py`, `https_redirect.py` | **Portierungen** — Code, der anderswo abgeschaut wurde. Kein Aufruf. |
+| `frontend/src/components/Logo.tsx` | **Brand-Asset**, in allen PTI-Werkzeugen dasselbe. |
+| `test_hub_access_auth.py` (`"apps": {…, "translator": False}`) | Prüft die **Abgrenzung**: Zugriff auf ein anderes Werkzeug öffnet dieses hier nicht. |
+| `JELASTIC_SETUP.md` | **Betriebsumgebung** — alle Werkzeuge hinter demselben NGINX-Balancer. Eigene Datenbank, eigener Knoten. |
+| `scripts/data/behoerden.json` (`"quellen": ["PTI Glossar"]`) | **Herkunft der Daten**, nicht des Systems. Nennt seit dem 2026-08-28 kein Repo mehr. |
+
+Diese Nennungen bleiben absichtlich stehen: Sie erklären, *warum* Code so
+aussieht, wie er aussieht. Sie zu tilgen nähme dem nächsten Leser die
+Begründung und schaffte keine einzige Kopplung ab, weil es nie eine war.
+
+### Der Grundsatz für neue Arbeit
+
+**Der Pseudonymisierer wird als eigenständiges Modul gebaut.** Schnittstellen
+nach aussen — ja, und zwar bewusst gepflegt (`API.md`). Eine Abhängigkeit zu
+einer anderen Anwendung — nein, auch nicht stillschweigend über ein geteiltes
+Schema, eine geteilte Datenbank oder einen Direktaufruf. Wer eine solche
+Kopplung erwägt, entscheidet das ausdrücklich mit dem Auftraggeber und trägt
+sie hier ein; sie entsteht nicht nebenbei.
+
+Konkret heisst das auch: **Kein Text im Baum benennt eine andere Anwendung
+als gesetzten Abnehmer der externen API.** Sie ist ein Angebot, keine
+Verabredung — wer einen gültigen Schlüssel hat, ruft auf.

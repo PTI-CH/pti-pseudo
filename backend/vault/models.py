@@ -377,10 +377,12 @@ class UsageEvent(Base):
 class ApiKey(Base):
     """Schluessel einer aufrufenden Anwendung fuer ``/api/ext/v1``.
 
-    Warum in der Datenbank und nicht in der Umgebung (wie beim
-    ``pti-translator``): hier sollen *mehrere* Anwendungen Schluessel bekommen
-    und wieder verlieren, ohne dass jemand im Jelastic-Dashboard eine Variable
-    aendert und den Knoten neu startet.
+    Warum in der Datenbank und nicht in der Umgebung: hier sollen *mehrere*
+    Aufrufer Schluessel bekommen und wieder verlieren, ohne dass jemand im
+    Jelastic-Dashboard eine Variable aendert und den Knoten neu startet. Wer
+    diese Aufrufer sind, ist offen und ausdruecklich nicht vorgegeben — der
+    Pseudonymisierer bietet eine Schnittstelle an, er verabredet sich nicht
+    mit einer bestimmten Anwendung (siehe CLAUDE.md, „Nachbar-Repos").
 
     Warum nur der Hash: gespeichert wird ausschliesslich ``sha256(token)`` in
     Hex. Der Klartext wird genau einmal gezeigt — bei der Erzeugung. Ein

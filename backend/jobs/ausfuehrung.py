@@ -111,9 +111,21 @@ def fuehre_aus(
 ) -> AuftragsErgebnis:
     """Fuehrt einen Auftrag aus und gibt Dokumentbytes plus Zusatzangaben zurueck.
 
-    ``melde_fortschritt(erledigt, gesamt)`` wird von Formaten aufgerufen, die
-    eine Seitenzahl kennen. Fuer docx und xlsx gibt es keine — dort bleibt es
-    bei „laeuft", und das ist ehrlicher als ein erfundener Balken.
+    ``melde_fortschritt(erledigt, gesamt)`` zaehlt **Segmente**, nicht Seiten.
+
+    Die erste Fassung wartete auf eine Seitenzahl, die kein Format liefert:
+    Seiten entstehen in docx und xlsx erst beim Setzen, es gibt sie in der
+    Datei gar nicht. Der Rueckruf blieb dadurch fuer jedes unterstuetzte
+    Format ungerufen, ``fortschritt`` und ``gesamt`` standen immer auf
+    ``null``, und ein grosser Lauf war zehn Minuten lang von einem haengenden
+    nicht zu unterscheiden — das ist genau der Fall, fuer den der Auftragspfad
+    gebaut wurde.
+
+    Das Segment ist die Einheit, die es wirklich gibt (der Adapter liefert
+    sie, siehe ``adapters/base.py``) und an der die Arbeit tatsaechlich
+    haengt: je Segment ein spaCy-Lauf. Sie ist zwischen Formaten nicht
+    vergleichbar — ein docx-Absatz ist keine xlsx-Zelle —, aber das muss sie
+    auch nicht sein: Verglichen wird ein Lauf nur mit sich selbst.
     """
     parameter = job.parameter_json or {}
     dateiname = job.dateiname or "dokument"
@@ -139,7 +151,10 @@ def fuehre_aus(
                     "Für die Rückführung wird eine vault_id benötigt."
                 )
             vault = _lade_bestehenden_vault(session, tenant, vault_id)
-            ergebnis = reverse_document(session, vault, daten, dateiname)
+            ergebnis = reverse_document(
+                session, vault, daten, dateiname,
+                melde_fortschritt=melde_fortschritt,
+            )
             # Dieselben Werte wie ``documents.reverse_file``: keine
             # Fundzaehlung (die Rueckfuehrung erkennt nichts neu), als
             # Umfangsmass die Bytezahl der Eingabe.
@@ -175,6 +190,7 @@ def fuehre_aus(
                 custom_terms=begriffe,
                 selected=parameter.get("selected_entities"),
                 ki_pruefung=bool(parameter.get("ki_pruefung")),
+                melde_fortschritt=melde_fortschritt,
             )
             _erfasse_nutzung(
                 session, job, action="anonymize_file",

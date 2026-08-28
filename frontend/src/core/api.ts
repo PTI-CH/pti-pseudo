@@ -554,6 +554,7 @@ export async function rueckfuehrenDatei(
   datei: File,
   vaultId: string,
   signal?: AbortSignal,
+  onFortschritt?: (fortschritt: number | null, gesamt: number | null) => void,
 ): Promise<Ergebnis> {
   const daten = new FormData();
   daten.append('file', datei);
@@ -565,7 +566,9 @@ export async function rueckfuehrenDatei(
   });
   if (res.status === 202) {
     const { job_id } = await alsJson<{ job_id: string }>(res);
-    return verfolgeAuftrag(job_id, 'rueckfuehren', datei.name, () => {});
+    return verfolgeAuftrag(
+      job_id, 'rueckfuehren', datei.name, onFortschritt ?? (() => {}),
+    );
   }
   return normalisiereAntwort(await alsJson<RohAntwort>(res));
 }

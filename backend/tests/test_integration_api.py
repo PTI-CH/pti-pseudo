@@ -403,9 +403,10 @@ def test_ki_pruefung_ist_standardmaessig_aus(client: TestClient) -> None:
     """Vorgabe `false` auf API-Ebene.
 
     Der Maschinenpfad /api/ext/v1 haengt dieselben Router ein. Waere die
-    Vorgabe `true`, begaennen Translator, PPM und HIKA ab dem Deploy
-    stillschweigend, Dokumentinhalte hinauszuschicken — ohne dass in diesen
-    Projekten jemand davon wuesste.
+    Vorgabe `true`, begaenne JEDER Aufrufer des Maschinenpfads ab dem Deploy
+    stillschweigend, Dokumentinhalte hinauszuschicken — ohne dass auf seiner
+    Seite jemand davon wuesste. Wer die KI-Schicht will, hakt sie an; das
+    Werkzeug entscheidet das nicht fuer ihn.
     """
     r = client.post("/api/v1/documents:detect", json={"text": TEXT})
     assert r.status_code == 200

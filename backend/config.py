@@ -171,8 +171,46 @@ class Settings(BaseSettings):
     # ── Grenzen ────────────────────────────────────────────────────────────
     # Muss zu client_max_body_size im NGINX des Knotens passen.
     max_upload_bytes: int = 26_214_400  # 25 MiB
-    # Ab dieser Groesse nicht mehr synchron verarbeiten (Gateway-Timeout).
+    # ── Wann eine Datei zum Auftrag wird ───────────────────────────────────
+    #
+    # ZWEI Schranken, und die Reihenfolge ist der Punkt: erst die Bytes (grob,
+    # ohne die Datei zu oeffnen), dann die Zeichen (scharf, nach dem
+    # Adapterlauf). Die Entscheidung faellt in
+    # ``documents._laeuft_als_auftrag``.
+    #
+    # Der Grund fuer die zweite Schranke ist gemessen (2026-08-28,
+    # ``scripts/schwelle_messen.py``): Die Verarbeitungsdauer ist linear im
+    # TEXT -- rund 20'000 Zeichen je Sekunde, ueber alle Formate hinweg --,
+    # und die Dateigroesse sagt darueber fast nichts. Dieselben 64'107
+    # Zeichen wiegen als txt 64 KiB, als docx 39 KiB und als xlsx 8 KiB;
+    # Faktor acht. Eine Byte-Schranke allein war deshalb entweder zu hoch
+    # (die 2 MiB hier waren bei xlsx-Dichte ueber 17 Millionen Zeichen,
+    # also rund 15 Minuten in einem Request, den der Balancer nach einer
+    # Minute abschneidet) oder so tief, dass sie jedes normale Dokument in
+    # den Auftragspfad gedraengt haette.
+    #
+    # Grobe Vorpruefung, ohne die Datei zu oeffnen. Sie bleibt noetig: Eine
+    # sehr grosse Datei soll gar nicht erst durch den Adapter gehen, und fuer
+    # eine beschaedigte Datei ist sie die einzige Schranke, die ueberhaupt
+    # greift.
     sync_threshold_bytes: int = 2_097_152
+    # Scharfe Pruefung, nach dem Adapterlauf. Gemessen tragbar waeren rund
+    # 360'000 Zeichen -- bei einem Budget von 60 s und dreifacher
+    # Sicherheit. ACHTUNG: Diese 60 s sind ``proxy_read_timeout``s
+    # NGINX-Vorgabe und KEINE Messung; wie lange der Balancer wirklich auf
+    # eine Antwort wartet, ist offen (Design-Spec zu den asynchronen
+    # Auftraegen, §12 -- nachzumessen aus VS Code). Faellt der Wert deutlich
+    # anders aus, gehoert diese Zahl neu abgeleitet:
+    # ``scripts/schwelle_messen.py --budget <gemessen>``. Gewaehlt sind
+    # 300'000, weil das zusaetzliche Luft laesst UND mit ``max_text_chars``
+    # unten zusammenfaellt -- damit gibt es im ganzen Werkzeug eine einzige
+    # Zahl dafuer, wie viel Text synchron verarbeitet wird.
+    #
+    # Der Adapterlauf, den diese Pruefung kostet, ist gemessen billig: 0.0
+    # bis 4.9 % der Gesamtdauer, mit fallendem Anteil bei groesseren
+    # Dokumenten. Genau bei den Dateien, bei denen die Entscheidung zaehlt,
+    # ist das Oeffnen also fast gratis.
+    sync_threshold_chars: int = 300_000
     # Obergrenze fuer den JSON-Textpfad (documents:detect / :anonymize).
     # ``spaCy`` bricht bei ``nlp.max_length`` (Default 1'000'000 Zeichen) mit
     # einem rohen ValueError ab, sobald ein Text laenger ist — anders als beim

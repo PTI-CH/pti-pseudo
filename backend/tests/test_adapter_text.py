@@ -273,8 +273,6 @@ def test_registry_csv_vor_text():
 @pytest.mark.parametrize(
     "eingabe, teil_der_meldung",
     [
-        ("bericht.pdf", "PDF wird noch nicht unterstützt"),
-        ("application/pdf", "PDF wird noch nicht unterstützt"),
         ("alt.doc", ".docx speichern"),
         ("alt.xls", ".xlsx speichern"),
         ("alt.ppt", ".pptx speichern"),
@@ -292,8 +290,7 @@ def test_registry_meldet_nicht_unterstuetzte_formate_auf_deutsch(
 
 
 def test_unterstuetzte_formate_liste():
-    """Die Office-Formate und Text — und ausdrücklich kein PDF."""
+    """Die Office-Formate, Text — und seit der Textebenen-Unterstützung PDF."""
     formate = supported_formats()
-    for endung in (".docx", ".xlsx", ".pptx", ".txt", ".csv"):
+    for endung in (".docx", ".xlsx", ".pptx", ".txt", ".csv", ".pdf"):
         assert endung in formate
-    assert ".pdf" not in formate

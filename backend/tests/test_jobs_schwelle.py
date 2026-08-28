@@ -375,27 +375,32 @@ def test_grosse_reverse_datei_ohne_hintergrundverarbeitung_wird_klar_abgelehnt(
 
 
 def test_dieselbe_absage_unabhaengig_von_der_dateigroesse(client, monkeypatch):
-    """Eine .pdf bekommt 415 — klein wie gross, und mit demselben Hinweis.
+    """Eine .doc bekommt 415 — klein wie gross, und mit demselben Hinweis.
 
     Vor dieser Nachbesserung antwortete dieselbe Datei je nach GROESSE
-    verschieden: unterhalb der Schwelle sofort 415 mit „bitte als DOCX
-    exportieren", oberhalb eine 202 mit ``job_id``, und der Formatfehler kam
+    verschieden: unterhalb der Schwelle sofort 415 mit „bitte als .docx
+    speichern", oberhalb eine 202 mit ``job_id``, und der Formatfehler kam
     erst Minuten spaeter als gescheiterter Auftrag zurueck — in einem Feld,
     das der Mensch fuer eine Verarbeitungspanne haelt, nicht fuer eine
     Formatabsage. Bis dahin laege die Datei verschluesselt in der Datenbank,
     fuer einen Lauf, der von vornherein nicht gelingen konnte.
+
+    Das alte Word-Format (``.doc``) ist die Wahl, weil PDF seit der
+    Textebenen-Unterstuetzung ein unterstuetztes Format ist — ``.doc`` steht
+    weiterhin in ``adapters._PLANNED`` und eignet sich damit unveraendert als
+    Beleg fuer „nicht unterstuetztes Format, unabhaengig von der Groesse".
     """
     from backend.config import get_settings
     from backend.db import get_sessionmaker
     from backend.vault.models import Job
 
-    pdf = b"%PDF-1.4\n" + b"x" * 200
+    altes_word_format = b"\xd0\xcf\x11\xe0" + b"x" * 200
 
     # Klein: der bisherige, unveraenderte Weg.
     get_settings.cache_clear()
     klein = client.post(
         "/api/v1/documents:anonymize-file",
-        files={"file": ("scan.pdf", b"%PDF-1.4", "application/pdf")},
+        files={"file": ("akte.doc", b"\xd0\xcf\x11\xe0", "application/msword")},
         data={"mode": "anonymous"},
     )
     assert klein.status_code == 415
@@ -408,11 +413,13 @@ def test_dieselbe_absage_unabhaengig_von_der_dateigroesse(client, monkeypatch):
     try:
         gross = client.post(
             "/api/v1/documents:anonymize-file",
-            files={"file": ("scan.pdf", pdf, "application/pdf")},
+            files={
+                "file": ("akte.doc", altes_word_format, "application/msword")
+            },
             data={"mode": "anonymous"},
         )
         assert gross.status_code == 415, "die Groesse darf den Statuscode nicht aendern"
-        assert "DOCX" in gross.json()["detail"]
+        assert ".docx" in gross.json()["detail"]
         with get_sessionmaker()() as s:
             assert s.query(Job).count() == vorher
     finally:
@@ -527,3 +534,53 @@ def test_die_bytegrenze_greift_weiterhin_ohne_die_datei_zu_oeffnen(client, monke
     finally:
         monkeypatch.delenv("SYNC_THRESHOLD_BYTES", raising=False)
         get_settings.cache_clear()
+
+
+def _kleines_scan_pdf() -> bytes:
+    """Ein winziges gescanntes PDF: eine Bildseite ohne Textebene.
+
+    Text wird zu einem Bild gerastert und als Bild in eine neue Seite
+    gesetzt, sodass ``get_text`` leer bleibt und der PdfAdapter die Seite als
+    scanbasiert erkennt. Niedrige DPI hält die Datei klar unter der
+    Byte-Schwelle — nur so erreicht der Router den Zeichen-Zähl-Pfad
+    (``_laeuft_als_auftrag`` ruft ``extract_segments``), um den der Test geht.
+    """
+    import pymupdf
+
+    quelle = pymupdf.open()
+    seite = quelle.new_page()
+    seite.insert_text((72, 72), "Andrea Beispiel war anwesend.")
+    pix = seite.get_pixmap(dpi=36)
+
+    ziel = pymupdf.open()
+    bildseite = ziel.new_page(width=seite.rect.width, height=seite.rect.height)
+    bildseite.insert_image(bildseite.rect, pixmap=pix)
+    return ziel.tobytes()
+
+
+def test_gescanntes_pdf_ohne_ocr_endet_mit_415_nicht_500(client):
+    """Der HTTP-Wächter: ein Scan ohne OCR scheitert sauber, nicht als 500.
+
+    ``_laeuft_als_auftrag`` ruft ``extract_segments``, um Zeichen zu zählen.
+    Für ein gescanntes PDF ohne aktivierte OCR wirft der PdfAdapter dort
+    ``NutzermeldungError`` (Spec §4.3, die tragende Sicherheitsregel: ein Scan,
+    den niemand lesen kann, darf nie als scheinbar sauberes, unverarbeitetes
+    Dokument durchgehen). Bis dieser Zweig gefangen wurde, entwich die Ausnahme
+    ungefangen an FastAPI vorbei — ein 500. Jetzt wird sie in eine 415 mit dem
+    erklärenden Text übersetzt, wie der synchrone Pfad es für ein nicht
+    verarbeitbares Format tut.
+
+    OCR ist im Testbetrieb aus (``OCR_ENABLED`` ungesetzt → ``ocr_enabled``
+    False), unabhängig davon, ob auf der Maschine ein ``tesseract``-Binary
+    liegt — die Verfügbarkeitsprüfung verlangt beides.
+    """
+    scan = _kleines_scan_pdf()
+    assert len(scan) < 2 * 1024 * 1024, "Fixture muss unter der Byte-Schwelle bleiben"
+
+    antwort = client.post(
+        "/api/v1/documents:anonymize-file",
+        files={"file": ("scan.pdf", scan, "application/pdf")},
+        data={"mode": "anonymous"},
+    )
+    assert antwort.status_code == 415, antwort.text
+    assert "gescannte" in antwort.json()["detail"].lower()

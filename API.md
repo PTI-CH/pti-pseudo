@@ -102,7 +102,7 @@ Alle anderen Fehler folgen dem Standard-FastAPI-Format `{"detail": "…"}`
 | `404` | Zuordnungstabelle, Begriff oder Auftrag nicht gefunden (auch wenn er existiert, aber einem anderen Aktor/Mandanten gehört) |
 | `409` | Der Begriff steht bereits in der Liste, oder sein festes Pseudonym ist schon einem anderen Begriff zugeordnet (`POST /terms`) — oder ein Auftrag ist noch nicht fertig (`GET /jobs/{id}/result`) |
 | `413` | Datei oder Text über dem Grössenlimit (siehe unten) |
-| `415` | Dateiformat nicht unterstützt — **unabhängig von der Dateigrösse**, auch oberhalb der Auftragsschwelle (siehe „Grosse Dateien") |
+| `415` | Dateiformat nicht unterstützt oder kann nicht verarbeitet werden — **unabhängig von der Dateigrösse**, auch oberhalb der Auftragsschwelle. PDF-Dateien mit Textebene werden unterstützt; gescannte PDFs schlagen hier fehl, wenn OCR auf der Installation nicht aktiviert ist (siehe „PDF-Unterstützung") |
 | `422` | Pydantic-Validierung (z. B. Pflichtfeld fehlt) |
 | `503` | Datei oberhalb der Auftragsschwelle, aber diese Installation fährt keinen Hintergrundarbeiter (`anonymize-file`, `reverse-file`) |
 
@@ -264,7 +264,7 @@ neuen anzulegen), `selected_entities` (Befund-Auswahl aus einem vorherigen
 
 ### `POST /documents:anonymize-file`
 
-Pseudonymisiert ein Dokument formaterhaltend (DOCX, TXT, CSV). Multipart statt
+Pseudonymisiert ein Dokument formaterhaltend (DOCX, XLSX, PPTX, CSV, TSV, TXT, PDF). Multipart statt
 JSON, weil eine Datei mitgeschickt wird. Die Antwort trägt das Ergebnis als
 Base64, nicht als Datei-Download — daneben steht in derselben Antwort auch der
 Befund.
@@ -427,21 +427,55 @@ in `warteschlange.lege_an` selbst, nicht erst in der Route, damit sie kein
 künftiger zweiter Aufrufer versehentlich umgehen kann.
 
 **Ein nicht unterstütztes Format ergibt `415`, auch hier — und vor dem 503.**
-Das Format wird geprüft, bevor überhaupt eine Auftragszeile entsteht: Eine
-`.pdf` bekommt oberhalb der Schwelle denselben `415` mit demselben Text wie
-unterhalb, und keine `job_id`.
+Das Format wird geprüft, bevor überhaupt eine Auftragszeile entsteht. Ein
+gescanntes PDF (ohne Text-Layer) schlägt hier fehl, wenn OCR auf der
+Installation nicht aktiviert ist — der Server erkennt es als bildbasiert und
+würde es mit deutlicher Fehlermeldung ablehnen:
 
 ```json
-{"detail": "PDF wird noch nicht unterstützt. Formaterhaltendes Ersetzen in PDF erfordert ein eigenes Textlayout-Verfahren. Bitte das Dokument vorher als DOCX oder TXT exportieren. Unterstützt werden: .docx, .xlsx, .pptx, .csv, .tsv, .txt, .text, .md, .log."}
+{"detail": "Dieses PDF enthält gescannte Seiten; die Texterkennung ist auf dieser Installation nicht aktiviert. Bitte als DOCX/TXT hochladen oder die Administration kontaktieren."}
+```
+
+Ein PDF mit Textebene verarbeitet sich wie ein DOCX — der Adapter entfernt
+Text und Metadaten mittels Redaction. Ein weiterhin nicht unterstütztes Format
+(z. B. `.doc`, `.xls`, `.rtf`) bekommt:
+
+```json
+{"detail": "Nicht unterstütztes Dateiformat. Unterstützt werden: .docx, .xlsx, .pptx, .csv, .tsv, .txt, .text, .md, .log, .pdf."}
 ```
 
 (Der Zusatz „Unterstützt werden: …" hängt nur `:anonymize-file` an, wie im
-synchronen Pfad; `:reverse-file` liefert den Formattext allein.) Vorher hing
-die Absage an der Dateigrösse: dieselbe Datei bekam unterhalb der Schwelle
-sofort `415`, oberhalb ein `202` und Minuten später einen Auftrag im Status
-`fehler`. Auf einer Installation ohne Hintergrundarbeiter geht der `415`
-zudem dem `503` vor — „bitte teilen Sie die Datei auf" ist für eine `.pdf`
-kein brauchbarer nächster Schritt.
+synchronen Pfad; `:reverse-file` liefert den Formattext allein.) Ein gescanntes
+PDF oberhalb der Auftragsschwelle bekommt denselben Text wie unterhalb der
+Schwelle und keine `job_id`. Auf einer Installation ohne Hintergrundarbeiter
+geht die Formatprüfung dem `503` vor — „bitte teilen Sie die Datei auf" ist
+für eine gescannte PDF kein brauchbarer nächster Schritt, aber „bitte laden Sie
+ein Textbild-PDF oder exportieren Sie als DOCX" schon.
+
+#### PDF-Unterstützung
+
+Der Pseudonymisierer unterstützt PDF-Dateien in zwei Staffeln:
+
+1. **Text-Layer (immer)**: Ein am Rechner erzeugtes PDF trägt Textebene —
+   der Text steht als solcher im Dokument, mit Positionsangaben. Der Adapter
+   liest den Text wie aus einem DOCX, erkennt Personendaten und entfernt die
+   Textbereiche mittels Redaction (nicht nur optisch überdeckt, sondern aus dem
+   Inhaltsstrom gelöscht). Metadaten (Autor, Titel, XMP) werden geleert.
+
+2. **OCR für Scans (optional)**: Ein eingescanntes PDF trägt kein Text-Layer,
+   nur Bilder je Seite. Stellt der Adapter fest, dass eine Seite keinen
+   nennenswerten Text enthält, rastert er sie zu einem Bild. Ist OCR verfügbar
+   (Schalter `OCR_ENABLED=true` **und** das Systembinary `tesseract` mit
+   Sprachdaten `deu` auf dem Knoten), erkennt Tesseract den Text im Bild und
+   der Adapter verarbeitet es wie Text-Layer. Ist OCR nicht verfügbar, bricht
+   der Lauf mit deutlicher Fehlermeldung ab (siehe „Fehlerformat" oben) — ein
+   halb erkanntes Dokument, das trotzdem pseudonymisiert aussieht, ist
+   schlimmer als gar keines.
+
+OCR läuft vollständig lokal — kein Byte des Dokumentinhalts verlässt den
+Server. Das ist ein bewusstes Design-Merkmal: Ein Cloud-OCR-Dienst würde die
+gesamte gescannte PDF nach aussen schicken und dem Datenschutz-Anspruch des
+Werkzeugs widersprechen.
 
 #### `GET /jobs/{id}`
 

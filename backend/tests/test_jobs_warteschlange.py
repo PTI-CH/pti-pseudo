@@ -508,11 +508,15 @@ def test_ein_nicht_unterstuetztes_format_wird_gar_nicht_erst_angelegt(
 ):
     """Dieselbe Absage wie unterhalb der Schwelle — und ohne Zeile in der DB.
 
-    Ohne diese Pruefung antwortete dieselbe .pdf je nach GROESSE
-    verschieden: klein sofort 415 mit dem Hinweis „bitte als DOCX
-    exportieren", gross erst Minuten spaeter als gescheiterter Auftrag. Und
+    Ohne diese Pruefung antwortete dieselbe .doc je nach GROESSE
+    verschieden: klein sofort 415 mit dem Hinweis „bitte als .docx
+    speichern", gross erst Minuten spaeter als gescheiterter Auftrag. Und
     bis dahin laege die Datei verschluesselt in der Datenbank, fuer eine
     Verarbeitung, die von vornherein nicht gelingen konnte.
+
+    ``.doc`` statt ``.pdf``: PDF ist seit der Textebenen-Unterstuetzung ein
+    unterstuetztes Format und eignet sich nicht mehr als Beleg fuer diesen
+    Fall. ``.doc`` steht weiterhin in ``adapters._PLANNED``.
     """
     from sqlalchemy import func, select
 
@@ -524,10 +528,10 @@ def test_ein_nicht_unterstuetztes_format_wird_gar_nicht_erst_angelegt(
         with pytest.raises(UnsupportedFormatError) as info:
             warteschlange.lege_an(
                 s, tenant=mandant, aktor="tester", mode="anonymize",
-                dateiname="scan.pdf", daten=b"%PDF-1.4", parameter={},
+                dateiname="unbekannt.doc", daten=b"\xd0\xcf\x11\xe0", parameter={},
             )
         # Der Text ist der kuratierte deutsche aus ``adapters._PLANNED`` —
         # er nennt den Ausweg, nicht nur das Problem.
-        assert "DOCX" in str(info.value)
+        assert ".docx" in str(info.value)
         s.rollback()
         assert s.scalar(select(func.count()).select_from(Job)) == 0

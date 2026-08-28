@@ -412,6 +412,10 @@ async def anonymize_file(
     # oeffnet die Datei) und nicht erst aus `lege_an` bzw. der Pipeline —
     # dieselbe 415, nur frueher. Der `except`-Zweig unten deckt beide Wege
     # ab, weil er den ganzen Block umschliesst.
+    # Funktionslokal wegen des Zirkels adapters -> jobs.ausfuehrung ->
+    # pipeline -> adapters (siehe pdf_adapter._segmente_fuer_bildseite).
+    from backend.jobs.ausfuehrung import NutzermeldungError
+
     try:
         als_auftrag = _laeuft_als_auftrag(data, file.filename or "unbenannt.txt")
     except UnsupportedFormatError as exc:
@@ -419,6 +423,16 @@ async def anonymize_file(
             415,
             detail=f"{exc} Unterstützt werden: {', '.join(supported_formats())}.",
         ) from exc
+    except NutzermeldungError as exc:
+        # Ein PDF mit gescannten Seiten, dessen Text ohne OCR niemand lesen
+        # kann: `_laeuft_als_auftrag` ruft `extract_segments`, um Zeichen zu
+        # zaehlen, und der PdfAdapter wirft hier LAUT statt ein scheinbar
+        # sauberes, aber unverarbeitetes Dokument zu liefern (Spec §4.3, die
+        # tragende Sicherheitsregel). 415 wie fuer ein nicht verarbeitbares
+        # Format; der Text der Ausnahme nennt den naechsten Schritt. Grosse
+        # Scans ueber der Byte-Schranke erreichen diese Stelle nicht — sie
+        # werden zum Auftrag und scheitern sauber im Arbeiter.
+        raise HTTPException(415, detail=str(exc)) from exc
 
     if als_auftrag:
         from backend.jobs import warteschlange
@@ -565,10 +579,15 @@ async def reverse_file(
     # Dieselbe Entscheidung wie bei `anonymize_file` — eine grosse
     # Rueckfuehrung ist genauso lang unterwegs wie eine grosse
     # Pseudonymisierung. Begruendung der zwei Schranken: `_laeuft_als_auftrag`.
+    # Wie bei anonymize_file — siehe dort, auch zum Zirkel.
+    from backend.jobs.ausfuehrung import NutzermeldungError
+
     try:
         als_auftrag = _laeuft_als_auftrag(data, file.filename or "unbenannt.txt")
     except UnsupportedFormatError as exc:
-        # Wie bei anonymize_file — siehe dort.
+        raise HTTPException(415, detail=str(exc)) from exc
+    except NutzermeldungError as exc:
+        # Gescanntes PDF ohne OCR -> 415 statt 500 (siehe anonymize_file).
         raise HTTPException(415, detail=str(exc)) from exc
 
     if als_auftrag:

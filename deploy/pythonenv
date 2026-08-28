@@ -83,6 +83,14 @@ export INFOMANIAK_AI_BASE INFOMANIAK_AI_MODELL
 # Infomaniak-Schluessel schon einmal haengengeblieben.
 export KI_ZWEITMEINUNG
 
+# Schalter fuer OCR (Texterkennung gescannter PDF-Seiten, Phase 6).
+# Ab Werk AUS, weil das Systembinary `tesseract` auf dem Knoten liegen muss —
+# das ist eine Deploy-Entscheidung, nicht automatisch verfuegbar. Diese Zeile
+# ist notwendig, damit der Wert aus dem Panel-Dashboard den Dienstprozess
+# erreicht — derselbe Grund wie bei KI_ZWEITMEINUNG: Der Runner liest
+# /.jelenv per `source`, exportiert aber nicht.
+export OCR_ENABLED
+
 # Die Protokollstufe. Vorgabe INFO — ohne sie faellt `pti.*` auf Pythons
 # `lastResort`-Behandler zurueck, und der gibt nur WARNING und hoeher aus.
 #

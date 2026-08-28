@@ -168,6 +168,35 @@ class Settings(BaseSettings):
     # zusammenfassen) oder Infomaniak das Kontingent anhebt.
     ki_zweitmeinung: bool = False
 
+    # ── OCR (Phase 6 / Zyklus B, Stufe 2) ───────────────────────────────────
+    # Ob die Tesseract-OCR-Stufe fuer gescannte PDF-Seiten laufen darf.
+    #
+    # VORGABE AUS, und das ist eine DEPLOY-Entscheidung, keine Vorsicht auf
+    # Zuruf. ``pytesseract`` (in ``pti-requirements.txt``) ist nur die duenne
+    # Python-Anbindung; das eigentliche Binary ``tesseract`` samt den
+    # Sprachdaten ``deu`` ist ein SYSTEMBINARY, das auf dem Jelastic-Knoten
+    # installiert sein muss -- ``pip install`` erreicht es nicht, und der
+    # Benutzer ``python`` hat dort kein ``sudo``. Ohne dieses Binary wirft
+    # jeder OCR-Versuch, egal was hier steht (siehe ``backend/ocr``).
+    # Der Schalter existiert deshalb, damit ein Knoten ohne installiertes
+    # Binary nicht bei jeder gescannten Seite einen Absturz statt einer
+    # klaren Meldung produziert -- siehe Spec §4.3 (die tragende
+    # Sicherheitsregel): Ein Scan, den niemand lesen konnte, scheitert LAUT
+    # ueber ``NutzermeldungError``, nie still.
+    # ``OCR_ENABLED=on`` im Jelastic-Dashboard (danach Dashboard-Restart)
+    # schaltet die Stufe zu, sobald das Binary auf dem Knoten liegt.
+    # Details: ``docs/superpowers/specs/2026-08-28-pdf-ocr-design.md``, §2/§4.
+    ocr_enabled: bool = False
+    # Rasterungs-Aufloesung (dpi) fuer ``page.get_pixmap(dpi=...)`` vor dem
+    # OCR-Lauf. Der Hebel fuer den Speicherverbrauch: Eine hoehere Aufloesung
+    # verbessert die Erkennung kaum noch, verdoppelt aber den Pixelspeicher
+    # je Verdopplung -- Spec §4.4 misst rund 1.1 GB Spitze je OCR-Lauf bei
+    # diesem Wert, und der Auftrags-Arbeiter faehrt bewusst nur EINEN Job je
+    # Worker-Prozess (siehe ``backend/jobs/arbeiter.py``), genau damit ein
+    # solcher Ausschlag nicht mit einem zweiten Lauf im selben Prozess
+    # kollidiert. 200 dpi ist der fuer Tesseract uebliche, massvolle Wert.
+    ocr_dpi: int = 200
+
     # ── Grenzen ────────────────────────────────────────────────────────────
     # Muss zu client_max_body_size im NGINX des Knotens passen.
     max_upload_bytes: int = 26_214_400  # 25 MiB

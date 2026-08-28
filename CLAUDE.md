@@ -756,6 +756,94 @@ andere Spalte auch (siehe „Schemaänderungen" oben) — hier besonders leicht 
 vergessen, weil `Job` schon lange existierte und eine neue Spalte daran wie
 eine Erweiterung eines längst produktiven Modells aussieht, nicht wie ein neues.
 
+## PDF und OCR (Phase 6)
+
+Ein PDF ist kein monolithes Format — es kann beides sein: ein am Rechner
+erzeugtes Dokument mit Textebene (der Text steht als solcher im Dokument, mit
+Positionsangaben), oder ein eingescanntes Bild je Seite, wo nur das Pixel
+steht. Phase 6 implementiert deshalb **zwei Staffeln**: Die Textebene (der
+Normalfall) läuft immer, OCR für Scans kommt danach nur, wenn es verfügbar
+ist — alles über denselben `anonymize-file`/`reverse-file`-Pfad der
+asynchronen Aufträge, denn sowohl die Rasterung wie der OCR-Lauf sind
+speicher- und zeitintensiv.
+
+**Das Design ist Redaction, nicht formaterhaltener Glyphenaustausch.** Die
+Stelle, an der ein Name erkannt wird, wird aus dem PDF **entfernt** (nicht nur
+optisch überdeckt). Das Layout der Seite bleibt erhalten, die geschwärzte
+Stelle ändert sich. Für ein Datenschutzwerkzeug ist das die richtige
+Semantik — es geht nicht darum, dass das Ergebnis hübsch aussieht, sondern
+dass der Klarname wirklich weg ist. Das formaterhaltende Neusetzen bleibt
+ausdrücklich „ein eigenes Vorhaben" und gehört nicht hierher.
+
+Zwei Grenzen, die dabei massgeblich sind:
+
+1. **Die tragende Sicherheitsregel: Ein Scan ohne lesbaren Text scheitert
+   laut, nie stumm.** Eine gescannte Seite ohne Textebene ist für den lokalen
+   Erkenner unsichtbar — OCR würde sie lesbar machen. Ist OCR aber nicht
+   verfügbar (Schalter aus oder Binary fehlt), liefert ein naiver Adapter
+   keine Funde. Ein Dokument ohne Funde sieht pseudonymisiert aus, obwohl der
+   volle Klarname als Bild darin steht — das ist das gefährlichste Fehlerbild
+   dieses Werkzeugs. Deshalb wirft der Adapter `NutzermeldungError` mit
+   klarem Text: „Dieses PDF enthält gescannte Seiten; die Texterkennung ist
+   auf dieser Installation nicht aktiviert. Bitte als DOCX/TXT hochladen oder
+   die Administration kontaktieren." Ein halb erkanntes Dokument ist
+   gefährlicher als gar keines — wer diesen Text sieht, trifft bewusst eine
+   Entscheidung statt den fehlgeschlagenen Lauf misszudeuten.
+2. **OCR läuft lokal (Tesseract auf dem Knoten), nicht in der Cloud.** Das ist
+   ganz bewusst: Ein Cloud-OCR-Dienst verschöbe den gesamten
+   Dokumentinhalt nach aussen und stünde im Widerspruch zur
+   Grundaussage des Werkzeugs. Tesseract bleibt auf dem Knoten,
+   kein Byte verlässt den Server. Das ist auch der Grund, warum OCR hinter
+   einem Schalter liegt: Das Systembinary `tesseract` und die Sprachdaten `deu`
+   sind nicht über pip installierbar, sondern eine **Deploy-Entscheidung** des
+   Knotenbetreibers. Wer den Pseudonymisierer ohne Tesseract betreibt, bei dem
+   läuft die textbasierte Erkennung vollständig; er verzichtet bewusst auf
+   Scans, statt sie stillschweigend unverarbeitet durchzulassen.
+
+**Der Adapter (`backend/adapters/pdf_adapter.py`)** verwaltet beide Stufen:
+Ein Segment ist eine Zeile, und die Location vermerkt die Quelle (`text` oder
+`ocr`). `extract_segments` prüft die Textebene, und wenn eine Seite keinen
+nennenswerten Text trägt (Schwelle z. B. < 10 Zeichen), rastert sie der
+Adapter zu einem Bild und schickt es durch Tesseract — wenn verfügbar und
+aktiviert. Die Ersetzung (Redaction) ist **einheitlich**: jeder Fund, ob von
+der Textebene oder von OCR, wird gelöscht (aus dem Inhaltsstrom des PDF, nicht
+nur überdeckt), und das Pseudonym wird darüber gestempelt.
+
+**Metadaten und Determinismus.** Der Adapter leert Autor, Titel und XMP-Daten
+(das alles kann Originalpersonendaten tragen). Ein leeres `replacements`-Feld
+führt zum Roundtrip: das PDF wird neu gespeichert und ist inhaltsgleich (nicht
+unbedingt byte-gleich, aber das ist beim PDF nichts Ungewöhnliches).
+
+**Zwei Fehlerklassen, zwei Antworten — und keine `500`.** Ein gescanntes PDF
+ohne aktivierte OCR ist kein Format-, sondern ein Installationsproblem: Der
+Adapter *könnte* es lesen, läge Tesseract auf dem Knoten. Er wirft dafür
+`NutzermeldungError` (nicht `UnsupportedFormatError` — das bleibt dem wirklich
+nicht unterstützten Format vorbehalten; eine beschädigte PDF-Datei wirft
+ihrerseits `ValueError` aus `_open`). Beide Pfade übersetzen die
+`NutzermeldungError` sauber: der synchrone in eine `415` mit dem erklärenden
+Text, der Auftragspfad in einen gescheiterten Auftrag mit derselben Meldung
+(der Arbeiter lässt sie über `DURCHREICHBAR` an die Oberfläche) — nie in eine
+`500` mitten in der Anfrage.
+
+**Eine Falle steckt dabei in der Reihenfolge.** `documents._laeuft_als_auftrag`
+ruft `extract_segments`, um Zeichen zu zählen (die Auftragsschwelle, siehe
+„Asynchrone Aufträge"), **bevor** über synchron/asynchron entschieden ist. Für
+einen kleinen Scan ohne OCR wirft der Adapter genau dort — und genau dort fängt
+der Router seit dem 2026-08-28 auch `NutzermeldungError`, nicht nur
+`UnsupportedFormatError`; sonst entwiche die Ausnahme als `500`. Der Wächter ist
+`test_gescanntes_pdf_ohne_ocr_endet_mit_415_nicht_500`. Ein **grosser** Scan
+über der Byte-Schranke erreicht diese Stelle nicht: Er wird ohne Öffnen zum
+Auftrag und scheitert erst im Arbeiter — dort sauber als `fehler` mit Text.
+
+**Speicher und Zeit binden PDF an den Auftragspfad.** Eine gescannte Seite
+wird zu einem Bild gerastert (die DPI, `OCR_DPI`, ist der Hebel für den
+Speicher — gemessen ~1.1 GB Spitze je OCR-Lauf), und Tesseract braucht rund
+2 Sekunden je Seite; eine dicke Akte sprengt jedes offene Zeitfenster des
+Balancers. Der Arbeiter fährt bewusst **einen** Job je Worker (siehe
+`arbeiter.py`), genau dafür. Lokal ohne Tesseract prüfen: ein kleines
+Textebenen-PDF (unter beiden Schwellen) läuft synchron und ohne OCR-Haken
+durch; ein gescanntes bekommt bewusst die `415` von oben.
+
 ## Betriebs-Eigenheiten von Infomaniak jCloud
 
 - **Env-Variablen nur über das Dashboard, danach Dashboard-Restart.** Ein

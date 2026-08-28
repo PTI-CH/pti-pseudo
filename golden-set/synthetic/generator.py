@@ -101,6 +101,10 @@ from backend.engine.recognizers.phone_ch import is_valid_swiss_phone  # noqa: E4
 # Hand baut statt openpyxl/python-pptx zu benutzen, steht in ihrem Modulkopf.
 from backend.tests.ooxml_fabrik import baue_pptx, baue_xlsx  # noqa: E402
 
+# Dieselbe Begruendung gilt fuer die PDF-Fabrik: Testmaterial fuer die
+# Textebenen-Unterstuetzung (Phase 6), nirgends im Betrieb gebraucht.
+from backend.tests.pdf_fabrik import baue_pdf  # noqa: E402
+
 __all__ = ["Erwartung", "Testdokument", "DOKUMENTE", "schreibe_dateien"]
 
 
@@ -1347,6 +1351,71 @@ def _baue_uebersehener_name() -> Testdokument:
     )
 
 
+# ── Dokument: PDF mit reiner Textebene (Phase 6) ────────────────────────────
+
+
+def _baue_pdf_textebene() -> Testdokument:
+    """Prüft den neuen PDF-Adapter (Textebene) durch die ganze Engine.
+
+    Ein Segment ist beim PDF-Adapter eine **Zeile**, nicht ein Absatz — die
+    Sätze unten stehen deshalb bewusst je auf einer eigenen Zeile, über zwei
+    Seiten verteilt (``pdf_fabrik.baue_pdf`` erzeugt eine Seite je
+    Listeneintrag). Der Name kommt zweimal vor: einmal im ausformulierten
+    Satz auf Seite 1, einmal kontextlos in der Grussformel auf Seite 2 — ohne
+    ``pipeline.propagate_findings`` (siehe ``wiederholte_nennung`` oben)
+    verfehlte die Erkennung die zweite Stelle. Anders als dort bewacht dieses
+    Dokument nicht in erster Linie die Übertragung, sondern den Adapter
+    selbst: Kommen Zeilenumbrüche, Telefonnummer und E-Mail-Adresse über
+    ``get_text("rawdict")`` unverändert bei der Engine an?
+
+    Bewusst **einfach gehalten** (ein Name, eine Behörde, eine Telefonnummer,
+    eine E-Mail-Adresse, keine Tabellen oder Fussnoten — die hat ein PDF
+    ohnehin nicht): Alle Erwartungen sind einzeln gegen die echte Engine
+    geprüft (siehe Modulkopf dieser Datei zur Vorgabe, keine unbestätigte
+    Berechnung stehen zu lassen), bevor sie hierher kamen. Ein PDF ist für
+    das Sprachmodell kein neuer Text — nur ein neuer Weg, wie derselbe Text
+    ankommt —, ein schwieriger Fall gehört deshalb nicht extra hierher,
+    sondern in ein Fliesstext-Dokument, wo er einfacher zu bauen ist.
+    """
+    name = "Matthias Krebs"
+    telefon = "078 555 12 34"
+    email = "matthias.krebs@example.ch"
+    assert is_valid_swiss_phone(telefon), "PDF-Telefonnummer liegt ausserhalb des Plans"
+
+    daten = baue_pdf(
+        [
+            [
+                "Aktennotiz zur Akteneinsicht",
+                f"Am Schalter erschien Herr {name} und legte seinen Ausweis vor.",
+                f"Er ist erreichbar unter {telefon} und {email}.",
+                f"Die Meldung ging an die {_KAPO_FR}.",
+            ],
+            [f"Rückfragen bitte an {name}, Sachbearbeiter."],
+        ]
+    )
+
+    erwartet = (
+        Erwartung(name, "PERSON"),
+        Erwartung(telefon, "CH_PHONE"),
+        Erwartung(email, "EMAIL_ADDRESS"),
+        Erwartung(_KAPO_FR, "ORGANIZATION"),
+        Erwartung(name, "PERSON"),
+    )
+
+    return Testdokument(
+        name="pdf_textebene",
+        dateiname="pdf_textebene.pdf",
+        beschreibung=(
+            "PDF mit reiner Textebene über zwei Seiten — Person, Behörde, "
+            "Telefon und E-Mail als erwartete Treffer, der Name zweimal "
+            "(ausformuliert und kontextlos in der Grussformel)."
+        ),
+        inhalt=daten,
+        erwartet=erwartet,
+        verboten=(),
+    )
+
+
 DOKUMENTE: List[Testdokument] = [
     _baue_begriffsliste(),
     _baue_behoerdenliste(),
@@ -1364,6 +1433,7 @@ DOKUMENTE: List[Testdokument] = [
     _baue_pti_protokoll(),
     _baue_reiner_text(),
     _baue_wiederholte_nennung(),
+    _baue_pdf_textebene(),
 ]
 
 

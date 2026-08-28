@@ -231,40 +231,50 @@ class Settings(BaseSettings):
     # glatt durch. Der Wert ist also rund fuenfmal so gross wie die frueher
     # hier angenommene ``proxy_read_timeout``-Vorgabe.
     #
-    # Daraus abgeleitet, am 2026-08-28 in Produktion gemessen: **150'000**.
+    # Am 2026-08-28 in Produktion ueber ALLE vier Formate gemessen:
+    # **100'000**.
     #
-    # **Die Zahl haengt am FORMAT, nicht nur an der Zeichenzahl** -- das ist
-    # der Befund, der eine erste Fassung dieser Konstante (400'000) wieder
-    # kassiert hat. Gemessen auf dem Knoten mit drei Workern:
+    # **Die Zahl haengt an der SEGMENTZAHL, nicht an der Zeichenzahl.** Je
+    # Segment faellt ein spaCy-Lauf mit eigenem Overhead an; ein ``.txt`` ist
+    # EIN Segment, dieselben 100'000 Zeichen sind als docx/xlsx/pptx 427
+    # Segmente à 234 Zeichen (ein Absatz bzw. eine Zeile je Segment).
     #
-    #   txt    270'000 Zeichen ->  ~62 s   (~4'350 Zeichen/s)
+    # Gemessen auf dem Knoten mit drei Workern:
+    #
     #   txt    395'000 Zeichen -> ~123 s   (~3'200 Zeichen/s)
-    #   xlsx   100'000 Zeichen -> ~181 s   (~550 Zeichen/s)
-    #   xlsx   200'000 Zeichen -> 504 nach 300 s  -- Grenze gerissen
+    #   docx   149'000 Zeichen -> ~272 s   (  ~545 Zeichen/s)  zweimal
+    #   xlsx   100'000 Zeichen -> ~181 s   (  ~553 Zeichen/s)
+    #   pptx   100'000 Zeichen -> ~184 s   (  ~543 Zeichen/s)
+    #   xlsx   200'000 Zeichen -> 504 nach 300 s -- Grenze gerissen
     #
-    # **Faktor sechs zwischen den Formaten bei gleicher Zeichenzahl.** Der
-    # Grund steht in den Adaptern: Ein ``.txt`` ist EIN Segment, dieselben
-    # 100'000 Zeichen als xlsx sind 427 Segmente à 234 Zeichen (eine Zeile
-    # je Segment). Je Segment faellt ein spaCy-Lauf mit eigenem Overhead an;
-    # viele kurze Segmente kosten deshalb ein Vielfaches weniger Zeichen
-    # gleicher Menge in einem Stueck.
+    # **Die drei Office-Formate sind praktisch identisch** (543-553
+    # Zeichen/s); nur ``.txt`` ist mit Faktor sechs der Ausreisser nach
+    # oben. Massgeblich ist deshalb der Office-Wert -- und der gilt fuer das,
+    # was im Betrieb tatsaechlich hochgeladen wird.
     #
-    # **Lokal ist der Unterschied NICHT sichtbar** (0.037 vs. 0.056 s je
-    # 1000 Zeichen, also andersherum) -- er entsteht erst auf dem
-    # schwaecheren Knoten. Wer diese Schwelle je neu ableitet, misst sie
-    # deshalb dort und mit xlsx, nicht lokal und nicht mit txt.
+    # **Zwei Fassungen dieser Konstante waren vorher falsch**, beide aus
+    # demselben Grund: aus dem guenstigsten Fall abgeleitet.
+    #   * 400'000 -- aus txt gerechnet. xlsx riss damit die Grenze.
+    #   * 150'000 -- aus xlsx gerechnet, aber ohne docx zu messen. Ergab bei
+    #     149'000 Zeichen 273 s von 300 s: nur 24 s Reserve, und der Upload
+    #     zaehlt mit (die Balancer-Uhr laeuft ab Verbindungsaufbau).
     #
-    # Die Rechnung, mit dem langsamsten gemessenen Format:
+    # Die Rechnung jetzt, mit dem langsamsten gemessenen Format:
     #
-    #   xlsx-Durchsatz                     ~550 Zeichen/s
-    #   150'000 Zeichen bei diesem Tempo   ~273 s
+    #   pptx-Durchsatz                     ~543 Zeichen/s
+    #   100'000 Zeichen bei diesem Tempo   ~184 s
+    #   Reserve bis 300 s                  ~116 s
     #
-    # Das ist knapp unter 300 s und traegt bewusst KEINE dicke Reserve: Der
-    # Auftragspfad ist der sichere Ausweg, nicht der teure. Wer hier zu hoch
-    # geht, riskiert einen ``504`` mitten in der Verarbeitung -- wer zu tief
-    # geht, verschiebt ein Dokument in einen Hintergrundauftrag, der
-    # zuverlaessig funktioniert. Die Asymmetrie ist der ganze Grund fuer die
-    # niedrige Zahl.
+    # Die Reserve ist Absicht und keine Aengstlichkeit: Der Auftragspfad ist
+    # der sichere Ausweg, nicht der teure. Zu hoch heisst ein ``504`` mitten
+    # in der Verarbeitung -- zu tief heisst ein Hintergrundauftrag, der
+    # zuverlaessig funktioniert. Die Asymmetrie traegt die niedrige Zahl.
+    #
+    # **Lokal ist davon NICHTS messbar** -- dort liegt xlsx bei 0.037 s je
+    # 1000 Zeichen gegen 0.056 fuer txt, also genau andersherum. Der
+    # Unterschied entsteht erst auf dem schwaecheren Knoten. Wer diese
+    # Schwelle je neu ableitet: **auf dem Knoten, und mit einem
+    # Office-Format.**
     #
     # Sie haengt zusaetzlich an ``WORKERS`` in ``deploy/pythonenv`` (heute 3):
     # Mit zwei Workern streuten dieselben 270'000 Zeichen zwischen 63 s und
@@ -282,7 +292,7 @@ class Settings(BaseSettings):
     # bis 4.9 % der Gesamtdauer, mit fallendem Anteil bei groesseren
     # Dokumenten. Genau bei den Dateien, bei denen die Entscheidung zaehlt,
     # ist das Oeffnen also fast gratis.
-    sync_threshold_chars: int = 150_000
+    sync_threshold_chars: int = 100_000
     # Obergrenze fuer den JSON-Textpfad (documents:detect / :anonymize).
     # ``spaCy`` bricht bei ``nlp.max_length`` (Default 1'000'000 Zeichen) mit
     # einem rohen ValueError ab, sobald ein Text laenger ist — anders als beim

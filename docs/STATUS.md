@@ -75,15 +75,17 @@ Design und Begründungen: `docs/superpowers/specs/2026-08-28-pdf-ocr-design.md`.
   `docs/superpowers/specs/2026-08-25-asynchrone-auftraege-design.md` §12.
 
   **Daraus abgeleitet, entschieden am 2026-08-28:** `SYNC_THRESHOLD_CHARS`
-  steht jetzt auf **150'000**, und `WORKERS` auf **3** statt 2.
+  steht jetzt auf **100'000**, und `WORKERS` auf **3** statt 2.
 
-  **Die Schwelle hängt am Format.** Eine erste Fassung (400'000) wurde am
-  selben Tag durch eine Nachmessung widerlegt: 200'000 Zeichen als xlsx
-  rissen die 300-s-Grenze mit einem `504`, während 395'000 Zeichen als txt
-  in ~123 s durchliefen. Faktor sechs — ein `.txt` ist ein Segment,
-  dieselbe Menge als xlsx sind 427 (je Segment ein spaCy-Lauf). Lokal ist
-  das nicht sichtbar; wer die Zahl neu ableitet, misst auf dem Knoten und
-  mit xlsx.
+  **Die Schwelle hängt an der Segmentzahl.** Über alle vier Formate
+  gemessen: txt 395'000 Zeichen in ~123 s (~3'200 Z/s), aber docx 149'000
+  in ~272 s, xlsx 100'000 in ~181 s, pptx 100'000 in ~184 s — die drei
+  Office-Formate praktisch identisch bei ~545 Z/s. Ein `.txt` ist ein
+  Segment, dieselbe Menge als Office-Datei sind 427 (je Segment ein
+  spaCy-Lauf). Zwei frühere Fassungen (400'000, 150'000) waren zu hoch,
+  beide aus dem jeweils günstigsten gemessenen Format abgeleitet. Lokal
+  ist der Effekt nicht sichtbar; wer die Zahl neu ableitet, misst auf dem
+  Knoten und mit einem Office-Format.
 
   **Die drei Worker haben gewirkt:** Mit zwei streuten dieselben 270'000
   Zeichen zwischen 63 s und 127 s, mit dreien zwischen 61 s und 64 s.

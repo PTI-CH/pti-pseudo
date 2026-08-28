@@ -451,7 +451,7 @@ man wissen muss, bevor man am Mechanismus schraubt.
 
 **Zwei Schranken entscheiden das, und ihre Reihenfolge ist tragend.**
 `documents._laeuft_als_auftrag` prüft erst `SYNC_THRESHOLD_BYTES` (2 MiB,
-ohne die Datei zu öffnen), dann `SYNC_THRESHOLD_CHARS` (150'000, nach dem
+ohne die Datei zu öffnen), dann `SYNC_THRESHOLD_CHARS` (100'000, nach dem
 Adapterlauf). Eine davon reicht zum Auftrag.
 
 Der Grund für die zweite ist gemessen (2026-08-28,
@@ -485,32 +485,33 @@ Drei Dinge, die man daraus mitnehmen muss:
    Zeichen/s statt der früher gerechneten 20'000/s. Die beiden Irrtümer
    haben sich teilweise aufgehoben: Budget fünfmal grösser, Durchsatz rund
    fünfmal kleiner. **`SYNC_THRESHOLD_CHARS` steht seit dem 2026-08-28 auf
-   150'000**, gerechnet mit dem *langsamsten gemessenen Format*.
+   100'000**, gemessen über **alle vier Formate**.
 
-   **Die Schwelle hängt am Format, nicht nur an der Zeichenzahl.** Eine
-   erste Fassung stand auf 400'000 und wurde am selben Tag wieder
-   kassiert — die Nachmessung mit xlsx riss die Grenze:
+   **Die Schwelle hängt an der Segmentzahl, nicht an der Zeichenzahl.** Je
+   Segment fällt ein spaCy-Lauf mit eigenem Overhead an — ein `.txt` ist
+   **ein** Segment, dieselben 100'000 Zeichen sind als docx/xlsx/pptx
+   **427** Segmente à 234 Zeichen.
 
-   | Format | Zeichen | Dauer |
-   |---|---|---|
-   | txt | 395'000 | ~123 s |
-   | xlsx | 100'000 | ~181 s |
-   | xlsx | 200'000 | **`504` nach 300 s** |
+   | Format | Zeichen | Dauer | Zeichen/s |
+   |---|---|---|---|
+   | txt | 395'000 | ~123 s | ~3'200 |
+   | docx | 149'000 | ~272 s (2×) | ~545 |
+   | xlsx | 100'000 | ~181 s | ~553 |
+   | pptx | 100'000 | ~184 s | ~543 |
+   | xlsx | 200'000 | **`504` nach 300 s** | — |
 
-   Faktor sechs bei gleicher Zeichenzahl. Der Grund steht in den Adaptern:
-   Ein `.txt` ist **ein** Segment, dieselben 100'000 Zeichen als xlsx sind
-   **427** Segmente à 234 Zeichen (eine Zeile je Segment), und je Segment
-   fällt ein spaCy-Lauf mit eigenem Overhead an.
+   **Die drei Office-Formate sind praktisch identisch**; nur `.txt` ist mit
+   Faktor sechs der Ausreisser nach oben. Massgeblich ist der Office-Wert,
+   denn das ist, was im Betrieb hochgeladen wird.
 
-   **Lokal ist der Unterschied nicht sichtbar** — dort misst man 0.037
-   (xlsx) gegen 0.056 (txt) s je 1000 Zeichen, also andersherum. Er
-   entsteht erst auf dem schwächeren Knoten. Wer diese Schwelle neu
-   ableitet, misst **auf dem Knoten und mit xlsx**.
+   **Zwei frühere Fassungen waren falsch, beide aus demselben Grund** — aus
+   dem günstigsten Fall abgeleitet: 400'000 aus txt (xlsx riss die Grenze),
+   dann 150'000 aus xlsx, aber ohne docx zu messen (bei 149'000 Zeichen
+   273 s von 300 s, also nur 24 s Reserve — und der Upload zählt mit).
 
-   Die Zahl trägt bewusst keine dicke Reserve (150'000 × ~550 Zeichen/s
-   ≈ 273 s von 300 s): Der Auftragspfad ist der sichere Ausweg, nicht der
-   teure. Zu hoch heisst `504` mitten in der Verarbeitung, zu tief heisst
-   ein Hintergrundauftrag, der zuverlässig läuft.
+   **Lokal ist davon nichts messbar** — dort misst man 0.037 (xlsx) gegen
+   0.056 (txt) s je 1000 Zeichen, also andersherum. Wer die Schwelle neu
+   ableitet: **auf dem Knoten und mit einem Office-Format.**
 
    **Sie hängt zusätzlich an `WORKERS`** (heute 3 statt 2): Mit zwei
    Workern streuten dieselben 270'000 Zeichen zwischen 63 s und 127 s, mit

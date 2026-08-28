@@ -203,12 +203,13 @@ def _laeuft_als_auftrag(data: bytes, dateiname: str) -> bool:
     Balancers betraegt 300 Sekunden (ein Lauf ueber 280'000 Zeichen bekam
     nach 300.5 s einen ``504``); frueher stand hier eine aus
     ``proxy_read_timeout``s NGINX-Vorgabe geratene Minute. Die Schwelle
-    steht auf 150'000 -- gerechnet mit dem langsamsten gemessenen FORMAT.
-    Eine erste Fassung stand auf 400'000 und war zu hoch: Dieselbe
-    Zeichenzahl kostet als xlsx rund das Sechsfache wie als txt (ein
-    ``.txt`` ist EIN Segment, 100'000 Zeichen als xlsx sind 427 -- je
-    Segment ein spaCy-Lauf). 200'000 Zeichen als xlsx rissen die Grenze mit
-    einem ``504``.
+    steht auf 100'000 -- gemessen ueber alle vier Formate. Massgeblich ist
+    die SEGMENTZAHL, nicht die Zeichenzahl: Ein ``.txt`` ist EIN Segment,
+    dieselben 100'000 Zeichen sind als docx/xlsx/pptx 427 Segmente, und je
+    Segment faellt ein spaCy-Lauf an. Die drei Office-Formate liegen
+    einheitlich bei ~545 Zeichen/s, ``.txt`` mit Faktor sechs darueber.
+    Zwei fruehere Fassungen (400'000 aus txt, 150'000 aus xlsx ohne docx)
+    waren zu hoch.
     Zahlen: Design-Spec zu den asynchronen Auftraegen, §12. Die
     Grundaussage haengt nicht daran: 15 Minuten sind unter jeder denkbaren
     Zeitgrenze zu lang.

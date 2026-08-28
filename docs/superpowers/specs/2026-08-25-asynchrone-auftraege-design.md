@@ -553,6 +553,33 @@ unterschätzt. Beide Vorbehalte ändern die Grössenordnung nicht.
 > **Die drei Worker haben unabhaengig davon gewirkt:** Dieselben 270'000
 > Zeichen streuten mit zwei Workern zwischen 63 s und 127 s (Faktor zwei),
 > mit dreien zwischen 61 s und 64 s (4 %).
+>
+> ### Zweiter Nachtrag: alle vier Formate gemessen, Schwelle auf 100'000
+>
+> Die Fassung mit 150'000 war aus xlsx abgeleitet, **ohne docx zu messen** —
+> und docx ist das haeufigste Format im Betrieb. Nachgeholt:
+>
+> | Format | Zeichen | Dauer | Zeichen/s |
+> |---|---|---|---|
+> | txt | 395'000 | ~123 s | ~3'200 |
+> | docx | 50'000 | 91 s | 548 |
+> | docx | 100'000 | 182 s | 548 |
+> | docx | 149'000 | 271 s / 274 s | ~546 |
+> | xlsx | 100'000 | 181 s | 553 |
+> | pptx | 100'000 | 184 s | 543 |
+>
+> **Die drei Office-Formate sind praktisch identisch** (543–553 Zeichen/s).
+> Der Grund ist die Segmentzahl: 100'000 Zeichen ergeben in allen dreien
+> 427 Segmente à 234 Zeichen, waehrend ein `.txt` EIN Segment ist.
+>
+> **Bei 149'000 Zeichen blieben nur 24 s Reserve** von 300 s — und der
+> Upload zaehlt mit, die Balancer-Uhr laeuft ab Verbindungsaufbau. Die
+> Schwelle steht deshalb auf **100'000** (~184 s, ~116 s Reserve).
+>
+> **Das Muster hinter beiden Korrekturen:** Jede zu hohe Fassung entstand,
+> weil aus dem *guenstigsten gemessenen Fall* abgeleitet wurde. Erst 400'000
+> aus txt, dann 150'000 aus xlsx ohne docx. Wer diese Zahl je wieder
+> anfasst, misst **alle** Formate, die Nutzer hochladen.
 
 ---
 

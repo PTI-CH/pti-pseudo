@@ -312,6 +312,63 @@ def test_zwei_faktor_xhr_liefert_403() -> None:
     }
 
 
+# ── 5b. Erzwungener Passwortwechsel ────────────────────────────────────────
+
+
+def test_passwortwechsel_html_redirect_auf_die_crm_passwortseite() -> None:
+    """Offener Passwortwechsel schickt den Browser auf die Wechselseite.
+
+    Anders als bei 2FA reicht die CRM-Wurzel hier nicht: dort ist nichts zu
+    tun, ausser das Passwort zu aendern.
+    """
+    payload = {**SESSION_OK, "passwordChangeRequired": True}
+    client = client_for(fetch_impl=RecordingFetch(payload=payload))
+
+    response = client.get("/", headers=HTML_HEADERS)
+
+    assert response.status_code == 302
+    assert (
+        response.headers["location"]
+        == "https://crm.example.ch/security/change-password"
+    )
+
+
+def test_passwortwechsel_xhr_liefert_403() -> None:
+    """Offener Passwortwechsel als JSON-Fehler fuer die SPA.
+
+    Das CRM sperrt solche Konten auf jeder Business-Route mit
+    ``403 FORCE_PASSWORD_CHANGE`` aus. Ohne diese Pruefung endete die Sperre an
+    der SSO-Grenze: wer die Adresse dieses Werkzeugs direkt eintippt, kam trotz
+    offenem Passwortwechsel herein.
+    """
+    payload = {**SESSION_OK, "passwordChangeRequired": True}
+    client = client_for(fetch_impl=RecordingFetch(payload=payload))
+
+    response = client.get("/", headers=XHR_HEADERS)
+
+    assert response.status_code == 403
+    assert response.json() == {
+        "code": "FORCE_PASSWORD_CHANGE",
+        "message": "Das Passwort muss geändert werden, bevor fortgefahren werden kann.",
+    }
+
+
+def test_passwortwechsel_sticht_die_zwei_faktor_pflicht() -> None:
+    """Reihenfolge wie im CRM: das Passwort kommt vor der 2FA-Einrichtung.
+
+    ``require2FACompliance`` (pti-crm/backend/src/middleware/auth.ts) prueft
+    ``mustChangePassword`` ausdruecklich VOR dem ``totpEnabled``-Kurzschluss —
+    wer beides offen hat, kann 2FA gar nicht einrichten, solange das Passwort
+    steht.
+    """
+    payload = {**SESSION_OK, "twoFactorRequired": True, "passwordChangeRequired": True}
+    client = client_for(fetch_impl=RecordingFetch(payload=payload))
+
+    response = client.get("/", headers=XHR_HEADERS)
+
+    assert response.json()["code"] == "FORCE_PASSWORD_CHANGE"
+
+
 # ── 6. Kein Tool-Recht ─────────────────────────────────────────────────────
 
 

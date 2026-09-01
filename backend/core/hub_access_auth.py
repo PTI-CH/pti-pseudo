@@ -213,7 +213,8 @@ class HubAccessAuthMiddleware(BaseHTTPMiddleware):
         -------
         dict
             Bei Erfolg ``{"authenticated": True, "apps": ...,
-            "two_factor_required": ..., "user": ...}``, sonst
+            "two_factor_required": ..., "password_change_required": ...,
+            "user": ...}``, sonst
             ``{"authenticated": False}``.
         """
         try:
@@ -236,6 +237,9 @@ class HubAccessAuthMiddleware(BaseHTTPMiddleware):
                         "apps": apps,
                         # Das CRM liefert camelCase; intern snake_case.
                         "two_factor_required": bool(data.get("twoFactorRequired")),
+                        "password_change_required": bool(
+                            data.get("passwordChangeRequired")
+                        ),
                         "user": data.get("user") or None,
                     }
             return {"authenticated": False}
@@ -328,6 +332,27 @@ class HubAccessAuthMiddleware(BaseHTTPMiddleware):
             status_code=403,
         )
 
+    def _respond_password_change(self, request: Request) -> Response:
+        """Session gueltig, aber das Passwort muss zuerst gewechselt werden.
+
+        Anders als bei 2FA fuehrt der Weg nicht auf die CRM-Wurzel, sondern
+        direkt auf die Seite, auf der der Wechsel stattfindet — dort ist ohnehin
+        nichts anderes zu tun.
+        """
+        if wants_html(request):
+            target = f"{self._settings.crm_base_url}/security/change-password"
+            return RedirectResponse(target, status_code=302)
+        return JSONResponse(
+            {
+                "code": "FORCE_PASSWORD_CHANGE",
+                "message": (
+                    "Das Passwort muss geändert werden, "
+                    "bevor fortgefahren werden kann."
+                ),
+            },
+            status_code=403,
+        )
+
     def _respond_forbidden(self, request: Request) -> Response:
         """Angemeldet, aber ohne Recht auf dieses Tool: zurueck auf den Hub."""
         if wants_html(request):
@@ -382,6 +407,13 @@ class HubAccessAuthMiddleware(BaseHTTPMiddleware):
                 verdict = await self._verdict_for(token)
                 if not verdict.get("authenticated"):
                     return self._respond_unauthenticated(request)
+                # Reihenfolge wie im CRM (require2FACompliance,
+                # pti-crm/backend/src/middleware/auth.ts): der erzwungene
+                # Passwortwechsel wird VOR dem totpEnabled-Kurzschluss geprueft.
+                # Wer beides offen hat, kann 2FA gar nicht einrichten, solange
+                # das Passwort steht.
+                if verdict.get("password_change_required"):
+                    return self._respond_password_change(request)
                 if verdict.get("two_factor_required"):
                     return self._respond_two_factor(request)
                 if verdict.get("apps", {}).get(self._settings.hub_app_key) is not True:
